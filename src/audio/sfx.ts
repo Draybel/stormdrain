@@ -4,20 +4,27 @@
  * rapid fire from turning into mush or overloading older phones.
  */
 
+import type { LibrarySfxName } from './sfxLibrary';
+
 export type SfxName = 'shoot' | 'hit' | 'splash' | 'dummy_pop' | 'ui_click' | 'ui_back' | 'hurt' | 'death' | 'spawn';
 
-interface Recipe {
+/** Every playable sound: the core recipes here plus the library in sfxLibrary.ts (registered at startup). */
+export type SoundName = SfxName | LibrarySfxName;
+
+export interface Recipe {
   /** Minimum seconds between two plays of this sound. */
   minGap: number;
   /** Approximate length (s), used for voice accounting. */
   length: number;
   /** Base gain (before bus volumes). */
   gain: number;
+  /** Most simultaneous voices of this sound (default: only the global cap). */
+  maxVoices?: number;
   play(v: Voice): void;
 }
 
 /** Everything a recipe needs, prepared by the player (so recipes stay tiny). */
-interface Voice {
+export interface Voice {
   ctx: AudioContext;
   out: AudioNode;
   t: number;
@@ -171,13 +178,42 @@ const RECIPES: Record<SfxName, Recipe> = {
   },
 };
 
+/** Recipes added by other modules (sfxLibrary.ts). Core RECIPES win on a name clash. */
+const EXTRA = new Map<string, Recipe>();
+
+/** Registers extra recipes; names that already exist (core or registered) are skipped and returned. */
+export function registerSfx(recipes: Readonly<Record<string, Recipe>>): string[] {
+  const skipped: string[] = [];
+  for (const name of Object.keys(recipes)) {
+    if (Object.prototype.hasOwnProperty.call(RECIPES, name) || EXTRA.has(name)) skipped.push(name);
+    else EXTRA.set(name, recipes[name]!);
+  }
+  return skipped;
+}
+
+function recipeFor(name: string): Recipe | undefined {
+  if (Object.prototype.hasOwnProperty.call(RECIPES, name)) return (RECIPES as Readonly<Record<string, Recipe>>)[name];
+  return EXTRA.get(name);
+}
+
+/** Names of every playable sound (core first). */
+export function sfxNames(): string[] {
+  return [...Object.keys(RECIPES), ...EXTRA.keys()];
+}
+
+export function coreSfxNames(): string[] {
+  return Object.keys(RECIPES);
+}
+
 export class SfxPlayer {
   private readonly ctx: AudioContext;
   private readonly out: AudioNode;
   private readonly noiseBuf: AudioBuffer;
-  private readonly last = new Map<SfxName, number>();
+  private readonly last = new Map<string, number>();
   /** End times of playing voices (fixed slots, no allocation). */
   private readonly voiceEnds = new Float64Array(MAX_VOICES);
+  /** Which sound each voice slot is playing (for per-sound voice limits). */
+  private readonly voiceNames: (string | null)[] = new Array<string | null>(MAX_VOICES).fill(null);
   private readonly voice: Voice;
 
   constructor(ctx: AudioContext, out: AudioNode) {
@@ -195,22 +231,26 @@ export class SfxPlayer {
    * @param pan    -1 (left) .. 1 (right)
    * @param volume 0..1 extra scale
    */
-  play(name: SfxName, pan = 0, volume = 1): void {
-    const r = RECIPES[name];
+  play(name: SoundName, pan = 0, volume = 1): void {
+    const r = recipeFor(name);
     if (!r) return;
     const now = this.ctx.currentTime;
     const last = this.last.get(name);
     if (last !== undefined && now - last < r.minGap) return;
-    // Find a free voice slot.
+    // Find a free voice slot (and count this sound's live voices for its own limit).
     let slot = -1;
+    let same = 0;
     for (let i = 0; i < MAX_VOICES; i++) {
       if (this.voiceEnds[i]! <= now) {
-        slot = i;
-        break;
+        if (slot < 0) slot = i;
+      } else if (this.voiceNames[i] === name) {
+        same++;
       }
     }
     if (slot < 0) return;
+    if (r.maxVoices !== undefined && same >= r.maxVoices) return;
     this.voiceEnds[slot] = now + r.length;
+    this.voiceNames[slot] = name;
     this.last.set(name, now);
 
     // Per-voice gain (+ optional panner). Nodes are released by the browser once the

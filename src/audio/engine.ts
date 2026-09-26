@@ -5,10 +5,13 @@
  * e.g. after a phone call — is resumed by the next tap.
  *
  * Buses: master → { music, sfx }. `NullAudio` is a no-op stand-in for headless tests and for
- * browsers without Web Audio.
+ * browsers without Web Audio. Music (`audio.music`, see audio/music/director.ts and docs/audio.md)
+ * feeds the music bus through its own compressor + room; it is silent-safe before unlock.
  */
 
-import { SfxPlayer, type SfxName } from './sfx';
+import { MusicDirector, type MusicControl } from './music/director';
+import { SfxPlayer, type SoundName } from './sfx';
+import './sfxLibrary';
 
 export interface Volumes {
   master: number;
@@ -18,7 +21,9 @@ export interface Volumes {
 
 export interface AudioOut {
   readonly unlocked: boolean;
-  play(name: SfxName, pan?: number, volume?: number): void;
+  /** Music tracks, crossfades, stingers, ducking (records requests until audio is unlocked). */
+  readonly music: MusicControl;
+  play(name: SoundName, pan?: number, volume?: number): void;
   setVolumes(v: Volumes): void;
   /** Background / lifecycle. */
   suspend(): void;
@@ -27,6 +32,8 @@ export interface AudioOut {
 
 export class NullAudio implements AudioOut {
   readonly unlocked = false;
+  /** Never attached to a context, so it only tracks the wanted track. */
+  readonly music: MusicControl = new MusicDirector();
   play(): void {}
   setVolumes(): void {}
   suspend(): void {}
@@ -49,6 +56,7 @@ export class WebAudio implements AudioOut {
   private musicBus: GainNode | null = null;
   private sfxBus: GainNode | null = null;
   private sfx: SfxPlayer | null = null;
+  readonly music = new MusicDirector();
   private volumes: Volumes;
   /** True while the page is backgrounded: never resume then. */
   private suspendedByLifecycle = false;
@@ -98,6 +106,7 @@ export class WebAudio implements AudioOut {
       this.sfxBus.connect(this.master);
       this.master.connect(ctx.destination);
       this.sfx = new SfxPlayer(ctx, this.sfxBus);
+      this.music.attach(ctx, this.musicBus);
       this.applyVolumes();
     } catch {
       this.ctx = null;
@@ -116,7 +125,7 @@ export class WebAudio implements AudioOut {
     this.applyVolumes();
   }
 
-  play(name: SfxName, pan = 0, volume = 1): void {
+  play(name: SoundName, pan = 0, volume = 1): void {
     const ctx = this.ctx;
     if (!this.sfx || !ctx || this.suspendedByLifecycle) return;
     // Right after an unlocking gesture, resume() is still pending: schedule anyway so the very
@@ -127,11 +136,13 @@ export class WebAudio implements AudioOut {
 
   suspend(): void {
     this.suspendedByLifecycle = true;
+    this.music.setSuspended(true);
     this.ctx?.suspend().catch(() => {});
   }
 
   resume(): void {
     this.suspendedByLifecycle = false;
+    this.music.setSuspended(false);
     // May be refused without a gesture on iOS; the gesture listener retries on the next tap.
     if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
   }
