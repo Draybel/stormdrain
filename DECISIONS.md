@@ -58,4 +58,5 @@ Choices made without asking (the owner is away during the build). Newest at the 
 - **Voice cap 20, per-sound minimum gaps** (e.g. shoot 30 ms) and ±5–12 % pitch jitter; gentle stereo pan by room x.
 
 ## Tooling
+- **Line endings: LF everywhere**, enforced by `.gitattributes` (`* text=auto eol=lf`). Phase 1 had committed a mix of CRLF and LF files (Windows tools), which turns small edits into whole-file diffs.
 - **playwright.config:** `screen` moved under `contextOptions` — it is not a test-fixture option in Playwright 1.63 and broke `tsc` (and therefore `npm run build`).

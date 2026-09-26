@@ -1,0 +1,4 @@
+# Normalise text files to LF in the repo and working tree (Windows tools write CRLF).
+* text=auto eol=lf
+*.png binary
+*.ico binary
