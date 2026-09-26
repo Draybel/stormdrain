@@ -4,6 +4,7 @@
  */
 
 import type { Poolable } from '../engine/pool';
+import { fireTrigger } from './effects';
 import { DUMMY_TUNING } from './tuning';
 import type { Projectile } from './projectiles';
 import type { World } from './world';
@@ -80,6 +81,8 @@ export function damageDummy(w: World, d: Dummy, dmg: number, dirX: number, dirY:
     d.flash = 0;
     w.counters.pops++;
     w.events.emit('pop', d.x, d.y - 8, dirX, dirY, 'dummy');
+    // Popping a dummy counts as a kill for on-kill item triggers (training room).
+    fireTrigger(w, 'kill', d.x, d.y);
   }
 }
 

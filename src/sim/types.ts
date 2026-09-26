@@ -1,8 +1,15 @@
 /**
- * Data shapes shared by sim, content and render (ARCHITECTURE §5 — source of truth).
+ * Data shapes shared by sim, content and render (ARCHITECTURE §5 — THE source of truth).
  * DOM-free: content files import these types and must stay loadable in node.
- * Phase 1 defines only what the engine core needs; later phases extend this file.
+ *
+ * Conventions
+ * - Ids are plain strings (kebab-case for content, e.g. 'brick-chip'); aliases below document intent.
+ * - Health amounts are in HALF-HEART units unless a field says otherwise.
+ * - Distances in px, times in seconds, speeds in px/s (ARCHITECTURE §3).
+ * - Room templates / floor layouts are owned by the floor generator (src/sim/floor); they are NOT here.
  */
+
+// ── Sprites ──────────────────────────────────────────────────────────────────
 
 /**
  * A sprite as code: every frame is `h` strings of `w` characters; each character is looked up in
@@ -29,6 +36,56 @@ export interface SpriteAnim {
   loop: boolean;
 }
 
+// ── Ids ──────────────────────────────────────────────────────────────────────
+
+export type ItemId = string;
+export type EnemyId = string;
+export type BossId = string;
+export type CharacterId = string;
+export type ChapterId = string;
+export type SynergyId = string;
+export type SetId = string;
+export type AchievementId = string;
+export type FamiliarId = string;
+export type DropTableId = string;
+/** Name of a function registered with `registerHook` (src/sim/hooks.ts, content in src/content/hooks). */
+export type HookId = string;
+
+/** Item pools (where an item can be rolled). */
+export const POOL_IDS = [
+  'treasure',
+  'shop',
+  'boss',
+  'secret',
+  'deepSecret',
+  'cursed',
+  'broker',
+  'challenge',
+  /** Lockbox / chest rolls (trinkets, consumables). */
+  'chest',
+  /** Old Pell the wandering trader. */
+  'trader',
+] as const;
+export type PoolId = (typeof POOL_IDS)[number];
+
+/** Room types (DESIGN.md "Rooms"). The floor generator owns RoomTemplate and the layouts. */
+export const ROOM_TYPES = [
+  'start',
+  'normal',
+  'treasure',
+  'shop',
+  'boss',
+  'miniboss',
+  'secret',
+  'deepSecret',
+  'challenge',
+  'cursed',
+  'broker',
+] as const;
+export type RoomType = (typeof ROOM_TYPES)[number];
+
+// ── Stats ────────────────────────────────────────────────────────────────────
+
 /** Character / player stats in natural units (see ARCHITECTURE §3 Stats). */
 export interface Stats {
   /** Damage per marble. */
@@ -48,12 +105,493 @@ export interface Stats {
   knockback: number;
 }
 
-export interface CharacterDef {
+export type StatId = keyof Stats;
+
+/** Every stat, in a fixed order (iteration without Object.keys). */
+export const STAT_IDS: readonly StatId[] = [
+  'damage',
+  'fireRate',
+  'shotSpeed',
+  'range',
+  'moveSpeed',
+  'luck',
+  'shotSize',
+  'knockback',
+];
+
+// ── Attack pipeline ids (ARCHITECTURE §4 — implemented by the attack pipeline, declared here) ─────
+
+/** Attack types. Primary precedence: lance > laser > boomerang > melee > marble (§4.2). */
+export const CARRIER_IDS = ['marble', 'lance', 'laser', 'boomerang', 'melee', 'bomb', 'charge', 'orbit'] as const;
+export type CarrierId = (typeof CARRIER_IDS)[number];
+
+/** Shot modifiers by hook stage (§4.4). Every one must work with every carrier. */
+export const MOD_IDS = [
+  // spawn
+  'extraShots',
+  'spread',
+  'backShot',
+  'sideShots',
+  'circleFirst',
+  'inaccuracy',
+  // motion
+  'homing',
+  'wavy',
+  'spiral',
+  'orbitPlayer',
+  'boomerang',
+  'grow',
+  'shrink',
+  'accelerate',
+  'decelerate',
+  'bounce',
+  'phase',
+  // hit / expire
+  'pierce',
+  'split',
+  'chain',
+  'explode',
+  'puddle',
+  'poison',
+  'burn',
+  'freeze',
+  'slow',
+  'charm',
+  'fear',
+  'knockback',
+] as const;
+export type ModId = (typeof MOD_IDS)[number];
+
+/** Shot silhouette hints for ShotStyle composition (§4.6). */
+export type ShapeHint = 'marble' | 'spiky' | 'bomb' | 'blade' | 'crescent' | 'star' | 'gear' | 'shard' | 'bubble';
+/** Trail kinds for ShotStyle composition (§4.6). */
+export type TrailKind = 'none' | 'embers' | 'bubbles' | 'ice' | 'sparks' | 'wisps' | 'dust' | 'drops';
+
+export interface StyleOverride {
+  color?: string;
+  shape?: ShapeHint;
+  trail?: TrailKind;
+  /** Extra glow radius (px). */
+  glow?: number;
+}
+
+// ── Pickups ──────────────────────────────────────────────────────────────────
+
+/** Pickup kinds by name (content/data side). The sim maps them to numeric kinds (sim/pickupKinds.ts). */
+export const PICKUP_NAMES = [
+  'coin',
+  'silverCoin',
+  'goldCoin',
+  'luckyCoin',
+  'bomb',
+  'doubleBomb',
+  'key',
+  'keyRing',
+  'halfHeart',
+  'heart',
+  'tinHeart',
+  'emberHeart',
+  'sparkSmall',
+  'sparkFull',
+  'satchel',
+  'lockbox',
+  /** A trinket lying on the floor (item id chosen from a pool when dropped by a table). */
+  'trinket',
+  /** A consumable lying on the floor (item id chosen from a pool when dropped by a table). */
+  'consumable',
+] as const;
+export type PickupName = (typeof PICKUP_NAMES)[number];
+
+export interface PickupSpawnSpec {
+  kind: PickupName;
+  count?: number;
+}
+
+/** One weighted outcome of a drop-table roll. */
+export interface DropEntry {
+  kind: PickupName;
+  weight: number;
+  /** How many of `kind` this outcome spawns (default 1). */
+  count?: number;
+  /** For 'trinket' / 'consumable': the item pool to draw from (default 'chest'). */
+  pool?: PoolId;
+}
+
+/** Seeded, data-driven loot (rolled with the run's lootRng). Content: src/content/drops/*.ts. */
+export interface DropTableDef {
+  id: DropTableId;
+  /** Number of rolls, inclusive range. */
+  rolls: readonly [number, number];
+  /** Weight of "nothing" for each roll (0 = always drops). */
+  nothing?: number;
+  /** Luck scaling: each point of luck multiplies the nothing-weight by (1 - luck*this), floor 20 %. */
+  luck?: number;
+  entries: readonly DropEntry[];
+}
+
+// ── Effects ──────────────────────────────────────────────────────────────────
+
+export const TRIGGER_EVENTS = ['hurt', 'roomClear', 'kill', 'fire', 'floorStart', 'bomb', 'pickup', 'use'] as const;
+export type TriggerOn = (typeof TRIGGER_EVENTS)[number];
+
+/** Boolean player flags (set by 'flag' effects). */
+export const PLAYER_FLAGS = [
+  /** Crosses pits, ignores spikes. */
+  'flying',
+  /** Shots pass through obstacles (read by the attack pipeline). */
+  'spectral',
+  /** Pickups drift toward you. */
+  'magnet',
+  /** Two trinket slots. */
+  'extraTrinket',
+  /** Two consumable slots. */
+  'extraConsumable',
+  /** Your own explosions don't hurt you. */
+  'explosionImmune',
+  'spikeImmune',
+  'fireImmune',
+  /** Red heart pickups turn into Tin hearts (Marrow). */
+  'noRedHearts',
+  /** Secret-room hints are always shown. */
+  'seeSecrets',
+  /** Ignores the darkness curse. */
+  'darkVision',
+] as const;
+export type PlayerFlag = (typeof PLAYER_FLAGS)[number];
+
+/**
+ * Effects come in two families (see src/sim/effects.ts):
+ * - PERSISTENT (stat, mod, carrier, familiar, flag, trigger): active while the item is held; recomputed
+ *   from the inventory whenever it changes. When executed from a `use` list or a trigger they become
+ *   TEMPORARY: `duration` seconds, or until the player leaves the room when omitted.
+ * - INSTANT (heal, hearts, pickups, hook): run once — when a fresh item is first picked up, when an
+ *   active/consumable is used, or when a trigger fires.
+ */
+export interface StatEffect {
+  type: 'stat';
+  stat: StatId;
+  /** Added to the base (all adds are summed first). */
+  add?: number;
+  /** Multiplier (all muls are multiplied, applied after the adds). */
+  mul?: number;
+  duration?: number;
+}
+
+export interface ModEffect {
+  type: 'mod';
+  mod: ModId;
+  /** Stack count contributed (default 1). */
+  stacks?: number;
+  /** Numeric parameters, summed across stacks (e.g. turn rate, split count). */
+  params?: Readonly<Record<string, number>>;
+  duration?: number;
+}
+
+export interface CarrierEffect {
+  type: 'carrier';
+  carrier: CarrierId;
+  duration?: number;
+}
+
+export interface FamiliarEffect {
+  type: 'familiar';
+  familiar: FamiliarId;
+  count?: number;
+  duration?: number;
+}
+
+export interface FlagEffect {
+  type: 'flag';
+  flag: PlayerFlag;
+  duration?: number;
+}
+
+export interface TriggerEffect {
+  type: 'trigger';
+  on: TriggerOn;
+  /** Base chance 0..1 (default 1). */
+  chance?: number;
+  /** Chance added per point of luck (default 0). */
+  luck?: number;
+  /** Upper bound for chance after luck (default 1). */
+  maxChance?: number;
+  /** Seconds before this trigger can fire again (default 0). */
+  cooldown?: number;
+  effects: readonly Effect[];
+}
+
+export interface HealEffect {
+  type: 'heal';
+  /** Half hearts of red health restored (99 = full heal). */
+  amount: number;
+}
+
+export interface HeartsEffect {
+  type: 'hearts';
+  /** WHOLE heart containers added (each also filled). Negative removes containers. */
+  containers?: number;
+  /** Half hearts of red healing. */
+  red?: number;
+  /** Half hearts of Tin (shield) hearts. */
+  tin?: number;
+  /** Half hearts of Ember hearts (fire nova when one breaks). */
+  ember?: number;
+}
+
+export interface PickupsEffect {
+  type: 'pickups';
+  coins?: number;
+  bombs?: number;
+  keys?: number;
+  /** Active item charge units, or 'full'. */
+  charge?: number | 'full';
+  /** Physical pickups popped out next to the player / trigger position. */
+  spawn?: readonly PickupSpawnSpec[];
+  /** Roll this drop table and pop the result out. */
+  table?: DropTableId;
+}
+
+export interface HookEffect {
+  type: 'hook';
+  hook: HookId;
+  params?: Readonly<Record<string, number | string>>;
+}
+
+export type Effect =
+  | StatEffect
+  | ModEffect
+  | CarrierEffect
+  | FamiliarEffect
+  | FlagEffect
+  | TriggerEffect
+  | HealEffect
+  | HeartsEffect
+  | PickupsEffect
+  | HookEffect;
+
+export type EffectType = Effect['type'];
+
+// ── Items ────────────────────────────────────────────────────────────────────
+
+export type ItemKind = 'passive' | 'active' | 'trinket' | 'consumable';
+export type ItemQuality = 0 | 1 | 2 | 3 | 4;
+
+export interface ActiveSpec {
+  /** Charge needed: rooms cleared ('room') or seconds ('timed'). 0 = usable any time. */
+  charge: number;
+  chargeType: 'room' | 'timed';
+  /** Executed on use (persistent effect types become temporary, see Effect). */
+  use: readonly Effect[];
+}
+
+export type CostumeLayer = 'body' | 'cape' | 'eyes' | 'hat' | 'aura' | 'held';
+
+/** Overlay sprite layer drawn on the character (major items, set transformations). */
+export interface CostumeDef {
   id: string;
+  layer: CostumeLayer;
+  sprite: SpriteDef;
+  dx?: number;
+  dy?: number;
+  /** Drawn behind the character (capes, auras). */
+  behind?: boolean;
+}
+
+export interface ItemDef {
+  id: ItemId;
+  /** Shown on the pickup banner (uppercase font). Original names only. */
+  name: string;
+  /** ONE short line shown under the name. */
+  desc: string;
+  kind: ItemKind;
+  quality: ItemQuality;
+  pools: readonly PoolId[];
+  tags: readonly string[];
+  set?: SetId;
+  /** Persistent while held; instants run once when a fresh copy is first picked up. */
+  effects: readonly Effect[];
+  /** kind 'active': charge + use effects. */
+  active?: ActiveSpec;
+  /** kind 'consumable': executed once when used. */
+  use?: readonly Effect[];
+  /** 14×14 icon (a string is a placeholder reference until art exists). */
+  sprite: SpriteDef | string;
+  costume?: CostumeDef;
+  unlock?: AchievementId;
+}
+
+// ── Enemies & bosses ───────────────────────────────────────────────────────────
+
+/** Movement behaviour from the shared library (sim/enemies/behaviors), parameterised by data. */
+export interface MoveSpec {
+  kind: string;
+  params?: Readonly<Record<string, number>>;
+}
+
+export interface AttackSpec {
+  kind: string;
+  /** Seconds between uses. */
+  cooldown: number;
+  params?: Readonly<Record<string, number>>;
+}
+
+export interface EnemyDef {
+  id: EnemyId;
+  name: string;
+  hp: number;
+  speed: number;
+  radius: number;
+  /** Contact damage in half hearts. */
+  contact: number;
+  move: MoveSpec;
+  attacks: readonly AttackSpec[];
+  sprite: SpriteDef | string;
+  flying?: boolean;
+  chapters: readonly ChapterId[];
+  /** Spawn weight inside its chapters' pools. */
+  weight: number;
+  championable: boolean;
+  /** Bestiary blurb. */
+  bestiary: string;
+  drops?: DropTableId;
+}
+
+export interface PhaseSpec {
+  /** The phase starts when HP falls to this fraction (1 for the first phase). */
+  at: number;
+  name?: string;
+  move: MoveSpec;
+  attacks: readonly AttackSpec[];
+  speedMul?: number;
+  summon?: { enemy: EnemyId; count: number; cooldown: number };
+}
+
+export interface BossDef {
+  id: BossId;
+  name: string;
+  kind: 'boss' | 'miniboss' | 'final';
+  chapters: readonly ChapterId[];
+  hp: number;
+  /** At least 2 phases. */
+  phases: readonly PhaseSpec[];
+  sprite: SpriteDef | string;
+  /** Collision radius / visual size, px. */
+  size: number;
+  /** Music track id (music registry). */
+  music?: string;
+  drops?: DropTableId;
+}
+
+// ── Characters ───────────────────────────────────────────────────────────────
+
+/** Starting health, half hearts. */
+export interface HeartSpec {
+  redMax: number;
+  /** Starting red (defaults to redMax). */
+  red?: number;
+  tin?: number;
+  ember?: number;
+}
+
+export interface StartPickups {
+  coins: number;
+  bombs: number;
+  keys: number;
+}
+
+export interface CharacterDef {
+  id: CharacterId;
   name: string;
   desc: string;
   stats: Stats;
-  /** Starting red health in half-heart units (6 = three hearts). */
-  redMax: number;
+  hearts: HeartSpec;
+  startItems: readonly ItemId[];
+  startPickups: StartPickups;
   sprite: SpriteDef;
+  /** Hook id of the character's unique mechanic (registered in src/content/hooks). */
+  mechanic: HookId;
+  unlock?: AchievementId;
+}
+
+// ── Chapters ─────────────────────────────────────────────────────────────────
+
+export type Track = 'main' | 'alt';
+export type CurseId = 'darkness' | 'lostMap' | 'maze' | 'blind' | 'unknown' | 'deluge';
+
+export interface ChapterDef {
+  id: ChapterId;
+  name: string;
+  /** The two floor numbers (1-12). */
+  floors: readonly [number, number];
+  track: Track;
+  palette: Readonly<Record<string, string>>;
+  tileset: string;
+  enemyPool: readonly EnemyId[];
+  bossPool: readonly BossId[];
+  minibossPool: readonly BossId[];
+  /** Music track id (music registry). */
+  music: string;
+  curses?: readonly CurseId[];
+}
+
+// ── Synergies, sets, familiars, achievements ─────────────────────────────────
+
+/** An item id, or "at least `count` (default 1) held items with this tag". */
+export type Requirement = ItemId | { tag: string; count?: number };
+
+export interface SynergyDef {
+  id: SynergyId;
+  name: string;
+  requires: readonly Requirement[];
+  effects: readonly Effect[];
+  style?: StyleOverride;
+  hook?: HookId;
+}
+
+/** Transformation: hold `need` items whose `set` is this id. */
+export interface ItemSetDef {
+  id: SetId;
+  name: string;
+  desc: string;
+  /** Items needed (default design: 3). */
+  need: number;
+  effects: readonly Effect[];
+  costume?: CostumeDef;
+  hook?: HookId;
+}
+
+export type FamiliarBehavior = 'follow' | 'orbit' | 'guard' | 'chase' | 'hover';
+
+export interface FamiliarDef {
+  id: FamiliarId;
+  name: string;
+  desc: string;
+  sprite: SpriteDef | string;
+  behavior: FamiliarBehavior;
+  radius: number;
+  /** Scale of the player's AttackProfile when it fires (0 = never fires; ~0.35-0.5 typical). */
+  attackScale: number;
+  fireRateMul?: number;
+  contactDamage?: number;
+  speed?: number;
+}
+
+export interface AchievementCondition {
+  /** Lifetime/run counter name (meta stats), e.g. 'deaths', 'bossKills.gutter-boss'. */
+  counter: string;
+  atLeast: number;
+}
+
+export interface UnlockRef {
+  kind: 'item' | 'character' | 'route' | 'ending' | 'chapter' | 'feature';
+  id: string;
+}
+
+export interface AchievementDef {
+  id: AchievementId;
+  name: string;
+  desc: string;
+  hidden?: boolean;
+  condition: AchievementCondition;
+  unlocks: readonly UnlockRef[];
 }

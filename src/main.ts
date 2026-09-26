@@ -64,6 +64,10 @@ function boot(): void {
     const run = scenes.find('run');
     return run instanceof RunScene ? run.sim : null;
   };
+  const getHudRects = () => {
+    const run = scenes.find('run');
+    return run instanceof RunScene ? run.hudRects() : [];
+  };
 
   const perfLines = (): string[] => {
     const sim = getSim();
@@ -72,7 +76,7 @@ function boot(): void {
       `FPS ${loop.fps}  UPD ${loop.updateMs.toFixed(2)}MS  RND ${loop.renderMs.toFixed(2)}MS`,
       `SCENE ${scenes.names.join('>').toUpperCase()}  TICK ${loop.ticks}  DROP ${loop.droppedSteps}`,
       `SHOTS ${sim?.world.projectiles.count ?? 0}/${CAP_PROJECTILES}  PARTS ${particles.count}/${PARTICLE_CAP}`,
-      `EVENTS DROPPED ${sim?.events.dropped ?? 0}  DUMMIES ${sim?.world.dummies.count ?? 0}`,
+      `EVENTS DROPPED ${sim?.events.dropped ?? 0}  DUMMIES ${sim?.world.dummies.count ?? 0}  PICKUPS ${sim?.world.pickups.count ?? 0}  BOMBS ${sim?.world.bombs.count ?? 0}`,
       `VIEW ${v.scale.toFixed(2)}X  DPR ${display.dpr.toFixed(2)}  ${Math.round(display.cssW)}X${Math.round(display.cssH)}`,
     ];
   };
@@ -124,7 +128,7 @@ function boot(): void {
     },
   });
 
-  installSdHooks({ app, loop, perf, registry, getSim });
+  installSdHooks({ app, loop, perf, registry, getSim, getHudRects });
   nav.title();
   loop.start();
 }

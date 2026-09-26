@@ -5,13 +5,23 @@
 
 import { TILE } from './constants';
 import type { RoomGrid } from './room';
-import { blocksShots, blocksWalk, walkInset } from './tiles';
+import { MODE_MASK, blocksMask, walkInset } from './tiles';
 import { normalize, type Vec2 } from '../engine/math';
 
-/** Collision mask: numeric so hot loops avoid string compares. */
-export type CollideMode = 0 | 1;
+/** Collision mode: numeric so hot loops avoid string compares (see the masks in tiles.ts). */
+export type CollideMode = 0 | 1 | 2 | 3;
+/** On foot: pits block (with their lip inset). */
 export const WALK_MODE: CollideMode = 0;
+/** Marbles: fly over pits. */
 export const SHOT_MODE: CollideMode = 1;
+/** Flying players: cross pits, props still block (walk insets apply). */
+export const FLY_MODE: CollideMode = 2;
+/** Phasing shots: only walls block. */
+export const PHASE_MODE: CollideMode = 3;
+
+function insetFor(t: number, mode: CollideMode): number {
+  return mode === WALK_MODE || mode === FLY_MODE ? walkInset(t) : 0;
+}
 
 /**
  * Pushes a circle out of every blocking tile (and the room walls). Mutates `pos`.
@@ -28,6 +38,7 @@ export function resolveCircleVsGrid(
   let nx = 0;
   let ny = 0;
   const r2 = r * r;
+  const mask = MODE_MASK[mode]!;
   for (let iter = 0; iter < 4; iter++) {
     let moved = false;
     const c0 = Math.floor((pos.x - r) / TILE);
@@ -37,8 +48,8 @@ export function resolveCircleVsGrid(
     for (let row = r0; row <= r1; row++) {
       for (let col = c0; col <= c1; col++) {
         const t = room.get(col, row);
-        if (mode === WALK_MODE ? !blocksWalk(t) : !blocksShots(t)) continue;
-        const inset = mode === WALK_MODE ? walkInset(t) : 0;
+        if (!blocksMask(t, mask)) continue;
+        const inset = insetFor(t, mode);
         const left = col * TILE + inset;
         const right = (col + 1) * TILE - inset;
         const top = row * TILE + inset;
@@ -91,7 +102,22 @@ export function resolveCircleVsGrid(
 
 /** True if a circle overlaps any tile that blocks in `mode` (or the walls). No mutation. */
 export function circleOverlapsGrid(room: RoomGrid, x: number, y: number, r: number, mode: CollideMode): boolean {
+  return firstBlockingCell(room, x, y, r, mode) !== NO_CELL;
+}
+
+/** Returned by firstBlockingCell when nothing blocks. */
+export const NO_CELL = -1;
+/** Returned by firstBlockingCell when the circle touches the room's outer walls. */
+export const WALL_CELL = -2;
+
+/**
+ * The first blocking cell a circle overlaps: an interior cell index (row * cols + col), WALL_CELL for
+ * the room walls, or NO_CELL. Interior cells are preferred over walls when both touch.
+ */
+export function firstBlockingCell(room: RoomGrid, x: number, y: number, r: number, mode: CollideMode): number {
   const r2 = r * r;
+  const mask = MODE_MASK[mode]!;
+  let wall = false;
   const c0 = Math.floor((x - r) / TILE);
   const c1 = Math.floor((x + r) / TILE);
   const r0 = Math.floor((y - r) / TILE);
@@ -99,8 +125,8 @@ export function circleOverlapsGrid(room: RoomGrid, x: number, y: number, r: numb
   for (let row = r0; row <= r1; row++) {
     for (let col = c0; col <= c1; col++) {
       const t = room.get(col, row);
-      if (mode === WALK_MODE ? !blocksWalk(t) : !blocksShots(t)) continue;
-      const inset = mode === WALK_MODE ? walkInset(t) : 0;
+      if (!blocksMask(t, mask)) continue;
+      const inset = insetFor(t, mode);
       const left = col * TILE + inset;
       const right = (col + 1) * TILE - inset;
       const top = row * TILE + inset;
@@ -109,10 +135,13 @@ export function circleOverlapsGrid(room: RoomGrid, x: number, y: number, r: numb
       const cy = y < top ? top : y > bottom ? bottom : y;
       const dx = x - cx;
       const dy = y - cy;
-      if (dx * dx + dy * dy < r2) return true;
+      if (dx * dx + dy * dy < r2) {
+        if (!room.inBounds(col, row)) wall = true;
+        else return row * room.cols + col;
+      }
     }
   }
-  return false;
+  return wall ? WALL_CELL : NO_CELL;
 }
 
 /**

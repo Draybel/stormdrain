@@ -51,3 +51,79 @@ export const DUMMY_TUNING = {
   damping: 15,
   maxNudge: 5,
 } as const;
+
+export const PICKUP_TUNING = {
+  /** Ground friction (1/s): pickups slide and settle within ~0.5 s. */
+  friction: 5.5,
+  /** Air drag during the pop arc (1/s). */
+  airDrag: 1.2,
+  /** Gravity for the pop arc (px/s²) and the launch speed range (px/s). */
+  gravity: 420,
+  popUp: [70, 105] as readonly [number, number],
+  popOut: [28, 62] as readonly [number, number],
+  /** Landing bounce: restitution, and the slowest fall that still bounces (px/s). */
+  bounce: 0.42,
+  minBounce: 28,
+  /** Restitution against walls/rocks. */
+  wallBounce: 0.55,
+  /** Seconds after spawning before a popped pickup can be collected (you see it land). */
+  collectDelay: 0.3,
+  /** Speed given to a pickup the player walks into but can't take (px/s, scaled by PICKUP_PUSH). */
+  shove: 70,
+  /** Magnet flag: pull radius (px) and acceleration (px/s²). */
+  magnetRadius: 64,
+  magnetAccel: 520,
+  /** Soft separation between overlapping pickups (fraction of overlap resolved per tick). */
+  separation: 0.35,
+  /** Seconds between "locked" nudges of a lockbox without a key. */
+  lockedCooldown: 0.7,
+} as const;
+
+export const BOMB_TUNING = {
+  radius: 5,
+  /** Fuse (s). */
+  fuse: 1.4,
+  /** Explosion: hittable damage radius (px) and damage. */
+  blastRadius: 40,
+  damage: 50,
+  /** Half hearts dealt to the player caught in the blast. */
+  playerDamage: 2,
+  /** Tiles whose box comes within this distance of the centre are destroyed (≈ a 3×3 area). */
+  tileRadius: 22,
+  /** Push on pickups/bombs within blastRadius × pushRange (px/s at the centre, fades out). */
+  push: 320,
+  pushRange: 1.7,
+  /** Chain reaction: other bombs in the blast go off after this delay (s). */
+  chainFuse: 0.12,
+  friction: 6,
+  wallBounce: 0.5,
+  /** Walking into a bomb nudges it along (fraction of the player's velocity, plus a minimum). */
+  nudge: 1.15,
+  nudgeMin: 40,
+} as const;
+
+export const HAZARD_TUNING = {
+  /** Half hearts from spikes and from touching a fire. */
+  spikeDamage: 1,
+  fireDamage: 1,
+  /** The player's centre must be this far inside a spike tile to be "on" it (px). */
+  spikeInset: 3,
+  /** Extra reach (px) around a fire's collision box that still burns. */
+  fireReach: 1.5,
+} as const;
+
+export const ITEM_TUNING = {
+  /** Seconds Wren holds a new item overhead. */
+  holdTime: 0.8,
+  /** Pedestal collision radius (px). */
+  pedestalRadius: 6,
+  /** Extra distance at which touching a pedestal takes its item (px). */
+  pedestalReach: 1.5,
+  /** Lucky Coin: permanent luck per coin. */
+  luckyCoinLuck: 0.5,
+  /** Timed actives: a small Spark Cell adds this fraction of the max charge. */
+  smallSparkTimed: 0.25,
+  /** Ember heart nova: radius (px) and damage. */
+  novaRadius: 44,
+  novaDamage: 14,
+} as const;

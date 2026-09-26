@@ -10,6 +10,8 @@ import type { App } from '../ui/app';
 import type { PerfOverlay } from './perfOverlay';
 import type { Loop } from '../engine/loop';
 import type { ButtonRegistry } from '../engine/buttons';
+import type { HudRect } from '../render/hud';
+import type { PickupName } from '../sim/types';
 
 export interface CssRect {
   x: number;
@@ -46,11 +48,19 @@ export interface SDHooks {
   button(id: string): ButtonInfo | null;
   readonly sim: Sim | null;
   run(): SimSummary | null;
+  /** In-run HUD element rects (game px): hearts, counters, charge bar, trinkets, banner. */
+  hud(): HudRect[];
   readonly counts: { particles: number; projectiles: number };
   readonly debug: {
     overlay(on?: boolean): boolean;
     hurt(): void;
     kill(): void;
+    /** Gives an item by id (as a fresh pickup). */
+    give(id: string): void;
+    /** Pops a pickup out next to the player. */
+    spawn(kind: PickupName): void;
+    /** Counts as clearing the room (charges actives, fires roomClear triggers). */
+    roomClear(): void;
     aim360(on: boolean): void;
     newRun(): void;
     title(): void;
@@ -71,6 +81,8 @@ export interface SdDeps {
   registry: ButtonRegistry;
   /** Returns the live run sim if a run scene exists. */
   getSim(): Sim | null;
+  /** HUD rects of the run scene (empty when there is none). */
+  getHudRects(): HudRect[];
 }
 
 export function installSdHooks(d: SdDeps): SDHooks {
@@ -121,6 +133,9 @@ export function installSdHooks(d: SdDeps): SDHooks {
     run() {
       return d.getSim()?.summary() ?? null;
     },
+    hud() {
+      return d.getHudRects();
+    },
     get counts() {
       return { particles: app.particles.count, projectiles: d.getSim()?.world.projectiles.count ?? 0 };
     },
@@ -134,6 +149,15 @@ export function installSdHooks(d: SdDeps): SDHooks {
       },
       kill() {
         d.getSim()?.killPlayer();
+      },
+      give(id: string) {
+        d.getSim()?.giveItem(id);
+      },
+      spawn(kind: PickupName) {
+        d.getSim()?.spawnPickup(kind);
+      },
+      roomClear() {
+        d.getSim()?.roomCleared();
       },
       aim360(on: boolean) {
         app.settings.update({ aim360: on });

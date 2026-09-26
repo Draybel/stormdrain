@@ -4,75 +4,16 @@
  * rapid fire from turning into mush or overloading older phones.
  */
 
-export type SfxName = 'shoot' | 'hit' | 'splash' | 'dummy_pop' | 'ui_click' | 'ui_back' | 'hurt' | 'death' | 'spawn';
+import { GAMEPLAY_RECIPES, type GameplaySfxName } from './sfxGameplay';
+import { noise, osc, type Recipe, type Voice } from './synth';
 
-interface Recipe {
-  /** Minimum seconds between two plays of this sound. */
-  minGap: number;
-  /** Approximate length (s), used for voice accounting. */
-  length: number;
-  /** Base gain (before bus volumes). */
-  gain: number;
-  play(v: Voice): void;
-}
-
-/** Everything a recipe needs, prepared by the player (so recipes stay tiny). */
-interface Voice {
-  ctx: AudioContext;
-  out: AudioNode;
-  t: number;
-  noise: AudioBuffer;
-  /** Random ±1 value for per-play variation. */
-  jitter: number;
-}
+/** Phase 1 core sounds (UI, shooting, dummies, hurt/death). */
+export type CoreSfxName = 'shoot' | 'hit' | 'splash' | 'dummy_pop' | 'ui_click' | 'ui_back' | 'hurt' | 'death' | 'spawn';
+export type SfxName = CoreSfxName | GameplaySfxName;
 
 const MAX_VOICES = 20;
 
-function env(g: GainNode, t: number, attack: number, peak: number, decay: number): void {
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(peak, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-}
-
-function osc(v: Voice, type: OscillatorType, f0: number, f1: number, dur: number, peak: number, attack = 0.004): void {
-  const o = v.ctx.createOscillator();
-  const g = v.ctx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(f0, v.t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), v.t + dur);
-  env(g, v.t, attack, peak, dur);
-  o.connect(g).connect(v.out);
-  o.start(v.t);
-  o.stop(v.t + attack + dur + 0.02);
-}
-
-function noise(
-  v: Voice,
-  filter: BiquadFilterType,
-  f0: number,
-  f1: number,
-  q: number,
-  dur: number,
-  peak: number,
-  attack = 0.002,
-): void {
-  const src = v.ctx.createBufferSource();
-  src.buffer = v.noise;
-  // Random start inside the buffer so repeated hits don't sound identical.
-  const offset = Math.random() * Math.max(0, v.noise.duration - dur - 0.05);
-  const bq = v.ctx.createBiquadFilter();
-  bq.type = filter;
-  bq.Q.value = q;
-  bq.frequency.setValueAtTime(f0, v.t);
-  bq.frequency.exponentialRampToValueAtTime(Math.max(20, f1), v.t + dur);
-  const g = v.ctx.createGain();
-  env(g, v.t, attack, peak, dur);
-  src.connect(bq).connect(g).connect(v.out);
-  src.start(v.t, offset);
-  src.stop(v.t + attack + dur + 0.02);
-}
-
-const RECIPES: Record<SfxName, Recipe> = {
+const CORE_RECIPES: Record<CoreSfxName, Recipe> = {
   // Soft glassy "pip".
   shoot: {
     minGap: 0.03,
@@ -170,6 +111,8 @@ const RECIPES: Record<SfxName, Recipe> = {
     },
   },
 };
+
+const RECIPES: Record<SfxName, Recipe> = { ...CORE_RECIPES, ...GAMEPLAY_RECIPES };
 
 export class SfxPlayer {
   private readonly ctx: AudioContext;

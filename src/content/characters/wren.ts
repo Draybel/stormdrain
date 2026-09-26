@@ -1,6 +1,7 @@
 /**
- * Wren — the starting character (DESIGN.md). Balanced stats.
- * Phase 2 turns this folder into an auto-discovered registry (export default CharacterDef[]).
+ * Wren — the starting character (DESIGN.md). Balanced stats, three red hearts, one bomb.
+ * Mechanic "Lucky Marble" (first shot in each uncleared room is a big piercing keeper marble) is
+ * implemented by the attack pipeline; the hook name is registered in content/hooks/characters.ts.
  */
 
 import type { CharacterDef } from '../../sim/types';
@@ -20,8 +21,11 @@ export const WREN: CharacterDef = {
     shotSize: 3,
     knockback: 70,
   },
-  redMax: 6,
+  hearts: { redMax: 6 },
+  startItems: [],
+  startPickups: { coins: 0, bombs: 1, keys: 0 },
   sprite: WREN_SPRITE,
+  mechanic: 'wren.luckyMarble',
 };
 
 const characters: CharacterDef[] = [WREN];

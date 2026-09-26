@@ -6,8 +6,9 @@
 
 import type { Poolable } from '../engine/pool';
 import { MARBLE_TUNING } from './tuning';
-import { SHOT_MODE, circleOverlapsGrid } from './collision';
+import { NO_CELL, PHASE_MODE, SHOT_MODE, firstBlockingCell } from './collision';
 import { Tile } from './tiles';
+import { hitTileWithShot } from './tileFx';
 import type { World } from './world';
 import { hitDummyWithShot } from './dummies';
 
@@ -33,6 +34,8 @@ export class Projectile implements Poolable {
   traveled = 0;
   falling = false;
   age = 0;
+  /** Passes through obstacles (only walls stop it) — the future 'phase' modifier / spectral flag. */
+  phase = false;
 }
 
 export function resetProjectile(p: Projectile): void {
@@ -46,6 +49,7 @@ export function resetProjectile(p: Projectile): void {
   p.traveled = 0;
   p.falling = false;
   p.age = 0;
+  p.phase = false;
 }
 
 /** Spawns a marble; returns null when the projectile cap is reached. */
@@ -116,12 +120,15 @@ export function updateProjectiles(w: World, dt: number): void {
     const sy = (p.vy * dt) / steps;
     const tileR = p.r * T.tileRadiusScale;
     let dead = false;
+    const mode = p.phase ? PHASE_MODE : SHOT_MODE;
     for (let s = 0; s < steps; s++) {
       p.x += sx;
       p.y += sy;
-      if (circleOverlapsGrid(room, p.x, p.y, tileR, SHOT_MODE)) {
-        // Splash just outside the obstacle.
+      const cell = firstBlockingCell(room, p.x, p.y, tileR, mode);
+      if (cell !== NO_CELL) {
+        // Splash just outside the obstacle; crates, urns and fires take the hit.
         w.events.emit('splash', p.x - sx, p.y - sy, 1, p.z);
+        if (cell >= 0) hitTileWithShot(w, cell);
         dead = true;
         break;
       }

@@ -49,9 +49,17 @@ src/content/sets/*.ts         export default ItemSetDef[]
 src/content/achievements/*.ts export default AchievementDef[]
 src/content/familiars/*.ts    export default FamiliarDef[]
 src/content/music/*.ts        export default MusicTrack[]
+src/content/drops/*.ts        export default DropTableDef[]  (seeded loot tables: urn, crate, satchel, lockbox…)
 src/content/hooks/*.ts        side-effect modules that call registerHook(name, fn) for unusual behaviour
 ```
 `src/content/registry.ts` builds the lookup maps and **throws on duplicate ids** (a unit test enforces this).
+It exports one `Map` per type (`ITEMS`, `ENEMIES`, `BOSSES`, `CHARACTERS`, `CHAPTERS`, `SYNERGIES`, `SETS`,
+`ACHIEVEMENTS`, `FAMILIARS`, `DROP_TABLES`) plus typed helpers (`getItem` throws on unknown ids, `findItem` returns
+undefined, `itemsWithTag`, `itemsInPool`…). ROOMS and MUSIC are TODO slots for the floor and music owners.
+`registerItem(def)` exists only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
+cross-reference (start items, sets, achievements, familiars, drop tables, hooks, chapters…) and every sprite; the
+unit tests require it to return no problems. Hook modules get their sim services through `ctx.api` (a `HookApi`,
+see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the registry free of import cycles.
 
 ---
 
@@ -105,17 +113,71 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
 - Units: pixels and seconds (dt = 1/60). Room-local coordinates: (0,0) = top-left of the interior floor.
 - Grid tiles: `floor, rock, rockTinted (drops loot), metal (indestructible), pit, spikes, fire (extinguishable, damages),
   crate (destructible by shots), urn (destructible, drops), secretWall`, plus doors on the four wall centers.
+  `RoomGrid` also keeps `hp` (hits left: crate 2, urn 1, fire 4 — shots count hits, not damage) and `deco` (cosmetic
+  rubble/planks/shards/ash left where something broke). Collision modes (`sim/collision.ts`): WALK (pits block),
+  SHOT (flies over pits), FLY (flying players cross pits; props block) and PHASE (only walls block; the future 'phase'
+  modifier / 'spectral' flag). Fire and every prop block walking and shots; spikes block nothing but hurt ½ heart
+  underfoot unless flying; touching a fire hurts ½ heart. Explosions destroy rocks, tinted rocks (loot), crates, urns,
+  put out fires and call `World.onSecretWallBombed(x, y)` for secretWall tiles and for the four wall door slots in
+  reach — the floor code decides what is there.
+- World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (8), all pooled.
+- `Sim` API used by room/floor code and tools: `roomCleared()` (actives +1 charge, 'roomClear' triggers),
+  `floorStarted()`, `loadRoom(layout, spawns)`, and debug helpers `giveItem`, `spawnPickup`, `placeBomb`, `explode`,
+  `hurtPlayer`, `killPlayer`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
+  generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
+  as a room clear.
 
-### Health model
+### Health model (`sim/health.ts`, pure; `sim/combat.ts` applies it)
 Half-heart units. `redMax` (containers ×2), `red`, bonus hearts stack in order after red:
 - **Tin hearts** — temporary shield hearts, absorb damage first, gone when depleted.
 - **Ember hearts** — bonus hearts; when one is emptied it releases a fire nova that damages nearby enemies.
-Damage order: ember/tin (last gained first) → red. Invulnerability frames after hurt (~1 s, flicker).
+Damage order: ember/tin (last gained first) → red; damage spills over from one heart to the next. A half bonus
+heart is topped up by the same kind, otherwise a new heart starts. Cap: containers + bonus hearts ≤ 12 hearts
+(two HUD rows of 6). `damagePlayer(w, halves, source)` is the only way the player gets hurt: it respects i-frames
+(`PLAYER_TUNING.hurtInvuln` = 1 s, the renderer flickers the sprite), emits 'hurt', releases one nova per broken
+Ember heart, fires the 'hurt' trigger and kills at zero (red and bonus both empty). Nothing knocks the player back.
 
-### Stats
+### Stats (`sim/stats.ts`)
 `damage, fireRate (shots/sec), shotSpeed, range (px), moveSpeed, luck` + hidden `shotSize, knockback`.
 Computed from character base + all item effects: sum of `add`, then product of `mul`, then clamps
 (fireRate soft-capped with diminishing returns, moveSpeed ≤ 2.0×base). Recompute only when items change.
+Fire-rate soft cap: linear up to 5 shots/s, then `5 + 4·ln(1 + (x−5)/4)` (slope 1 at the knee, unbounded but
+slowing). Hard clamps per stat live in `STAT_RULES`. `computeStats` writes into the player's existing `stats`
+object (its identity never changes).
+
+### Items, effects, inventory (`sim/effects.ts`, `sim/inventory.ts`, `sim/loadout.ts`)
+- Effects are PERSISTENT (`stat, mod, carrier, familiar, flag, trigger`: derived from what is held) or INSTANT
+  (`heal, hearts, pickups, hook`: run once). `recomputePlayer(w)` rebuilds stats, flags, trigger lists, slot counts,
+  completed sets, active synergies and `player.loadout` (mod stacks, carriers, familiars) from passives (duplicates
+  count), the active item, trinkets, sets, synergies and temporary effects, then calls
+  `recomputeAttack(player)` (`sim/attack/recomputeAttack.ts`, the attack pipeline's entry point).
+- Instants run when a FRESH copy is first picked up, when an active/consumable is used, or when a trigger fires.
+  Persistent effects executed in those contexts become TEMPORARY: `duration` seconds, else until the player leaves
+  the room (`leftRoom`, called by `loadRoom`).
+- Triggers: `fireTrigger(w, on, x, y)` at hurt, roomClear, kill (dummy pops today), fire (each volley), floorStart,
+  bomb (placed), pickup (coins/hearts/…; not items), use (active). Chance = `chance + luck × luckScale` clamped to
+  `[0, maxChance]`, rolled on combatRng; optional cooldown; nesting stops at depth 3.
+- Inventory: passives (ordered, duplicates allowed), ONE active (`charge/max`, 'room' = rooms cleared, 'timed' =
+  seconds, fresh actives come charged), trinkets (1 slot, 2 with `extraTrinket`), consumables (1 slot, 2 with
+  `extraConsumable`), coins/bombs/keys 0..99. Taking an active while holding one leaves the old one (with its charge)
+  on the pedestal; a trinket/consumable into a full slot drops the oldest on the floor. Swapped-out things are not
+  "fresh" and can't be re-taken until the player steps away.
+- Pickup flow (`collectItem`): slot → one-time instants if fresh → recompute → hold overhead 0.8 s → 'item' event
+  (banner NAME + one-line desc). Pedestals (`sim/pedestals.ts`) are solid; touching one takes its item.
+
+### Pickups, chests, bombs (`sim/pickups.ts`, `sim/bombs.ts`, `sim/tileFx.ts`)
+- Kinds are numeric (`sim/pickupKinds.ts` `PK`, same order as `PICKUP_NAMES`). Loot pops out with an arc (can't be
+  taken for 0.3 s), slides with friction, bounces off walls/props, separates softly, is shoved when the player
+  walks into something they can't take, and is blown around by explosions. Red hearts are only taken when they
+  heal, bonus hearts when there's room, spark cells with a chargeable active, counters below 99. Satchels open on
+  touch, lockboxes need (and use) a key; both roll a drop table.
+- Drop tables (`DropTableDef`, `sim/drops.ts`) roll on the run's `lootRng` with luck shrinking the "nothing" weight;
+  trinket/consumable entries draw an item from a pool. Test-room pedestal choices use a separate room stream so play
+  never shifts them.
+- Bombs: 1.4 s fuse (blinks faster), blast 40 px: 50 damage to hittables, 1 heart to the player (bonus first,
+  unless `explosionImmune`), tiles within 22 px of the centre (≈3×3), pushes pickups/bombs, chain-lights other bombs
+  (0.12 s), then the 'explosion' event (shake, flash, ring, smoke, debris, boom). Walking into a placed bomb (after
+  stepping off it once) nudges it.
 
 ---
 
@@ -210,10 +272,19 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 
 - `ItemDef { id, name, desc, kind: 'passive'|'active'|'trinket'|'consumable', quality 0-4, pools: PoolId[],
   tags: string[], set?: SetId, effects: Effect[], active?: { charge: number, chargeType: 'room'|'timed', use: Effect[] },
-  sprite: SpriteDef | string, costume?: CostumeDef, unlock?: AchievementId }`
-- `Effect` = discriminated union: `stat`, `mod`, `carrier`, `familiar`, `heal`, `hearts`, `pickups`, `trigger`
-  (`on: 'hurt'|'roomClear'|'kill'|'fire'|'floorStart'|'bomb'|'pickup'|'use'`, chance, luck scaling, effects),
-  `flag` (flight, spectral, etc.), `hook` (named code in `content/hooks`).
+  use?: Effect[] (consumables), sprite: SpriteDef (14×14) | string, costume?: CostumeDef, unlock?: AchievementId }`.
+  `name` is shown uppercase on the banner, `desc` is ONE short line (≤ 46 chars, a test enforces it).
+- `Effect` = discriminated union: `stat` (add/mul), `mod` (stacks, params), `carrier`, `familiar`, `heal` (half hearts),
+  `hearts` (containers in whole hearts; red/tin/ember in halves), `pickups` (coins/bombs/keys, charge, spawn[], table),
+  `trigger` (`on: 'hurt'|'roomClear'|'kill'|'fire'|'floorStart'|'bomb'|'pickup'|'use'`, chance, luck, maxChance,
+  cooldown, effects), `flag` (`PLAYER_FLAGS`: flying, spectral, magnet, extraTrinket, extraConsumable,
+  explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision), `hook` (named code in
+  `content/hooks`, params). Persistent kinds accept an optional `duration` for use/trigger contexts.
+- Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
+- `DropTableDef { id, rolls: [min, max], nothing?, luck?, entries: { kind: PickupName, weight, count?, pool? }[] }`.
+- `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook? }`,
+  `FamiliarDef { id, name, desc, sprite, behavior, radius, attackScale, … }`,
+  `AchievementDef { id, name, desc, hidden?, condition: { counter, atLeast }, unlocks: { kind, id }[] }`.
 - `EnemyDef { id, name, hp, speed, radius, contact (half hearts), move: MoveSpec, attacks: AttackSpec[], sprite,
   flying?, chapters: ChapterId[], weight, championable, bestiary }` — behaviours come from a shared library
   (`sim/enemies/behaviors`), parameterised by data.
@@ -223,7 +294,9 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   `E` strong/elite spawn `c` chest spot `p` pickup spot `i` item pedestal `S` shop slot `B` boss spawn.
   Test-only markers (Phase 1 training room, `src/content/testRoom.ts`, deliberately outside `content/rooms/`):
   `@` player start, `D` training dummy.
-- `CharacterDef { id, name, desc, stats, hearts, startItems, startPickups, sprite, mechanic: hookId, unlock? }`.
+- `CharacterDef { id, name, desc, stats, hearts: { redMax, red?, tin?, ember? } (half hearts), startItems,
+  startPickups: { coins, bombs, keys }, sprite, mechanic: hookId, unlock? }`. Mechanics implemented inside the attack
+  pipeline register a placeholder hook (`content/hooks/characters.ts`) so validation can check the reference.
 - `ChapterDef { id, name, floors: [n, n+1], track: 'main'|'alt', palette, tileset, enemyPool, bossPool, minibossPool,
   music, curses? }`.
 
@@ -260,14 +333,25 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 - Layers: pre-rendered room background → shadows → pickups/props → enemies → player/familiars → projectiles →
   beams (`lighter`) → particles → lighting/darkness → HUD → touch controls → UI overlays.
 - Particles are presentation-only, pooled, capped. Screen shake/hit flash scale with Settings.
+- The room background is pre-rendered and rebuilt only on `RoomGrid.version` changes; per-cell variation uses a
+  positional hash so breaking one crate never reshuffles the rest. Fires are drawn live (flame height from hp).
+- HUD (`render/hud.ts`), never over the room interior: hearts top-left (6 per row, wraps to a 2nd row), coin/bomb/key
+  counters below (hop + flash when they rise), a segmented charge bar beside the active button (one segment per
+  room; a continuous bar for timed items), the active/consumable buttons show the held items' icons, trinket icons
+  beside the consumable button, and the pickup banner in the top band. Short notices ("NO BOMBS") replace the room
+  label in the top band.
 - Audio: procedural SFX recipes by name with voice limits; step-sequencer music with lookahead scheduling,
-  a unique loop per chapter (+ boss variants), crossfades.
+  a unique loop per chapter (+ boss variants), crossfades. Recipes are `{ minGap, length, gain, play(voice) }`
+  built from the helpers in `audio/synth.ts` (leaf module); core sounds live in `audio/sfx.ts`, item/pickup/bomb/prop
+  sounds in `audio/sfxGameplay.ts`; `audio/eventSounds.ts` maps GameEvents to sounds.
 
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
   fps, `sim` handle) and `__SD.debug` actions (god mode, spawn, skip floor) used by E2E and the debug menu.
   Current shape (`src/debug/sdHooks.ts`): `scene`, `stack`, `fps`, `ticks`, `view` (game image rect in CSS px +
   `scale` = CSS px per game px), `safe`, `portrait`, `buttons()` / `button(id)` (game rect + `css` rect with centre
-  `cx, cy` for taps), `sim`, `run()` (SimSummary), `counts`, `debug.{overlay, hurt, kill, aim360, newRun, title, pause}`.
+  `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
+  counters…), `hud()` (HUD element rects in game px), `counts`,
+  `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, aim360, newRun, title, pause}`.
   Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`).
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

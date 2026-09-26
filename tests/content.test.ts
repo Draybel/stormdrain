@@ -7,6 +7,8 @@ import * as wren from '../src/content/sprites/wren';
 import * as props from '../src/content/sprites/props';
 import * as gutter from '../src/content/sprites/gutterways';
 import * as ui from '../src/content/sprites/ui';
+import * as pickupSprites from '../src/content/sprites/pickups';
+import * as obstacles from '../src/content/sprites/obstacles';
 import { TEST_ROOM } from '../src/content/testRoom';
 import { RoomGrid, parseRoomLayout } from '../src/sim/room';
 
@@ -17,10 +19,10 @@ function spriteDefsIn(mod: Record<string, unknown>): SpriteDef[] {
 }
 
 describe('sprite data', () => {
-  const defs = [wren, props, gutter, ui].flatMap((m) => spriteDefsIn(m as Record<string, unknown>));
+  const defs = [wren, props, gutter, ui, pickupSprites, obstacles].flatMap((m) => spriteDefsIn(m as Record<string, unknown>));
 
   it('finds the sprites', () => {
-    expect(defs.length).toBeGreaterThanOrEqual(12);
+    expect(defs.length).toBeGreaterThanOrEqual(35);
   });
 
   it.each(defs.map((d) => [d.id, d] as const))('%s is well-formed', (_id, def) => {

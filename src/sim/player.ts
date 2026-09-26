@@ -1,19 +1,49 @@
 /**
- * The player: snappy analog movement with circle-vs-grid sliding, and hold-to-fire marbles that
- * alternate between the left and right eye.
+ * The player: snappy analog movement with circle-vs-grid sliding, hold-to-fire marbles that
+ * alternate between the left and right eye, and the run-level state that travels with them
+ * (health, inventory, flags, triggers, attack loadout — see sim/effects.ts for how items feed it).
  */
 
 import type { InputState } from '../engine/inputState';
 import { vec2 } from '../engine/math';
-import { WALK_MODE, resolveCircleVsCircle, resolveCircleVsGrid } from './collision';
+import { placeBomb } from './bombs';
+import { FLY_MODE, WALK_MODE, resolveCircleVsCircle, resolveCircleVsGrid } from './collision';
+import { fireTrigger, useActive, useConsumable } from './effects';
+import { Health, initHealth } from './health';
+import { Inventory } from './inventory';
+import { Loadout, makeFlags, makeTriggerLists, type TempEffect, type TriggerLists } from './loadout';
 import { spawnMarble } from './projectiles';
-import { PLAYER_TUNING } from './tuning';
+import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { CharacterDef, Stats } from './types';
 import type { World } from './world';
 
 export class Player {
   readonly character: CharacterDef;
-  stats: Stats;
+  /** Computed stats (character base + items). Identity is stable; recompute writes into it. */
+  readonly stats: Stats;
+  readonly health = new Health();
+  readonly inv = new Inventory();
+  readonly flags = makeFlags();
+  readonly loadout = new Loadout();
+  /** Held trigger effects per event (rebuilt as NEW arrays on every recompute). */
+  triggers: TriggerLists = makeTriggerLists();
+  /** Trigger cooldowns: world time when each trigger effect may fire again. */
+  readonly triggerReady = new Map<object, number>();
+  /** Temporary effects from uses/triggers. */
+  readonly temps: TempEffect[] = [];
+  /** Completed item sets and active synergies (ids). */
+  readonly sets: string[] = [];
+  readonly synergies: string[] = [];
+  /** Permanent luck from Lucky Coins. */
+  luckBonus = 0;
+  /** Bumped by every stats/flags recompute. */
+  statsVersion = 0;
+  /** Loadout version the attack pipeline last built from (see attack/recomputeAttack.ts). */
+  attackVersion = -1;
+  /** Item currently held overhead after a pickup (render pose + banner). */
+  holdItem = '';
+  holdTime = 0;
+
   x = 0;
   y = 0;
   prevX = 0;
@@ -38,9 +68,6 @@ export class Player {
   /** Seconds since the last shot (render recoil). */
   sinceShot = 99;
   shotsFired = 0;
-  /** Health in half hearts (full health model arrives in Phase 2). */
-  redMax: number;
-  red: number;
   hurtTimer = 0;
   invuln = 0;
   dead = false;
@@ -49,8 +76,21 @@ export class Player {
   constructor(character: CharacterDef) {
     this.character = character;
     this.stats = { ...character.stats };
-    this.redMax = character.redMax;
-    this.red = character.redMax;
+    const h = character.hearts;
+    initHealth(this.health, h.redMax, h.red ?? h.redMax, h.tin ?? 0, h.ember ?? 0);
+    const s = character.startPickups;
+    this.inv.coins = s.coins;
+    this.inv.bombs = s.bombs;
+    this.inv.keys = s.keys;
+  }
+
+  /** Red health in half hearts (shorthand for health.red). */
+  get red(): number {
+    return this.health.red;
+  }
+
+  get redMax(): number {
+    return this.health.redMax;
   }
 
   placeAt(x: number, y: number): void {
@@ -70,6 +110,10 @@ export function updatePlayer(w: World, input: InputState, dt: number): void {
   p.sinceShot += dt;
   if (p.hurtTimer > 0) p.hurtTimer = Math.max(0, p.hurtTimer - dt);
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
+  if (p.holdTime > 0) {
+    p.holdTime = Math.max(0, p.holdTime - dt);
+    if (p.holdTime === 0) p.holdItem = '';
+  }
 
   if (p.dead) {
     p.deathTime += dt;
@@ -80,6 +124,10 @@ export function updatePlayer(w: World, input: InputState, dt: number): void {
 
   movePlayer(w, input, dt);
   firePlayer(w, input, dt);
+  // Action buttons (edge-triggered): bomb (E), active (Space), consumable (Q).
+  if (input.bomb) placeBomb(w);
+  if (input.active) useActive(w);
+  if (input.consumable) useConsumable(w);
 }
 
 function movePlayer(w: World, input: InputState, dt: number): void {
@@ -117,13 +165,14 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   p.vx += dvx;
   p.vy += dvy;
 
-  // Integrate, then resolve against tiles and dummies. Remove the velocity component pushing
-  // into whatever we hit so the player slides along instead of sticking.
+  // Integrate, then resolve against tiles, dummies and pedestals. Remove the velocity component
+  // pushing into whatever we hit so the player slides along instead of sticking.
+  const mode = p.flags.flying ? FLY_MODE : WALK_MODE;
   scratchPos.x = p.x + p.vx * dt;
   scratchPos.y = p.y + p.vy * dt;
-  if (resolveCircleVsGrid(w.room, scratchPos, p.r, WALK_MODE, scratchN)) cancelInto(p, scratchN.x, scratchN.y);
-  const dummies = w.dummies;
+  if (resolveCircleVsGrid(w.room, scratchPos, p.r, mode, scratchN)) cancelInto(p, scratchN.x, scratchN.y);
   let pushed = false;
+  const dummies = w.dummies;
   for (let i = 0; i < dummies.count; i++) {
     const d = dummies.items[i]!;
     if (d.popped) continue;
@@ -132,8 +181,16 @@ function movePlayer(w: World, input: InputState, dt: number): void {
       pushed = true;
     }
   }
-  // A dummy may have pushed us into a rock: settle against the grid once more.
-  if (pushed) resolveCircleVsGrid(w.room, scratchPos, p.r, WALK_MODE, scratchN);
+  const peds = w.pedestals;
+  for (let i = 0; i < peds.count; i++) {
+    const ped = peds.items[i]!;
+    if (resolveCircleVsCircle(scratchPos, p.r, ped.x, ped.y, ITEM_TUNING.pedestalRadius, scratchN)) {
+      cancelInto(p, scratchN.x, scratchN.y);
+      pushed = true;
+    }
+  }
+  // An obstacle may have pushed us into a rock: settle against the grid once more.
+  if (pushed) resolveCircleVsGrid(w.room, scratchPos, p.r, mode, scratchN);
 
   const mdx = scratchPos.x - p.x;
   const mdy = scratchPos.y - p.y;
@@ -198,31 +255,13 @@ function firePlayer(w: World, input: InputState, dt: number): void {
   const s = p.stats;
   const vx = ax * s.shotSpeed + p.vx * T.inheritVelocity;
   const vy = ay * s.shotSpeed + p.vy * T.inheritVelocity;
-  spawnMarble(w, sx, sy, T.shotHeight, vx, vy, s.damage, s.range, s.shotSize, s.knockback);
+  const m = spawnMarble(w, sx, sy, T.shotHeight, vx, vy, s.damage, s.range, s.shotSize, s.knockback);
+  if (m && p.flags.spectral) m.phase = true;
   p.aimX = ax;
   p.aimY = ay;
   p.sinceShot = 0;
   p.shotsFired++;
   w.counters.shots++;
   w.events.emit('shoot', sx, sy - T.shotHeight, ax, ay);
-}
-
-/** Debug/test hook until real damage sources exist (Phase 2). */
-export function hurtPlayer(w: World, halfHearts = 1): void {
-  const p = w.player;
-  if (p.dead || p.invuln > 0) return;
-  p.red = Math.max(0, p.red - halfHearts);
-  p.hurtTimer = PLAYER_TUNING.hurtPose;
-  p.invuln = PLAYER_TUNING.hurtInvuln;
-  w.events.emit('hurt', p.x, p.y - 8);
-  if (p.red <= 0) killPlayer(w);
-}
-
-export function killPlayer(w: World): void {
-  const p = w.player;
-  if (p.dead) return;
-  p.dead = true;
-  p.deathTime = 0;
-  p.vx = p.vy = 0;
-  w.events.emit('death', p.x, p.y - 8);
+  fireTrigger(w, 'fire', sx, sy);
 }

@@ -1,12 +1,16 @@
 /** The 13×7 tile grid of the current room. */
 
 import { ROOM_COLS, ROOM_ROWS, TILE } from './constants';
-import { TILE_CHARS, Tile, WALL, blocksShots, blocksWalk, type TileId } from './tiles';
+import { TILE_CHARS, TILE_HP, Tile, WALL, blocksShots, blocksWalk, type TileId } from './tiles';
 
 export class RoomGrid {
   readonly cols = ROOM_COLS;
   readonly rows = ROOM_ROWS;
   readonly tiles = new Uint8Array(ROOM_COLS * ROOM_ROWS);
+  /** Hits left for shot-breakable tiles (crates, urns, fires); see TILE_HP. */
+  readonly hp = new Uint8Array(ROOM_COLS * ROOM_ROWS);
+  /** Cosmetic floor marks (Deco) left where something was destroyed. */
+  readonly deco = new Uint8Array(ROOM_COLS * ROOM_ROWS);
   /** Bumped on every tile change so render caches know to rebuild. */
   version = 0;
   /** Seed for cosmetic variation (floor decals etc.). */
@@ -24,12 +28,16 @@ export class RoomGrid {
 
   set(col: number, row: number, t: TileId): void {
     if (!this.inBounds(col, row)) return;
-    this.tiles[row * this.cols + col] = t;
+    const i = row * this.cols + col;
+    this.tiles[i] = t;
+    this.hp[i] = TILE_HP[t] ?? 0;
     this.version++;
   }
 
   fill(t: TileId): void {
     this.tiles.fill(t);
+    this.hp.fill(TILE_HP[t] ?? 0);
+    this.deco.fill(0);
     this.version++;
   }
 
@@ -62,6 +70,8 @@ export function parseRoomLayout(rows: readonly string[], grid: RoomGrid): RoomMa
   if (rows.length !== ROOM_ROWS) throw new Error(`room layout needs ${ROOM_ROWS} rows, got ${rows.length}`);
   const markers: RoomMarker[] = [];
   grid.tiles.fill(Tile.Floor);
+  grid.hp.fill(0);
+  grid.deco.fill(0);
   for (let r = 0; r < ROOM_ROWS; r++) {
     const line = rows[r]!;
     if (line.length !== ROOM_COLS) throw new Error(`room row ${r} needs ${ROOM_COLS} chars: "${line}"`);
@@ -70,6 +80,7 @@ export function parseRoomLayout(rows: readonly string[], grid: RoomGrid): RoomMa
       const t = TILE_CHARS[ch];
       if (t !== undefined) {
         grid.tiles[r * ROOM_COLS + c] = t;
+        grid.hp[r * ROOM_COLS + c] = TILE_HP[t] ?? 0;
       } else {
         markers.push({ ch, col: c, row: r });
       }

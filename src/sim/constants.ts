@@ -13,3 +13,6 @@ export const ROOM_H = ROOM_ROWS * TILE;
 /** Global guardrail caps (ARCHITECTURE §4.5). */
 export const CAP_PROJECTILES = 700;
 export const CAP_DUMMIES = 16;
+export const CAP_PICKUPS = 64;
+export const CAP_BOMBS = 16;
+export const CAP_PEDESTALS = 8;

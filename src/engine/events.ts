@@ -15,18 +15,51 @@ export type GameEventType =
   | 'splash'
   /** something took damage: x,y = where; a = damage; b = remaining hp; id = target kind */
   | 'hit'
-  /** a dummy (later: any destructible) popped: x,y; id = kind */
+  /** a dummy (later: any hittable) popped: x,y; id = kind */
   | 'pop'
   /** something (re)appeared: x,y; id = kind */
   | 'spawn'
-  /** player got hurt: x,y */
+  /** player got hurt: x,y; a = half hearts lost; b = damage source (sim/combat.ts DMG_*) */
   | 'hurt'
   /** player died: x,y */
   | 'death'
   /** request screen shake: a = trauma amount (0..1) */
   | 'shake'
   /** play a named sound: id = sfx name, x,y = position for panning */
-  | 'sfx';
+  | 'sfx'
+  /** a pickup was collected: x,y; a = pickup kind (sim/pickupKinds PK); b = amount gained */
+  | 'pickup'
+  /** a pickup landed from its pop arc: x,y; a = pickup kind; b = impact speed */
+  | 'land'
+  /** loot popped out (chest, tile, table): x,y; a = number of pickups */
+  | 'loot'
+  /** an item was taken (banner + hold pose): x,y; id = item id; a = 0 passive 1 active 2 trinket 3 consumable;
+   *  b = 1 if fresh */
+  | 'item'
+  /** a chest opened: x,y; a = pickup kind (satchel / lockbox) */
+  | 'chest'
+  /** an action was refused: x,y; id = reason ('noBombs' | 'noActive' | 'notCharged' | 'noConsumable' | 'locked') */
+  | 'denied'
+  /** red health restored: x,y; a = half hearts (b = 1 for heart containers / bonus hearts) */
+  | 'heal'
+  /** bonus hearts emptied: x,y; a = 1 tin; b = how many */
+  | 'heartBreak'
+  /** fire nova (Ember heart broke, items): x,y; a = radius; id = flavour ('ember') */
+  | 'nova'
+  /** a bomb was placed: x,y */
+  | 'bombPlaced'
+  /** explosion: x,y; a = radius; b = damage */
+  | 'explosion'
+  /** a breakable tile took a hit: x,y = cell centre; a = tile id; b = hits left */
+  | 'tileHit'
+  /** a tile was destroyed / put out: x,y = cell centre; a = tile id */
+  | 'tileBreak'
+  /** active item (a = 0) or consumable (a = 1) used: x,y; id = item id */
+  | 'activeUse'
+  /** the active item became fully charged: id = item id */
+  | 'charged'
+  /** an item trigger fired: x,y; id = source item id */
+  | 'triggered';
 
 export interface GameEvent {
   type: GameEventType;
