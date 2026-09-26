@@ -61,11 +61,14 @@ export class ButtonRegistry {
 
   /** Replace the active set (the top scene's buttons). The array is referenced, not copied. */
   use(list: readonly HitButton[]): void {
-    // Drop pressed state on buttons that leave the registry so visuals never stick.
+    // Drop pressed/flash state on buttons that leave the registry so visuals never stick
+    // (e.g. the HUD pause button would otherwise stay lit under the pause overlay, because the
+    // covered run scene no longer ticks its flash timer).
     for (const b of this.list) {
       if (!list.includes(b)) {
         b.held = 0;
         b.armed = false;
+        b.flash = 1;
       }
     }
     this.list = list;

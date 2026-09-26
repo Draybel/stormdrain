@@ -12,7 +12,7 @@ import { PLAYER_TUNING } from '../sim/tuning';
 import { WREN_FRAME } from '../content/sprites/wren';
 import { DUMMY_SPRITE, MARBLE_SPRITE } from '../content/sprites/props';
 import { ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
-import { drawShadow, glowSprite } from './pixel';
+import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from './pixel';
 import { RoomBackground } from './roomBg';
 import { drawSpriteAnchored, getFrame } from './sprites';
 
@@ -25,7 +25,8 @@ const STRIDE = 5;
 
 export class WorldRenderer {
   private readonly bg = new RoomBackground();
-  private readonly marbleGlow = glowSprite(7, '255,176,80', 0.5);
+  /** Warm halo drawn additively under each marble (strong enough to read warm on blue stone). */
+  private readonly marbleGlow = glowSprite(7, MARBLE_GLOW_RGB, 0.8);
 
   /** Warm caches (room background, sprite frames) so the first frames don't hitch. */
   prepare(world: World): void {

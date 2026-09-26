@@ -7,7 +7,7 @@ import { drawTextCentered, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
 import type { App } from './app';
 import type { Scene } from './scene';
-import { drawMenuButton, tickButtons, uiButton, type UiButton } from './widgets';
+import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
 
 const TITLE: TextStyle = { color: UI.accent, shadow: '#243052', outline: '#0d0b14', scale: 3 };
 const NOTE: TextStyle = { color: UI.textDim, shadow: UI.shadow };
@@ -87,7 +87,7 @@ export class PauseScene implements Scene {
     const py = (GAME_H - PANEL_H) / 2;
     drawPanel(ctx, px, py, PANEL_W, PANEL_H, UI.panel, UI.border, UI.panelLight);
     drawTextCentered(ctx, 'PAUSED', GAME_W / 2, py + 12, TITLE);
-    for (const b of this.buttons) drawMenuButton(ctx, b);
+    drawMenuButtons(ctx, this.buttons);
     drawTextCentered(ctx, 'THE RAIN WILL WAIT.', GAME_W / 2, py + PANEL_H + 6, NOTE);
   }
 }

@@ -101,6 +101,9 @@ export function drawPanel(
   }
 }
 
+/** Candle-gold marble halo colour (r,g,b) — red-heavy so additive blending stays warm on blue stone. */
+export const MARBLE_GLOW_RGB = '255,158,56';
+
 /** A simple pixel "glow": concentric filled circles of decreasing alpha, baked. Draw with 'lighter'. */
 export function glowSprite(r: number, rgb: string, peak: number): HTMLCanvasElement {
   const key = `glow|${r}|${rgb}|${peak}`;

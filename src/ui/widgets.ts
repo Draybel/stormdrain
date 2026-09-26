@@ -75,5 +75,13 @@ export function drawMenuButton(ctx: CanvasRenderingContext2D, b: UiButton): void
 
 /** Advance per-button flash timers (call from the owning scene's update). */
 export function tickButtons(buttons: readonly HitButton[], dt: number): void {
-  for (const b of buttons) if (b.flash < 1) b.flash = Math.min(1, b.flash + dt);
+  for (let i = 0; i < buttons.length; i++) {
+    const b = buttons[i]!;
+    if (b.flash < 1) b.flash = Math.min(1, b.flash + dt);
+  }
+}
+
+/** Draws every menu button (indexed loop: no iterator allocation per frame). */
+export function drawMenuButtons(ctx: CanvasRenderingContext2D, buttons: readonly UiButton[]): void {
+  for (let i = 0; i < buttons.length; i++) drawMenuButton(ctx, buttons[i]!);
 }

@@ -71,4 +71,26 @@ describe('sim purity', () => {
       .replace(/\/\/.*$/gm, '');
     expect(code).not.toMatch(banned);
   });
+
+  // Transitively, too: everything the sim imports must stay out of render/audio/ui/debug/meta.
+  it('the sim import graph never reaches render, audio, ui, debug or meta', () => {
+    const src = join(__dirname, '../src');
+    const seen = new Set<string>();
+    const queue = [join(src, 'sim/sim.ts')];
+    while (queue.length) {
+      const file = queue.pop()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const code = readFileSync(file, 'utf8');
+      for (const m of code.matchAll(/from\s+'(\.[^']+)'/g)) {
+        const target = join(file, '..', `${m[1]}.ts`);
+        queue.push(target);
+      }
+    }
+    const bad = [...seen]
+      .map((f) => f.slice(src.length + 1).replace(/\\/g, '/'))
+      .filter((f) => /^(render|audio|ui|debug|meta)\/|^main\.ts$/.test(f));
+    expect(bad).toEqual([]);
+    expect(seen.size).toBeGreaterThan(5);
+  });
 });

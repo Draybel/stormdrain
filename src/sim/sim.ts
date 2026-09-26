@@ -34,6 +34,9 @@ export interface SimSummary {
 export class Sim {
   readonly seed: number;
   readonly world: World;
+  /** Queue size / drop counter at the end of the last step (what consumers have drained). */
+  private seenCount = 0;
+  private seenDropped = 0;
 
   constructor(opts: SimOptions = {}) {
     this.seed = seedToU32(opts.seed ?? 1);
@@ -71,15 +74,23 @@ export class Sim {
     if (!placed) w.player.placeAt(cellCenterX(6), cellCenterY(3));
   }
 
-  /** Advances one fixed tick (1/60 s). Clears last tick's events first. */
+  /**
+   * Advances one fixed tick (1/60 s). First drops the events that were already in the queue
+   * after the previous step (consumers drain after every step); events emitted between steps
+   * by the debug hooks below survive, so render/audio still see e.g. a debug hurt.
+   */
   step(input: InputState): void {
     const w = this.world;
-    w.events.clear();
+    const q = w.events;
+    // Events overwritten since then were among the already-seen ones.
+    q.discard(this.seenCount - (q.dropped - this.seenDropped));
     w.tick++;
     w.time += DT;
     updatePlayer(w, input, DT);
     updateProjectiles(w, DT);
     updateDummies(w, DT);
+    this.seenCount = q.count;
+    this.seenDropped = q.dropped;
   }
 
   // ── Debug hooks (used by __SD.debug and tests) ────────────────────────────

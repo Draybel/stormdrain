@@ -52,6 +52,20 @@ describe('EventQueue', () => {
     q.emit('pop', 1, 2, 3, 4, 'dummy');
     expect(q.at(0)).toMatchObject({ type: 'pop', x: 1, y: 2, a: 3, b: 4, id: 'dummy' });
   });
+
+  it('discards the oldest events, wrapping around the ring', () => {
+    const q = new EventQueue(4);
+    for (let i = 0; i < 6; i++) q.emit('hit', i, 0, i); // holds 2..5, head wrapped
+    q.discard(3);
+    expect(q.count).toBe(1);
+    expect(q.at(0).a).toBe(5);
+    q.emit('pop', 0, 0, 6);
+    expect([q.at(0).a, q.at(1).a]).toEqual([5, 6]);
+    q.discard(0);
+    expect(q.count).toBe(2);
+    q.discard(99);
+    expect(q.count).toBe(0);
+  });
 });
 
 describe('VirtualStick', () => {
@@ -70,6 +84,22 @@ describe('VirtualStick', () => {
     s.end();
     expect(s.active).toBe(false);
     expect(s.outX).toBe(0);
+  });
+
+  it('move stick reaches full output a little before the rim (saturation)', () => {
+    const s = new VirtualStick(MOVE_STICK);
+    s.begin(1, 0, 0);
+    s.move(MOVE_STICK.radius * MOVE_STICK.saturation, 0);
+    expect(s.outX).toBeCloseTo(1, 5);
+    s.move(MOVE_STICK.radius * 0.95, 0);
+    expect(s.outX).toBe(1);
+    // Output grows monotonically from the deadzone edge to the saturation point.
+    let prev = 0;
+    for (let d = MOVE_STICK.radius * MOVE_STICK.deadzone + 0.5; d <= MOVE_STICK.radius; d += 0.5) {
+      s.move(d, 0);
+      expect(s.outX).toBeGreaterThanOrEqual(prev);
+      prev = s.outX;
+    }
   });
 
   it('move stick magnetises near-axis input onto the axis', () => {

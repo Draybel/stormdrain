@@ -121,7 +121,7 @@ export function updateProjectiles(w: World, dt: number): void {
       p.y += sy;
       if (circleOverlapsGrid(room, p.x, p.y, tileR, SHOT_MODE)) {
         // Splash just outside the obstacle.
-        w.events.emit('splash', p.x - sx, p.y - sy, 1);
+        w.events.emit('splash', p.x - sx, p.y - sy, 1, p.z);
         dead = true;
         break;
       }

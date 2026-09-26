@@ -156,7 +156,9 @@ export class RunScene implements Scene {
       const t = 'WASD MOVE · ARROWS SHOOT · ESC PAUSE';
       drawText(ctx, t, (GAME_W - measureText(t)) / 2, ROOM_OUTER_Y - 22, HINT);
     }
-    for (const b of this.ui.all) {
+    const all = this.ui.all;
+    for (let i = 0; i < all.length; i++) {
+      const b = all[i]!;
       if (b === this.ui.map) drawMinimapButton(ctx, b);
       else drawHudButton(ctx, b);
     }

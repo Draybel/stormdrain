@@ -80,7 +80,8 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
   Esc/P pause, Tab map, Backquote (`) debug menu.
 - Audio unlocks on the first pointerdown/touchend/keydown (resume AudioContext + silent buffer).
 - `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run**, suspend audio.
-- Portrait orientation (height > width): draw a "rotate your phone" screen and pause.
+- Portrait orientation (height > width): draw a "rotate your phone" screen, pause, and ignore pointer-downs and menu
+  keys (the hidden UI underneath must not be pressable).
 
 ---
 
@@ -90,8 +91,9 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
   **ring-buffer event queue** of `GameEvent`s (`{type, x, y, a, b, id}` numeric/string fields, pooled) that render
   and audio consume: sfx names, hits, deaths, explosions, shake, flash, pickup text, room enter, boss intro, etc.
 - `new Sim(options)` can be stepped in node: `sim.step(input)`; tests/bot/stress use this directly.
-  Options: `{ seed?, character?, room? }`. `step()` clears the event queue first, so after a step the queue holds
-  exactly that tick's events; consumers must drain it after every step (the run scene does, per tick).
+  Options: `{ seed?, character?, room? }`. `step()` first discards the events that were in the queue after the
+  previous step, so after a step the queue holds that tick's events (preceded by any emitted between ticks, e.g. by
+  debug hooks like `sim.hurtPlayer()`); consumers must drain it after every step (the run scene does, per tick).
   Event types and their field meanings are documented in `src/engine/events.ts`.
 - Feel constants (acceleration, marble drop, dummy spring...) live in `src/sim/tuning.ts`, not in logic files.
 - **Seeded RNG** (`engine/rng.ts`, sfc32 or mulberry32; state serializable). Streams:

@@ -42,18 +42,23 @@ export class WorldFx {
           P.spawn(x, y, 0, 6, 0.2, GLOW.rim);
           break;
         }
-        const n = e.a === 1 ? 7 : 5;
+        // Burst where the marble visibly was (b = its height), droplets rain down to the floor.
+        const wall = e.a === 1;
+        const by = y - e.b;
+        const flash = P.spawn(x, by, 0, 0, wall ? 0.08 : 0.06, GLOW.hot, wall ? 4 : 3);
+        if (flash) flash.endSize = 1;
+        const n = wall ? 8 : 6;
         for (let i = 0; i < n; i++) {
           const ang = Math.random() * Math.PI * 2;
-          const sp = 25 + Math.random() * 45;
-          const p = P.spawn(x, y - (e.a === 1 ? 4 : 0), Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 30, 0.28 + Math.random() * 0.15, MARBLE_BITS[i & 3]!);
+          const sp = 30 + Math.random() * 50;
+          const p = P.spawn(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 35, 0.3 + Math.random() * 0.18, MARBLE_BITS[i & 3]!, i < 2 ? 2 : 1);
           if (!p) break;
-          p.gravity = 260;
+          p.gravity = 300;
           p.drag = 2;
-          p.floorY = y + 2;
+          p.floorY = y + 1 + Math.random() * 2;
         }
-        const ring = P.spawn(x, y, 0, 0, 0.22, e.a === 1 ? GLOW.core : WATER_RING, 1, P_RING);
-        if (ring) ring.endSize = 5;
+        const ring = P.spawn(x, y, 0, 0, wall ? 0.22 : 0.28, wall ? GLOW.core : WATER_RING, 1, P_RING);
+        if (ring) ring.endSize = wall ? 5 : 6;
         break;
       }
       case 'hit': {

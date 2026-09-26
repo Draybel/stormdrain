@@ -1,14 +1,17 @@
 /**
  * GameEvent ring buffer: the ONLY way the headless sim talks to render/audio.
  * Event objects are preallocated and reused; `emit` never allocates.
- * The sim clears the queue at the start of every step, so after `sim.step()` the queue holds
- * exactly that tick's events. When full, the oldest event is overwritten (and counted).
+ * At the start of every step the sim discards the events consumers already saw after the
+ * previous step, so after `sim.step()` the queue holds that tick's events (preceded by anything
+ * emitted between ticks, e.g. by debug hooks). When full, the oldest event is overwritten
+ * (and counted).
  */
 
 export type GameEventType =
   /** player fired: x,y = muzzle (room px), a,b = direction */
   | 'shoot'
-  /** marble ended: x,y = where; a = 1 hit a wall/rock, 0 landed on floor, 2 fell into a pit */
+  /** marble ended: x,y = ground position; a = 1 hit a wall/rock/target, 0 landed on floor, 2 fell into a pit;
+   *  b = height above the ground (px) where it burst */
   | 'splash'
   /** something took damage: x,y = where; a = damage; b = remaining hp; id = target kind */
   | 'hit'
@@ -75,5 +78,16 @@ export class EventQueue {
   clear(): void {
     this.head = 0;
     this.count = 0;
+  }
+
+  /** Drops the `n` oldest events (all of them if n >= count). */
+  discard(n: number): void {
+    if (n <= 0) return;
+    if (n >= this.count) {
+      this.clear();
+      return;
+    }
+    this.head = (this.head + n) % this.capacity;
+    this.count -= n;
   }
 }

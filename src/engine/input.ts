@@ -196,6 +196,9 @@ export class Input {
   // ── Pointer events ────────────────────────────────────────────────────────
   private readonly onPointerDown = (e: PointerEvent): void => {
     e.preventDefault();
+    // Portrait shows the rotate card over an invisible game: nothing underneath may be pressed
+    // (a tap where "Resume" would be must not unpause the run behind the card).
+    if (this.display.portrait) return;
     if (e.pointerType === 'mouse') {
       if (e.button !== 0) return;
       this.lastDevice = 'mouse';
@@ -296,6 +299,7 @@ export class Input {
       this.onDebugToggle?.();
       return;
     }
+    if (this.display.portrait) return; // menus are hidden behind the rotate card
     if (this.keyHandler?.(code)) return;
     const s = this.state;
     switch (code) {

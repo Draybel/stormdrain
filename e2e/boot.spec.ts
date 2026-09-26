@@ -140,6 +140,12 @@ test('portrait shows the rotate screen and pauses the run', async ({ page }) => 
   await page.setViewportSize({ width: vp.height, height: vp.width });
   await page.waitForFunction(() => window.__SD.portrait === true);
   await waitScene(page, 'pause');
+  // The pause menu is hidden behind the rotate card: tapping where "Resume" would be (and
+  // pressing Escape) must not unpause the run.
+  await tap(page, 'pause.resume');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  expect(await scene(page)).toBe('pause');
   await page.setViewportSize(vp);
   await page.waitForFunction(() => window.__SD.portrait === false);
   expect(await scene(page)).toBe('pause');

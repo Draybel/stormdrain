@@ -5,16 +5,17 @@ import { GAME_H, GAME_W } from '../engine/screen';
 import { UI } from '../content/sprites/palette';
 import { MARBLE_SPRITE } from '../content/sprites/props';
 import { WREN_FRAME, WREN_SPRITE } from '../content/sprites/wren';
-import { drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
+import { bakeText, drawText, measureText, type TextStyle } from '../render/font';
 import { P_RING, P_STREAK } from '../render/particles';
-import { drawShadow, glowSprite } from '../render/pixel';
+import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from '../render/pixel';
 import { drawSpriteAnchored } from '../render/sprites';
 import { TITLE_GROUND_Y, buildLogo, buildTitleBackdrop } from '../render/titleArt';
 import type { App } from './app';
 import type { Scene } from './scene';
-import { drawMenuButton, tickButtons, uiButton, type UiButton } from './widgets';
+import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
 
-const SUBTITLE: TextStyle = { color: '#9fb0d6', shadow: UI.shadow };
+/** Outlined so it stays crisp where it crosses the arch bricks. */
+const SUBTITLE: TextStyle = { color: '#b4c3e6', outline: '#07080d', shadow: '#07080d' };
 const VERSION: TextStyle = { color: '#4b5776' };
 const RAIN = 'rgba(160,190,235,0.55)';
 const RAIN_FAR = 'rgba(120,150,200,0.3)';
@@ -22,6 +23,11 @@ const SPLASH = 'rgba(170,200,240,0.5)';
 
 let backdrop: HTMLCanvasElement | null = null;
 let logo: HTMLCanvasElement | null = null;
+let subtitle: HTMLCanvasElement | null = null;
+
+/** Marble trail leading from Wren into the drain (static, so no per-frame arrays). */
+const TRAIL_X = [124, 140, 157, 175, 192] as const;
+const TRAIL_Y = [TITLE_GROUND_Y + 1, TITLE_GROUND_Y + 3, TITLE_GROUND_Y + 2, TITLE_GROUND_Y + 4, TITLE_GROUND_Y + 1] as const;
 
 export class TitleScene implements Scene {
   readonly name = 'title';
@@ -33,7 +39,7 @@ export class TitleScene implements Scene {
   private rainAcc = 0;
   private lightning = 0;
   private nextStrike = 3;
-  private readonly glow = glowSprite(6, '255,176,80', 0.45);
+  private readonly glow = glowSprite(7, MARBLE_GLOW_RGB, 0.7);
 
   constructor(app: App) {
     this.app = app;
@@ -71,6 +77,7 @@ export class TitleScene implements Scene {
   enter(): void {
     backdrop ??= buildTitleBackdrop();
     logo ??= buildLogo();
+    subtitle ??= bakeText('FOLLOW THE GLOWING MARBLES', SUBTITLE);
     this.app.particles.clear();
     this.app.shake.reset();
     // Pre-fill the rain so the first frame is already stormy.
@@ -132,21 +139,16 @@ export class TitleScene implements Scene {
 
     // Wren on the ledge, and the trail of glowing marbles leading into the drain.
     const t = this.time;
-    const trail = [
-      [124, TITLE_GROUND_Y + 1],
-      [140, TITLE_GROUND_Y + 3],
-      [157, TITLE_GROUND_Y + 2],
-      [175, TITLE_GROUND_Y + 4],
-      [192, TITLE_GROUND_Y + 1],
-    ] as const;
-    for (const [x, y] of trail) drawShadow(ctx, x, y + 1, 5);
+    const n = TRAIL_X.length;
+    for (let i = 0; i < n; i++) drawShadow(ctx, TRAIL_X[i]!, TRAIL_Y[i]! + 1, 5);
     ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < trail.length; i++) {
-      const [x, y] = trail[i]!;
-      if (Math.sin(t * 2.2 - i * 0.9) > -0.2) ctx.drawImage(this.glow, x - 6, y - 4 - 6);
+    const gh = this.glow.width >> 1;
+    for (let i = 0; i < n; i++) {
+      // Each marble pulses in turn, like a trail being followed into the dark.
+      if (Math.sin(t * 2.2 - i * 0.9) > -0.2) ctx.drawImage(this.glow, TRAIL_X[i]! - gh, TRAIL_Y[i]! - 3 - gh);
     }
     ctx.globalCompositeOperation = 'source-over';
-    for (const [x, y] of trail) drawSpriteAnchored(ctx, MARBLE_SPRITE, 0, x, y - 3);
+    for (let i = 0; i < n; i++) drawSpriteAnchored(ctx, MARBLE_SPRITE, 0, TRAIL_X[i]!, TRAIL_Y[i]! - 3);
     drawShadow(ctx, 104, TITLE_GROUND_Y + 1, 11);
     drawSpriteAnchored(ctx, WREN_SPRITE, WREN_FRAME.sideTogether, 104, TITLE_GROUND_Y + 1);
 
@@ -155,9 +157,10 @@ export class TitleScene implements Scene {
     const lg = logo!;
     const bob = Math.round(Math.sin(t * 1.3) * 1);
     ctx.drawImage(lg, Math.round((GAME_W - lg.width) / 2), 14 + bob);
-    drawTextCentered(ctx, 'FOLLOW THE GLOWING MARBLES', GAME_W / 2, 50, SUBTITLE);
+    const sub = subtitle!;
+    ctx.drawImage(sub, Math.round((GAME_W - sub.width) / 2), 49);
 
-    for (const b of this.buttons) drawMenuButton(ctx, b);
+    drawMenuButtons(ctx, this.buttons);
     const v = 'V0.1';
     drawText(ctx, v, GAME_W - measureText(v) - 4, GAME_H - 8, VERSION);
   }

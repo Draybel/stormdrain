@@ -60,7 +60,7 @@ export function hitDummyWithShot(w: World, p: Projectile): boolean {
     const nx = sp > 1e-6 ? p.vx / sp : 0;
     const ny = sp > 1e-6 ? p.vy / sp : 0;
     damageDummy(w, d, p.damage, nx, ny, p.knockback);
-    w.events.emit('splash', p.x, p.y, 1);
+    w.events.emit('splash', p.x, p.y, 1, p.z);
     return true;
   }
   return false;

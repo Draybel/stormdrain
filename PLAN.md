@@ -21,6 +21,8 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [x] Audio engine with iOS unlock, a few procedural SFX
 - [x] Scene manager (title → run), rotate-phone screen, lifecycle pause
 - [x] Headless `Sim` skeleton stepping in node; first vitest tests; playwright boot smoke test
+- [x] Independent verification pass: Input unit tests + multi-touch/safe-area e2e, portrait tap-through fix,
+      movement retune (0.08 s start / 0.1 s stop), glyph/HUD/glow/splash visual fixes, debug events no longer lost
 
 ## Phase 2 — Combat & the attack pipeline
 - [ ] Types for items/effects/stats; content registries via import.meta.glob with duplicate-id checks

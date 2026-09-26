@@ -98,9 +98,13 @@ export class SceneManager {
   }
 
   render(ctx: CanvasRenderingContext2D, alpha: number): void {
-    let base = this.stack.length - 1;
+    const topIndex = this.stack.length - 1;
+    let base = topIndex;
     while (base > 0 && this.stack[base]!.overlay) base--;
-    for (let i = Math.max(0, base); i < this.stack.length; i++) this.stack[i]!.render(ctx, alpha);
+    // Scenes under an overlay are frozen (no ticks), so draw them at their latest tick
+    // (alpha 1): interpolating a frozen prev→cur pair would make moving things shimmer
+    // on displays faster than 60 Hz.
+    for (let i = Math.max(0, base); i <= topIndex; i++) this.stack[i]!.render(ctx, i === topIndex ? alpha : 1);
     if (this.fade > 0) {
       ctx.globalAlpha = this.fade;
       ctx.fillStyle = '#000';

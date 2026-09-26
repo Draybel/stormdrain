@@ -6,10 +6,10 @@
 export const PLAYER_TUNING = {
   /** Collision circle radius (centred on the feet). */
   radius: 5,
-  /** Acceleration while the stick is pushed (px/s²). ~4 ticks to top speed. */
-  accel: 1500,
-  /** Deceleration when released (px/s²). Gives a ~5 px "short slide". */
-  decel: 1150,
+  /** Acceleration while the stick is pushed (px/s²): 96 px/s top speed in 0.08 s (5 ticks). */
+  accel: 1200,
+  /** Deceleration when released (px/s²): stops in 0.1 s (6 ticks) with a ~4 px "short slide". */
+  decel: 960,
   /** Accel multiplier while pushing against the current velocity (snappy reversals). */
   turnBoost: 1.75,
   /** Height above the ground a marble is released at (px) — eye level. */

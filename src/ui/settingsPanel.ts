@@ -11,7 +11,7 @@ import { drawTextCentered, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
 import type { App } from './app';
 import type { Scene } from './scene';
-import { drawMenuButton, tickButtons, uiButton, type UiButton } from './widgets';
+import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
 
 const TITLE: TextStyle = { color: UI.accent, shadow: UI.shadow, scale: 2 };
 const NOTE: TextStyle = { color: UI.textDim, shadow: UI.shadow };
@@ -47,7 +47,7 @@ export class SettingsScene implements Scene {
       y: row(0),
       w: bw,
       h: 26,
-      textScale: 1,
+      textScale: 2,
       onActivate: click(() => app.settings.update({ aim360: !app.settings.value.aim360 })),
     });
     this.size = uiButton({
@@ -56,7 +56,7 @@ export class SettingsScene implements Scene {
       y: row(1),
       w: bw,
       h: 26,
-      textScale: 1,
+      textScale: 2,
       onActivate: click(() => app.settings.update({ buttonScale: cycle(BUTTON_SCALES, app.settings.value.buttonScale as (typeof BUTTON_SCALES)[number]) })),
     });
     this.shake = uiButton({
@@ -65,7 +65,7 @@ export class SettingsScene implements Scene {
       y: row(2),
       w: bw,
       h: 26,
-      textScale: 1,
+      textScale: 2,
       onActivate: click(() => app.settings.update({ shake: cycle(SHAKE_LEVELS, app.settings.value.shake as (typeof SHAKE_LEVELS)[number]) })),
     });
     const back = uiButton({
@@ -114,7 +114,7 @@ export class SettingsScene implements Scene {
     const py = (GAME_H - PANEL_H) / 2;
     drawPanel(ctx, px, py, PANEL_W, PANEL_H, UI.panel, UI.border, UI.panelLight);
     drawTextCentered(ctx, 'SETTINGS', GAME_W / 2, py + 9, TITLE);
-    for (const b of this.buttons) drawMenuButton(ctx, b);
+    drawMenuButtons(ctx, this.buttons);
     drawTextCentered(ctx, 'MORE OPTIONS COMING SOON', GAME_W / 2, py + PANEL_H + 5, NOTE);
   }
 }

@@ -36,7 +36,7 @@ const GLYPHS: Readonly<Record<string, string>> = {
   T: '###|.#.|.#.|.#.|.#.',
   U: '#.#|#.#|#.#|#.#|###',
   V: '#.#|#.#|#.#|#.#|.#.',
-  W: '#...#|#...#|#.#.#|##.##|#...#',
+  W: '#...#|#...#|#.#.#|#.#.#|.#.#.',
   X: '#.#|#.#|.#.|#.#|#.#',
   Y: '#.#|#.#|.#.|.#.|.#.',
   Z: '###|..#|.#.|#..|###',
@@ -214,13 +214,25 @@ export function drawTextCentered(
   }
 }
 
-/** Bake a whole string into a canvas once (for logos and other static text). */
-export function bakeText(text: string, style: TextStyle): HTMLCanvasElement {
+/**
+ * Bake a whole string into a canvas once (for logos and other static text).
+ * Multi-line text is centred line by line unless `align` is 'left'.
+ */
+export function bakeText(text: string, style: TextStyle, align: 'left' | 'center' = 'center'): HTMLCanvasElement {
   const s = style.scale ?? 1;
   const pad = style.outline ? 1 : 0;
   const extraBottom = style.shadow ? (style.outline ? 2 : s) : 0;
-  const lines = text.split('\n').length;
-  const c = makeCanvas(measureText(text, s) + pad * 2 + (style.shadow && !style.outline ? s : 0), textHeight(lines, s) + pad * 2 + extraBottom);
-  drawText(ctx2d(c), text, pad, pad, style);
+  const lines = text.split('\n');
+  const w = measureText(text, s);
+  const c = makeCanvas(w + pad * 2 + (style.shadow && !style.outline ? s : 0), textHeight(lines.length, s) + pad * 2 + extraBottom);
+  const ctx = ctx2d(c);
+  if (align === 'left' || lines.length === 1) {
+    drawText(ctx, text, pad, pad, style);
+  } else {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      drawText(ctx, line, pad + Math.floor((w - measureText(line, s)) / 2), pad + i * LINE_H * s, style);
+    }
+  }
   return c;
 }

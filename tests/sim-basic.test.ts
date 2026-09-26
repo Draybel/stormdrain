@@ -168,24 +168,65 @@ describe('headless sim', () => {
     expect(st.events.hit).toBeGreaterThanOrEqual(1);
   });
 
-  it('movement feels snappy: fast start, short slide, analog speed', () => {
+  it('movement feels snappy: full speed in ~0.08-0.12 s, stops in ~0.1 s, short slide', () => {
     const sim = makeSim();
     const p = sim.world.player;
     const top = WREN.stats.moveSpeed;
-    stepN(sim, makeInput({ moveY: 1 }), 5);
-    expect(Math.hypot(p.vx, p.vy)).toBeGreaterThanOrEqual(top * 0.99);
-    const y0 = p.y;
+    const speed = (): number => Math.hypot(p.vx, p.vy);
+    // Open floor: walk down column 2 (clear to the bottom wall).
     let ticks = 0;
-    while (Math.hypot(p.vx, p.vy) > 0 && ticks < 60) {
+    while (speed() < top - 1e-6 && ticks < 60) {
+      stepN(sim, makeInput({ moveY: 1 }), 1);
+      ticks++;
+    }
+    const startTime = ticks / 60;
+    expect(startTime).toBeGreaterThanOrEqual(0.07);
+    expect(startTime).toBeLessThanOrEqual(0.12);
+    // Not sluggish either: half speed within 3 ticks.
+    const half = makeSim();
+    stepN(half, makeInput({ moveY: 1 }), 3);
+    expect(Math.hypot(half.world.player.vx, half.world.player.vy)).toBeGreaterThanOrEqual(top / 2);
+
+    const y0 = p.y;
+    ticks = 0;
+    while (speed() > 1e-6 && ticks < 60) {
       stepN(sim, makeInput(), 1);
       ticks++;
     }
-    expect(ticks).toBeLessThanOrEqual(6);
-    expect(p.y - y0).toBeLessThan(8);
+    const stopTime = ticks / 60;
+    expect(stopTime).toBeGreaterThanOrEqual(0.08);
+    expect(stopTime).toBeLessThanOrEqual(0.12);
+    expect(p.y - y0).toBeLessThan(6); // short slide
+  });
 
+  it('analog stick magnitude sets the walking speed; diagonals are never faster', () => {
+    const top = WREN.stats.moveSpeed;
     const analog = makeSim();
     stepN(analog, makeInput({ moveX: 0.5 }), 30);
     expect(analog.world.player.vx).toBeCloseTo(top * 0.5, 3);
+
+    // Row 2 is open floor: walk diagonally (unnormalized input) away from everything.
+    const diag = makeSim();
+    diag.world.player.placeAt(40, 40);
+    stepN(diag, makeInput({ moveX: 1, moveY: 1 }), 12);
+    const p = diag.world.player;
+    expect(Math.hypot(p.vx, p.vy)).toBeCloseTo(top, 3);
+    expect(p.vx).toBeCloseTo(p.vy, 5);
+  });
+
+  it('reversing direction is quicker than starting from rest (turn boost)', () => {
+    const sim = makeSim();
+    const p = sim.world.player;
+    p.placeAt(100, 40); // row 2: open floor both ways
+    stepN(sim, makeInput({ moveX: 1 }), 12);
+    expect(p.vx).toBeCloseTo(WREN.stats.moveSpeed, 3);
+    let ticks = 0;
+    while (p.vx > 0 && ticks < 60) {
+      stepN(sim, makeInput({ moveX: -1 }), 1);
+      ticks++;
+    }
+    // Braking to zero under reverse input beats coasting to a stop.
+    expect(ticks).toBeLessThanOrEqual(4);
   });
 
   it('marbles inherit some player velocity and alternate eyes', () => {
@@ -222,6 +263,20 @@ describe('headless sim', () => {
       return JSON.stringify(sim.summary());
     };
     expect(run()).toBe(run());
+  });
+
+  it('events emitted between ticks (debug hooks) reach the next drain exactly once', () => {
+    const sim = makeSim();
+    const st = stepN(sim, makeInput({ aimX: 1, aimY: 0, fireHeld: true }), 21); // shots on ticks 1 and 21
+    expect(st.events.shoot).toBe(2);
+    sim.hurtPlayer(1);
+    const a = stepN(sim, makeInput(), 1);
+    expect(a.events.hurt).toBe(1);
+    expect(a.events.shoot).toBeUndefined(); // last step's shot was already consumed
+    const b = stepN(sim, makeInput(), 1);
+    expect(b.events.hurt).toBeUndefined();
+    sim.killPlayer();
+    expect(stepN(sim, makeInput(), 1).events.death).toBe(1);
   });
 
   it('hurt and death debug hooks drive the player state', () => {

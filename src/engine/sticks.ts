@@ -16,6 +16,11 @@ export interface StickConfig {
   follow: boolean;
   /** Snap near-axis movement onto the axis (radians); 0 disables. Helps walking straight. */
   axisMagnet: number;
+  /**
+   * Fraction of the radius where the analog output already reaches 1, so full speed doesn't
+   * demand pinning the thumb exactly on the rim (1 = linear all the way out).
+   */
+  saturation: number;
 }
 
 export const MOVE_STICK: StickConfig = {
@@ -24,6 +29,7 @@ export const MOVE_STICK: StickConfig = {
   activation: 0,
   follow: true,
   axisMagnet: 7 * DEG,
+  saturation: 0.85,
 };
 
 export const AIM_STICK: StickConfig = {
@@ -32,6 +38,7 @@ export const AIM_STICK: StickConfig = {
   activation: 3,
   follow: true,
   axisMagnet: 0,
+  saturation: 1,
 };
 
 /** 4-way aim keeps the current direction until the thumb is this far off-axis (45° + margin). */
@@ -131,7 +138,7 @@ export class VirtualStick {
           uy = Math.round(Math.sin(q));
         }
       }
-      const mag = (m - c.deadzone) / (1 - c.deadzone);
+      const mag = Math.min(1, (m - c.deadzone) / (c.saturation - c.deadzone));
       this.outX = ux * mag;
       this.outY = uy * mag;
     }
