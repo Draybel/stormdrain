@@ -30,7 +30,8 @@ export default defineConfig({
       use: {
         browserName: 'webkit',
         viewport: { width: 852, height: 393 },
-        screen: { width: 852, height: 393 },
+        // `screen` is a context option, not a test fixture option.
+        contextOptions: { screen: { width: 852, height: 393 } },
         deviceScaleFactor: 3,
         isMobile: true,
         hasTouch: true,

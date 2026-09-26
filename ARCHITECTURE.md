@@ -90,6 +90,10 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
   **ring-buffer event queue** of `GameEvent`s (`{type, x, y, a, b, id}` numeric/string fields, pooled) that render
   and audio consume: sfx names, hits, deaths, explosions, shake, flash, pickup text, room enter, boss intro, etc.
 - `new Sim(options)` can be stepped in node: `sim.step(input)`; tests/bot/stress use this directly.
+  Options: `{ seed?, character?, room? }`. `step()` clears the event queue first, so after a step the queue holds
+  exactly that tick's events; consumers must drain it after every step (the run scene does, per tick).
+  Event types and their field meanings are documented in `src/engine/events.ts`.
+- Feel constants (acceleration, marble drop, dummy spring...) live in `src/sim/tuning.ts`, not in logic files.
 - **Seeded RNG** (`engine/rng.ts`, sfc32 or mulberry32; state serializable). Streams:
   - `floorRng(seed, floorIndex, track)` → floor layout, room templates, pre-rolled pedestal items/shop stock.
     Floor contents depend ONLY on (seed, floor, track, meta-unlocks snapshot taken at run start) — never on play.
@@ -215,6 +219,8 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 - `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7] }` (13 chars/row).
   Legend: `.` floor `#` rock `$` tinted rock `M` metal `O` pit `^` spikes `f` fire `x` crate `u` urn `e` enemy spawn
   `E` strong/elite spawn `c` chest spot `p` pickup spot `i` item pedestal `S` shop slot `B` boss spawn.
+  Test-only markers (Phase 1 training room, `src/content/testRoom.ts`, deliberately outside `content/rooms/`):
+  `@` player start, `D` training dummy.
 - `CharacterDef { id, name, desc, stats, hearts, startItems, startPickups, sprite, mechanic: hookId, unlock? }`.
 - `ChapterDef { id, name, floors: [n, n+1], track: 'main'|'alt', palette, tileset, enemyPool, bossPool, minibossPool,
   music, curses? }`.
@@ -240,6 +246,12 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   background/pause. Title screen shows **Continue** when a run save exists.
 - Export/Import: `SD1:` + base64(JSON envelope) with checksum; import validates and migrates.
 
+## 7b. Scenes & UI
+- `ui/scene.ts` is a stack: the top scene gets updates and keys and owns the hit-testable buttons; `overlay` scenes
+  (pause, settings) draw over the scene below. Scenes never import each other: navigation goes through `App.nav`
+  (built in `main.ts`). Menu buttons are canvas-drawn `UiButton`s (>= 24 game px tall, about 44 pt).
+- Debug perf overlay: Backquote on desktop, three-finger tap on touch screens.
+
 ## 8. Rendering & audio
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
   White hit-flash and tinted variants cached lazily. Animations: idle/walk, hurt, death.
@@ -252,4 +264,8 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
   fps, `sim` handle) and `__SD.debug` actions (god mode, spawn, skip floor) used by E2E and the debug menu.
+  Current shape (`src/debug/sdHooks.ts`): `scene`, `stack`, `fps`, `ticks`, `view` (game image rect in CSS px +
+  `scale` = CSS px per game px), `safe`, `portrait`, `buttons()` / `button(id)` (game rect + `css` rect with centre
+  `cx, cy` for taps), `sim`, `run()` (SimSummary), `counts`, `debug.{overlay, hurt, kill, aim360, newRun, title, pause}`.
+  Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`).
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

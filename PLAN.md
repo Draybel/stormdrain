@@ -12,15 +12,15 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [x] ARCHITECTURE.md, DESIGN.md, PLAN.md, DECISIONS.md
 
 ## Phase 1 — Engine core (boots on iPhone, Wren moves and shoots in a room)
-- [ ] index.html with iOS full-screen meta tags, safe-area CSS, no scroll/zoom/select/callout
-- [ ] Display: 384×192 back-buffer, nearest-neighbor scale-to-fit inside safe area, letterbox, DPR aware, resize/orientation
-- [ ] Fixed 60 Hz loop with accumulator; perf counters
-- [ ] Input: pointer multi-touch floating sticks (4-dir snap + 360 option), buttons hit-tested first; keyboard
-- [ ] Seeded RNG, math/vec utils, pools, event ring buffer
-- [ ] Sprite system (pixel maps + palettes → cached canvases, flash variants), pixel font, Wren sprite w/ walk/hurt/death
-- [ ] Audio engine with iOS unlock, a few procedural SFX
-- [ ] Scene manager (title → run), rotate-phone screen, lifecycle pause
-- [ ] Headless `Sim` skeleton stepping in node; first vitest tests; playwright boot smoke test
+- [x] index.html with iOS full-screen meta tags, safe-area CSS, no scroll/zoom/select/callout
+- [x] Display: 384×192 back-buffer, nearest-neighbor scale-to-fit inside safe area, letterbox, DPR aware, resize/orientation
+- [x] Fixed 60 Hz loop with accumulator; perf counters
+- [x] Input: pointer multi-touch floating sticks (4-dir snap + 360 option), buttons hit-tested first; keyboard
+- [x] Seeded RNG, math/vec utils, pools, event ring buffer
+- [x] Sprite system (pixel maps + palettes → cached canvases, flash variants), pixel font, Wren sprite w/ walk/hurt/death
+- [x] Audio engine with iOS unlock, a few procedural SFX
+- [x] Scene manager (title → run), rotate-phone screen, lifecycle pause
+- [x] Headless `Sim` skeleton stepping in node; first vitest tests; playwright boot smoke test
 
 ## Phase 2 — Combat & the attack pipeline
 - [ ] Types for items/effects/stats; content registries via import.meta.glob with duplicate-id checks
