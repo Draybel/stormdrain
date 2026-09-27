@@ -16,3 +16,11 @@ export const CAP_DUMMIES = 16;
 export const CAP_PICKUPS = 64;
 export const CAP_BOMBS = 16;
 export const CAP_PEDESTALS = 8;
+/** Enemies alive at once (spawned minions and splits included). */
+export const CAP_ENEMIES = 64;
+/** Enemy projectiles (ARCHITECTURE §4.5). */
+export const CAP_ENEMY_SHOTS = 400;
+/** Enemy creep puddles; the oldest is recycled when full. */
+export const CAP_CREEP = 48;
+/** Expanding ground shockwaves. */
+export const CAP_WAVES = 16;

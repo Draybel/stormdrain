@@ -8,11 +8,20 @@ import type { InputState } from '../engine/inputState';
 import { Rng, seedToU32 } from '../engine/rng';
 import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
+import { getEnemy } from '../content/registry';
+import { startWave, updateArena, type WaveOpts } from './arena';
 import { explode, placeBomb, updateBombs } from './bombs';
 import { hurtPlayer, killPlayer } from './combat';
 import { DT } from './constants';
 import { spawnDummy, updateDummies } from './dummies';
 import { floorStarted, giveItem, leftRoom, recomputePlayer, roomCleared, updateEffects } from './effects';
+import { championCode, killEnemy } from './enemies/damage';
+import type { Enemy } from './enemies/enemy';
+import { updateCreep, updateEnemyShots, updateWaves } from './enemies/shots';
+import { spawnEnemy, type SpawnOpts } from './enemies/spawn';
+import { ST_COUNT } from './enemies/status';
+import { sweepEnemies, updateEnemies } from './enemies/update';
+import { SRC_PLAYER } from './hittable';
 import { describeHealth } from './health';
 import { pickItem } from './itemPools';
 import { spawnPedestal, updatePedestals } from './pedestals';
@@ -44,6 +53,21 @@ export interface SimSummary {
   pickups: { kind: string; x: number; y: number; opened: boolean; item: string }[];
   pedestals: { x: number; y: number; item: string }[];
   bombs: number;
+  enemies: {
+    id: string;
+    x: number;
+    y: number;
+    hp: number;
+    maxHp: number;
+    /** Champion id ('' = none). */
+    champion: string;
+    /** Active status indices (sim/enemies/status ST_*). */
+    status: number[];
+    burrowed: boolean;
+  }[];
+  enemyShots: number;
+  creep: number;
+  arena: { active: boolean; wave: number; doors: number };
   inv: {
     coins: number;
     bombs: number;
@@ -66,6 +90,9 @@ export interface SimSummary {
     chestsOpened: number;
     hurts: number;
     roomsCleared: number;
+    enemiesSpawned: number;
+    kills: number;
+    enemyShots: number;
   };
 }
 
@@ -74,8 +101,9 @@ export class Sim {
   readonly world: World;
   /** Room contents (random pedestal items) — separate from loot so play never shifts them. */
   private readonly roomRng: Rng;
-  /** Training-room rule: popping every dummy at once counts as clearing the room. */
-  private trainingRoom = false;
+  /** The training yard (no custom room): popping every dummy at once counts as a room clear, and
+   *  the arena (FIGHT bell / F) is available. */
+  readonly trainingRoom: boolean;
   private allPopped = false;
   /** Queue size / drop counter at the end of the last step (what consumers have drained). */
   private seenCount = 0;
@@ -115,6 +143,12 @@ export class Sim {
     w.pickups.clear();
     w.bombs.clear();
     w.pedestals.clear();
+    w.enemies.clear();
+    w.enemyShots.clear();
+    w.creep.clear();
+    w.waves.clear();
+    w.arena.reset();
+    w.flow.invalidate();
     leftRoom(w);
     let placed = false;
     for (const m of markers) {
@@ -125,6 +159,10 @@ export class Sim {
         placed = true;
       } else if (m.ch === 'D') {
         spawnDummy(w, x, y + 3);
+      } else if (m.ch === 'e') {
+        w.arena.points.push(x, y);
+      } else if (m.ch === 'E') {
+        w.arena.elitePoints.push(x, y);
       }
     }
     if (!placed) w.player.placeAt(cellCenterX(6), cellCenterY(3));
@@ -176,11 +214,18 @@ export class Sim {
     updateEffects(w, DT);
     updatePlayer(w, input, DT);
     updateProjectiles(w, DT);
+    updateEnemies(w, DT);
+    updateEnemyShots(w, DT);
+    updateWaves(w, DT);
+    updateCreep(w, DT);
     updateBombs(w, DT);
     updatePickups(w, DT);
     updatePedestals(w, DT);
     updateHazards(w);
     updateDummies(w, DT);
+    // Explosions and DOTs after the enemy update may have killed some: release them now.
+    sweepEnemies(w);
+    updateArena(w, DT);
     if (this.trainingRoom) this.trainingRoomRules();
     this.seenCount = q.count;
     this.seenDropped = q.dropped;
@@ -208,6 +253,29 @@ export class Sim {
 
   floorStarted(): void {
     floorStarted(this.world);
+  }
+
+  /**
+   * Room combat: spawns a wave (default: 4-6 random chapter 1 enemies at the room's 'e' markers or
+   * free spots) and shuts the doors until they are all dead. Returns how many spawned.
+   */
+  startWave(opts?: WaveOpts): number {
+    return startWave(this.world, opts);
+  }
+
+  /** Spawns one enemy by id at room px (defaults: a spot across the room from the player). */
+  spawnEnemy(id: string, x?: number, y?: number, opts?: SpawnOpts): Enemy | null {
+    const p = this.world.player;
+    const sx = x ?? (p.x < 104 ? 170 : 38);
+    const sy = y ?? 56;
+    return spawnEnemy(this.world, getEnemy(id), sx, sy, opts);
+  }
+
+  /** Debug: kills every enemy (credited to the player). */
+  killEnemies(): void {
+    const pool = this.world.enemies;
+    for (let i = 0; i < pool.count; i++) killEnemy(this.world, pool.items[i]!, SRC_PLAYER);
+    sweepEnemies(this.world);
   }
 
   // ── Debug hooks (used by __SD.debug and tests) ────────────────────────────
@@ -251,6 +319,23 @@ export class Sim {
       const k = w.pickups.items[i]!;
       pickups.push({ kind: pickupName(k.kind), x: k.x, y: k.y, opened: k.opened, item: k.itemId });
     }
+    const enemies: SimSummary['enemies'] = [];
+    for (let i = 0; i < w.enemies.count; i++) {
+      const e = w.enemies.items[i]!;
+      if (e.dead) continue;
+      const status: number[] = [];
+      for (let k = 0; k < ST_COUNT; k++) if (e.status.t[k]! > 0) status.push(k);
+      enemies.push({
+        id: e.def.id,
+        x: e.x,
+        y: e.y,
+        hp: e.hp,
+        maxHp: e.maxHp,
+        champion: championCode(e) > 0 ? e.champion!.id : '',
+        status,
+        burrowed: e.burrowed,
+      });
+    }
     const pedestals: SimSummary['pedestals'] = [];
     for (let i = 0; i < w.pedestals.count; i++) {
       const s = w.pedestals.items[i]!;
@@ -265,6 +350,10 @@ export class Sim {
       pickups,
       pedestals,
       bombs: w.bombs.count,
+      enemies,
+      enemyShots: w.enemyShots.count,
+      creep: w.creep.count,
+      arena: { active: w.arena.active, wave: w.arena.wave, doors: w.arena.doors },
       inv: {
         coins: inv.coins,
         bombs: inv.bombs,

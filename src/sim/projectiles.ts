@@ -11,6 +11,29 @@ import { Tile } from './tiles';
 import { hitTileWithShot } from './tileFx';
 import type { World } from './world';
 import { hitDummyWithShot } from './dummies';
+import { SRC_PLAYER } from './hittable';
+
+/**
+ * Checks a marble against the enemies; the first hittable one it overlaps takes the damage and a
+ * knockback impulse along the shot. Stand-in until the attack pipeline (Phase 2B) owns shot hits.
+ */
+function hitEnemyWithShot(w: World, p: Projectile): boolean {
+  const pool = w.enemies;
+  for (let i = 0; i < pool.count; i++) {
+    const e = pool.items[i]!;
+    if (!e.hittable) continue;
+    const dx = p.x - e.x;
+    const dy = p.y - e.y;
+    const rr = p.r + e.r;
+    if (dx * dx + dy * dy >= rr * rr) continue;
+    const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    const k = sp > 1e-6 ? p.knockback / sp : 0;
+    e.hurt(p.damage, SRC_PLAYER, p.vx * k, p.vy * k);
+    w.events.emit('splash', p.x, p.y, 1, p.z);
+    return true;
+  }
+  return false;
+}
 
 export class Projectile implements Poolable {
   alive = false;
@@ -132,7 +155,7 @@ export function updateProjectiles(w: World, dt: number): void {
         dead = true;
         break;
       }
-      if (hitDummyWithShot(w, p)) {
+      if (hitDummyWithShot(w, p) || hitEnemyWithShot(w, p)) {
         dead = true;
         break;
       }

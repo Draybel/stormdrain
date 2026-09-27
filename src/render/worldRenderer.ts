@@ -1,8 +1,10 @@
 /**
  * Draws the simulated world in layer order (ARCHITECTURE §8):
- * room background → shadows → fires → pedestals/items → pickups → bombs → dummies → player →
- * projectiles (+ additive glow). Positions are interpolated between the last two sim ticks by
- * `alpha` for smooth motion on displays faster than 60 Hz. Nothing here allocates per frame.
+ * room background → doors → floor effects (creep, shockwaves, markers, mounds) → shadows → fires →
+ * pedestals/items → pickups → bombs → dummies → enemies behind the player → player → enemies in
+ * front / in the air → marbles (+ additive glow) → enemy shots. Positions are interpolated between
+ * the last two sim ticks by `alpha` for smooth motion on displays faster than 60 Hz. Nothing here
+ * allocates per frame.
  */
 
 import { lerp } from '../engine/math';
@@ -35,6 +37,8 @@ import {
   TIN_HEART_SPRITE,
 } from '../content/sprites/pickups';
 import { ICON_CONSUMABLE } from '../content/sprites/ui';
+import { drawDoors, prepareDoors } from './doors';
+import { EnemyRenderer } from './enemyRenderer';
 import { ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
 import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from './pixel';
 import { RoomBackground } from './roomBg';
@@ -57,6 +61,7 @@ export function itemIcon(id: string): SpriteDef {
 
 export class WorldRenderer {
   private readonly bg = new RoomBackground();
+  private readonly enemies = new EnemyRenderer();
   /** Warm halo drawn additively under each marble (strong enough to read warm on blue stone). */
   private readonly marbleGlow = glowSprite(7, MARBLE_GLOW_RGB, 0.8);
   private readonly fireGlow = glowSprite(15, '255,120,40', 0.55);
@@ -75,6 +80,8 @@ export class WorldRenderer {
       for (let f = 0; f < s.frames.length; f++) getFrame(s, f);
     }
     getFlash(BOMB_SPRITE, 0);
+    this.enemies.prepare();
+    prepareDoors();
   }
 
   /**
@@ -84,11 +91,13 @@ export class WorldRenderer {
    */
   draw(ctx: CanvasRenderingContext2D, world: World, alpha: number, time: number, sx: number, sy: number): void {
     ctx.drawImage(this.bg.get(world.room), ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy);
+    drawDoors(ctx, world.arena.doors, sx, sy);
     const ox = ROOM_X + sx;
     const oy = ROOM_Y + sy;
     const p = world.player;
     const px = lerp(p.prevX, p.x, alpha) + ox;
     const py = lerp(p.prevY, p.y, alpha) + oy;
+    this.enemies.drawFloor(ctx, world, alpha, ox, oy, time);
 
     // Shadows first so everything stands on the ground.
     const dummies = world.dummies;
@@ -111,6 +120,7 @@ export class WorldRenderer {
       drawShadow(ctx, lerp(b.prevX, b.x, alpha) + ox, lerp(b.prevY, b.y, alpha) + oy + 1, 9);
     }
     drawShadow(ctx, px, py + 3, p.flags.flying ? 9 : 11);
+    this.enemies.drawShadows(ctx, world, alpha, ox, oy);
     const shots = world.projectiles;
     for (let i = 0; i < shots.count; i++) {
       const m = shots.items[i]!;
@@ -122,8 +132,12 @@ export class WorldRenderer {
     this.drawPickups(ctx, world, alpha, ox, oy, time);
     this.drawBombs(ctx, world, alpha, ox, oy);
     this.drawDummies(ctx, world, ox, oy);
+    const playerY = py - oy;
+    this.enemies.drawEnemies(ctx, world, alpha, ox, oy, time, 0, playerY);
     this.drawPlayer(ctx, p, px, py, time);
+    this.enemies.drawEnemies(ctx, world, alpha, ox, oy, time, 1, playerY);
     this.drawMarbles(ctx, world, alpha, ox, oy);
+    this.enemies.drawShots(ctx, world, alpha, ox, oy, time);
   }
 
   private drawFires(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {

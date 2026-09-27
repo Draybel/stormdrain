@@ -15,6 +15,9 @@ interface SpriteCache {
   flipped: Frames;
   flashFlipped: Frames;
   tints: Map<string, Frames>;
+  tintsFlipped: Map<string, Frames>;
+  silhouettes: Map<string, Frames>;
+  silhouettesFlipped: Map<string, Frames>;
   rotated: Map<number, Frames>;
 }
 
@@ -23,16 +26,27 @@ const caches = new WeakMap<SpriteDef, SpriteCache>();
 function cacheFor(def: SpriteDef): SpriteCache {
   let c = caches.get(def);
   if (!c) {
-    c = { normal: [], flash: [], flipped: [], flashFlipped: [], tints: new Map(), rotated: new Map() };
+    c = {
+      normal: [],
+      flash: [],
+      flipped: [],
+      flashFlipped: [],
+      tints: new Map(),
+      tintsFlipped: new Map(),
+      silhouettes: new Map(),
+      silhouettesFlipped: new Map(),
+      rotated: new Map(),
+    };
     caches.set(def, c);
   }
   return c;
 }
 
-type Mode = 0 | 1 | 2;
+type Mode = 0 | 1 | 2 | 3;
 const MODE_NORMAL: Mode = 0;
 const MODE_FLASH: Mode = 1;
 const MODE_TINT: Mode = 2;
+const MODE_SOLID: Mode = 3;
 
 function rasterize(def: SpriteDef, frame: number, mode: Mode, tint?: Uint8ClampedArray): HTMLCanvasElement {
   const rows = def.frames[frame] ?? def.frames[0]!;
@@ -53,6 +67,10 @@ function rasterize(def: SpriteDef, frame: number, mode: Mode, tint?: Uint8Clampe
         d[i] = 255;
         d[i + 1] = 255;
         d[i + 2] = 255;
+      } else if (mode === MODE_SOLID && tint) {
+        d[i] = tint[0]!;
+        d[i + 1] = tint[1]!;
+        d[i + 2] = tint[2]!;
       } else if (mode === MODE_TINT && tint) {
         // Keep shading: scale the tint by the source luminance (outlines stay dark).
         const lum = (0.3 * rgba[0]! + 0.59 * rgba[1]! + 0.11 * rgba[2]!) / 255;
@@ -118,6 +136,32 @@ export function getTinted(def: SpriteDef, frame: number, color: string): HTMLCan
     c.tints.set(color, frames);
   }
   return (frames[frame] ??= rasterize(def, frame, MODE_TINT, parseHexColor(color)));
+}
+
+function framesIn(map: Map<string, Frames>, key: string): Frames {
+  let frames = map.get(key);
+  if (!frames) {
+    frames = [];
+    map.set(key, frames);
+  }
+  return frames;
+}
+
+/** Mirrored colour-tinted variant (cached per colour). */
+export function getTintedFlipped(def: SpriteDef, frame: number, color: string): HTMLCanvasElement {
+  const frames = framesIn(cacheFor(def).tintsFlipped, color);
+  return (frames[frame] ??= mirror(getTinted(def, frame, color)));
+}
+
+/** Solid single-colour silhouette (champion outlines, glows), optionally mirrored; cached per colour. */
+export function getSilhouette(def: SpriteDef, frame: number, color: string, flipX = false): HTMLCanvasElement {
+  const c = cacheFor(def);
+  if (flipX) {
+    const frames = framesIn(c.silhouettesFlipped, color);
+    return (frames[frame] ??= mirror(getSilhouette(def, frame, color, false)));
+  }
+  const frames = framesIn(c.silhouettes, color);
+  return (frames[frame] ??= rasterize(def, frame, MODE_SOLID, parseHexColor(color)));
 }
 
 export function getRotated(def: SpriteDef, frame: number, quarterTurns: number): HTMLCanvasElement {

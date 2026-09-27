@@ -32,7 +32,9 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [ ] ShotStyle composition (color/size/shape/trail), cached shot sprites, beam rendering with glow
 - [ ] Storm Lance full treatment (charge meter, flash, shake, boom, crackle)
 - [ ] Familiars inheriting the profile
-- [ ] Enemy behaviour library + ~6 enemies, enemy projectiles, contact damage, knockback, status effects
+- [x] Enemy behaviour library + ~6 enemies, enemy projectiles, contact damage, knockback, status effects (2C: 13
+      movement kinds, 9 attack kinds, 3 death effects; 8 Gutterways enemies; enemy shots/creep/shockwaves; statuses on
+      enemies + dummies; unified Hittable interface; 7 champion variants; training-yard arena with doors + room clear)
 - [x] Room grid collisions: rocks, pits, spikes, fire, crates, urns, metal; bombs (placed) & explosions (2A)
 - [x] Pickups (coins, bombs, keys, hearts, spark cells, chests) + item pedestals + pickup name/description banner (2A)
 - [x] Inventory (passives w/ duplicates, active + charge room/timed, trinket & consumable slots, counters), effect
@@ -47,6 +49,7 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [ ] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
 - [ ] Room templates schema + ~12 templates; chapter data for chapter 1; tile rendering per chapter palette
 - [ ] Doors (normal, locked, boss, treasure lock, secret wall, cursed spikes), room transitions & clearing, rewards
+      (2C: combat flow — waves at `e`/`E` markers, barred doors while enemies live, roomClear + reward drop — in sim/arena.ts)
 - [ ] HUD (hearts, coins/bombs/keys, active + charge, consumable/trinket, minimap w/ tap-to-expand)
       (everything but the minimap was done in Phase 2A)
 - [ ] Boss framework (phases ≥2, patterns, HP bar, intro card) + 1 boss + 1 miniboss; trapdoor to next floor
@@ -73,7 +76,7 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 ## Phase 6 — Content expansion (parallel)
 - [ ] Passive items → 100+
 - [ ] Active items → 25+ (charge bars), trinkets → 30+, consumables → 20+ (incl. 10 mystery Tonics)
-- [ ] Enemies → 40+ with champion variants
+- [ ] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
 - [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
 - [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
 - [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)

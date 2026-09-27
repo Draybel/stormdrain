@@ -9,6 +9,7 @@
 import type {
   AchievementDef,
   BossDef,
+  ChampionDef,
   ChapterDef,
   CharacterDef,
   DropTableDef,
@@ -77,6 +78,10 @@ export const DROP_TABLES = collectDefs<DropTableDef>(
   'drop table',
   import.meta.glob<DefModule<DropTableDef>>('./drops/*.ts', { eager: true }),
 );
+export const CHAMPIONS = collectDefs<ChampionDef>(
+  'champion',
+  import.meta.glob<DefModule<ChampionDef>>('./champions/*.ts', { eager: true }),
+);
 
 // TODO(floor generator): ROOMS — src/content/rooms/*.ts `export default RoomTemplate[]` (RoomTemplate is
 //   owned by src/sim/floor). Add here as: export const ROOMS = collectDefs<RoomTemplate>('room', import.meta.glob(...)).
@@ -94,6 +99,7 @@ function must<T>(map: Map<string, T>, kind: string, id: string): T {
 export const getItem = (id: string): ItemDef => must(ITEMS, 'item', id);
 export const findItem = (id: string): ItemDef | undefined => ITEMS.get(id);
 export const getEnemy = (id: string): EnemyDef => must(ENEMIES, 'enemy', id);
+export const findEnemy = (id: string): EnemyDef | undefined => ENEMIES.get(id);
 export const getBoss = (id: string): BossDef => must(BOSSES, 'boss', id);
 export const getCharacter = (id: string): CharacterDef => must(CHARACTERS, 'character', id);
 export const getChapter = (id: string): ChapterDef => must(CHAPTERS, 'chapter', id);
@@ -116,6 +122,37 @@ export function registerItem(def: ItemDef): void {
   ITEMS.set(def.id, def);
   ALL_ITEMS.push(def);
 }
+/**
+ * Runtime registration of an enemy for tests and tools (game content belongs in
+ * src/content/enemies/*.ts). Throws on a duplicate id.
+ */
+export function registerEnemy(def: EnemyDef): void {
+  if (ENEMIES.has(def.id)) throw new Error(`duplicate enemy id "${def.id}"`);
+  ENEMIES.set(def.id, def);
+}
+
+const ALL_CHAMPIONS: readonly ChampionDef[] = [...CHAMPIONS.values()];
+
+/** Champion variants in registry order (champion rolls index into this list). */
+export function allChampions(): readonly ChampionDef[] {
+  return ALL_CHAMPIONS;
+}
+
+/**
+ * Enemies that can be rolled in a chapter (weight > 0): the chapter's `enemyPool` when it has one,
+ * otherwise every enemy listing the chapter. Registry order (deterministic).
+ */
+export function enemiesInChapter(chapter: string): EnemyDef[] {
+  const ch = CHAPTERS.get(chapter);
+  const ids = ch && ch.enemyPool.length > 0 ? ch.enemyPool : null;
+  const out: EnemyDef[] = [];
+  for (const d of ENEMIES.values()) {
+    if (d.weight <= 0) continue;
+    if (ids ? ids.includes(d.id) : d.chapters.includes(chapter)) out.push(d);
+  }
+  return out;
+}
+
 const ALL_SYNERGIES: readonly SynergyDef[] = [...SYNERGIES.values()];
 const ALL_SETS: readonly ItemSetDef[] = [...SETS.values()];
 

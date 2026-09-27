@@ -13,7 +13,7 @@ import { saveRunNow } from './meta/save';
 import { ParticleSystem, PARTICLE_CAP } from './render/particles';
 import { RotateScreen } from './render/rotateScreen';
 import { ScreenShake } from './render/shake';
-import { CAP_PROJECTILES } from './sim/constants';
+import { CAP_ENEMIES, CAP_ENEMY_SHOTS, CAP_PROJECTILES } from './sim/constants';
 import type { App, Nav } from './ui/app';
 import { PauseScene } from './ui/pause';
 import { RunScene } from './ui/run';
@@ -77,6 +77,7 @@ function boot(): void {
       `SCENE ${scenes.names.join('>').toUpperCase()}  TICK ${loop.ticks}  DROP ${loop.droppedSteps}`,
       `SHOTS ${sim?.world.projectiles.count ?? 0}/${CAP_PROJECTILES}  PARTS ${particles.count}/${PARTICLE_CAP}`,
       `EVENTS DROPPED ${sim?.events.dropped ?? 0}  DUMMIES ${sim?.world.dummies.count ?? 0}  PICKUPS ${sim?.world.pickups.count ?? 0}  BOMBS ${sim?.world.bombs.count ?? 0}`,
+      `ENEMIES ${sim?.world.enemies.count ?? 0}/${CAP_ENEMIES}  ESHOTS ${sim?.world.enemyShots.count ?? 0}/${CAP_ENEMY_SHOTS}  CREEP ${sim?.world.creep.count ?? 0}`,
       `VIEW ${v.scale.toFixed(2)}X  DPR ${display.dpr.toFixed(2)}  ${Math.round(display.cssW)}X${Math.round(display.cssH)}`,
     ];
   };

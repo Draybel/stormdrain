@@ -15,7 +15,7 @@ export type GameEventType =
   | 'splash'
   /** something took damage: x,y = where; a = damage; b = remaining hp; id = target kind */
   | 'hit'
-  /** a dummy (later: any hittable) popped: x,y; id = kind */
+  /** a training dummy popped: x,y; id = kind (enemies use 'enemyKilled') */
   | 'pop'
   /** something (re)appeared: x,y; id = kind */
   | 'spawn'
@@ -59,7 +59,47 @@ export type GameEventType =
   /** the active item became fully charged: id = item id */
   | 'charged'
   /** an item trigger fired: x,y; id = source item id */
-  | 'triggered';
+  | 'triggered'
+  // ── Enemies (Phase 2C) — id = enemy def id unless noted ──
+  /** an enemy poofed into the room: x,y; a = radius; b = champion index + 1 (0 = none) */
+  | 'enemySpawn'
+  /** first time this run an enemy kind appeared (bestiary): x,y */
+  | 'enemySeen'
+  /** an enemy took damage: x,y; a = damage; b = source (sim/hittable SRC_*) */
+  | 'enemyHit'
+  /** an enemy died (bestiary + death burst): x,y; a = radius; b = flags (1 frozen/shattered, 2 champion, 4 big) */
+  | 'enemyKilled'
+  /** telegraph started: x,y; a = 1 for a dash wind-up, 0 for an attack */
+  | 'enemyWindup'
+  /** an enemy fired: x,y; a = shots; b = shot style index */
+  | 'enemyShoot'
+  /** an enemy lobbed: x,y; a = shots; b = shot style index */
+  | 'enemyLob'
+  /** an enemy called minions: x,y; a = how many */
+  | 'enemySummon'
+  /** a hopper took off / landed: x,y; a = radius */
+  | 'enemyHop'
+  | 'enemyLand'
+  /** a dasher started charging: x,y; a,b = direction */
+  | 'enemyDash'
+  /** a dasher hit a wall: x,y = impact point; a = radius */
+  | 'bonk'
+  /** burrower: x,y; a = 0 dug in, 1 rumbling (about to surface), 2 surfaced; b = radius */
+  | 'burrow'
+  /** teleporter: x,y; a = 0 fading out, 1 reappeared; b = radius */
+  | 'blink'
+  /** a ground shockwave started: x,y; a = final radius; b = speed */
+  | 'shockwave'
+  /** an enemy shot ended: x,y; a = 1 hit something, 0 fizzled; b = shot style index */
+  | 'eshotPop'
+  /** a lob landed: x,y; a = splash radius; b = shot style index */
+  | 'lobLand'
+  /** a status took hold: x,y; a = status (sim/enemies/status ST_*); b = source; id = def id or 'dummy' */
+  | 'status'
+  /** room doors: a = 1 slam shut, 0 open; b = wave number */
+  | 'doors'
+  /** every enemy of the wave is dead: x,y = where the reward drops; a = wave number */
+  | 'roomClear';
 
 export interface GameEvent {
   type: GameEventType;

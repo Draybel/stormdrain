@@ -50,13 +50,14 @@ src/content/achievements/*.ts export default AchievementDef[]
 src/content/familiars/*.ts    export default FamiliarDef[]
 src/content/music/*.ts        export default MusicTrack[]
 src/content/drops/*.ts        export default DropTableDef[]  (seeded loot tables: urn, crate, satchel, lockbox…)
+src/content/champions/*.ts    export default ChampionDef[]   (champion variants; ORDER MATTERS for seeded rolls)
 src/content/hooks/*.ts        side-effect modules that call registerHook(name, fn) for unusual behaviour
 ```
 `src/content/registry.ts` builds the lookup maps and **throws on duplicate ids** (a unit test enforces this).
 It exports one `Map` per type (`ITEMS`, `ENEMIES`, `BOSSES`, `CHARACTERS`, `CHAPTERS`, `SYNERGIES`, `SETS`,
-`ACHIEVEMENTS`, `FAMILIARS`, `DROP_TABLES`) plus typed helpers (`getItem` throws on unknown ids, `findItem` returns
-undefined, `itemsWithTag`, `itemsInPool`…). ROOMS and MUSIC are TODO slots for the floor and music owners.
-`registerItem(def)` exists only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
+`ACHIEVEMENTS`, `FAMILIARS`, `DROP_TABLES`, `CHAMPIONS`) plus typed helpers (`getItem` throws on unknown ids, `findItem`
+returns undefined, `itemsWithTag`, `itemsInPool`, `findEnemy`, `enemiesInChapter`, `allChampions`…). ROOMS and MUSIC are
+TODO slots for the floor and music owners. `registerItem(def)` / `registerEnemy(def)` exist only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
 cross-reference (start items, sets, achievements, familiars, drop tables, hooks, chapters…) and every sprite; the
 unit tests require it to return no problems. Hook modules get their sim services through `ctx.api` (a `HookApi`,
 see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the registry free of import cycles.
@@ -120,12 +121,16 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   underfoot unless flying; touching a fire hurts ½ heart. Explosions destroy rocks, tinted rocks (loot), crates, urns,
   put out fires and call `World.onSecretWallBombed(x, y)` for secretWall tiles and for the four wall door slots in
   reach — the floor code decides what is there.
-- World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (8), all pooled.
+- World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (8),
+  enemies (64), enemy shots (400), creep puddles (48), shockwaves (16), all pooled (`sim/constants.ts` CAP_*).
 - `Sim` API used by room/floor code and tools: `roomCleared()` (actives +1 charge, 'roomClear' triggers),
   `floorStarted()`, `loadRoom(layout, spawns)`, and debug helpers `giveItem`, `spawnPickup`, `placeBomb`, `explode`,
   `hurtPlayer`, `killPlayer`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
   generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
-  as a room clear.
+  as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)`,
+  `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
+  (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves.
+  `world.godMode` (debug) makes `damagePlayer` refuse all damage.
 
 ### Health model (`sim/health.ts`, pure; `sim/combat.ts` applies it)
 Half-heart units. `redMax` (containers ×2), `red`, bonus hearts stack in order after red:
@@ -135,7 +140,9 @@ Damage order: ember/tin (last gained first) → red; damage spills over from one
 heart is topped up by the same kind, otherwise a new heart starts. Cap: containers + bonus hearts ≤ 12 hearts
 (two HUD rows of 6). `damagePlayer(w, halves, source)` is the only way the player gets hurt: it respects i-frames
 (`PLAYER_TUNING.hurtInvuln` = 1 s, the renderer flickers the sprite), emits 'hurt', releases one nova per broken
-Ember heart, fires the 'hurt' trigger and kills at zero (red and bonus both empty). Nothing knocks the player back.
+Ember heart, fires the 'hurt' trigger and kills at zero (red and bonus both empty). The only thing that moves the
+player is enemy CONTACT damage: a short shove apart (`Player.pushX/Y`, `ENEMY_TUNING.playerPush`, ≈8 px, decays in
+~0.15 s) so Wren isn't left standing inside what hit her. Shots, explosions and hazards never push her.
 
 ### Stats (`sim/stats.ts`)
 `damage, fireRate (shots/sec), shotSpeed, range (px), moveSpeed, luck` + hidden `shotSize, knockback`.
@@ -154,7 +161,8 @@ object (its identity never changes).
 - Instants run when a FRESH copy is first picked up, when an active/consumable is used, or when a trigger fires.
   Persistent effects executed in those contexts become TEMPORARY: `duration` seconds, else until the player leaves
   the room (`leftRoom`, called by `loadRoom`).
-- Triggers: `fireTrigger(w, on, x, y)` at hurt, roomClear, kill (dummy pops today), fire (each volley), floorStart,
+- Triggers: `fireTrigger(w, on, x, y)` at hurt, roomClear, kill (enemy kills and dummy pops credited to the player —
+  `creditsPlayer(source)`), fire (each volley), floorStart,
   bomb (placed), pickup (coins/hearts/…; not items), use (active). Chance = `chance + luck × luckScale` clamped to
   `[0, maxChance]`, rolled on combatRng; optional cooldown; nesting stops at depth 3.
 - Inventory: passives (ordered, duplicates allowed), ONE active (`charge/max`, 'room' = rooms cleared, 'timed' =
@@ -178,6 +186,60 @@ object (its identity never changes).
   unless `explosionImmune`), tiles within 22 px of the centre (≈3×3), pushes pickups/bombs, chain-lights other bombs
   (0.12 s), then the 'explosion' event (shake, flash, ring, smoke, debris, boom). Walking into a placed bomb (after
   stepping off it once) nudges it.
+
+### Hittables (`sim/hittable.ts`) — the one damage interface
+Enemies, training dummies and shot-breakable tiles (one `TileTarget` adapter per cell, made with the World) implement
+`Hittable { hitKind, x, y, r, hittable, hurt(dmg, source, kx, ky), applyStatus(kind, duration, power, source) }`.
+`queryHittables(w, x, y, r, out, tiles?)` fills a reused array (enemies, then standing dummies, then breakable cells);
+`firstHittable` returns the first enemy/dummy. `kx, ky` is a knockback impulse in px/s (divided by the target's mass,
+direction remembered for a later `'knockback'` status). Sources (`SRC_PLAYER, SRC_BOMB, SRC_STATUS, SRC_ALLY,
+SRC_ENEMY, SRC_HAZARD`) decide kill credit (`creditsPlayer`). The attack pipeline (§4) hits everything through this.
+`combat.damageArea` (bombs, novas, hooks) hurts enemies and dummies; marbles hit enemies in `projectiles.ts` (a
+stand-in until the pipeline owns shot hits).
+
+### Enemies (`sim/enemies/`)
+- `Enemy` (pooled): everything comes from its `EnemyDef` = ONE movement behaviour + up to 4 attacks + on-death effects
+  from the shared library (`behaviors/movement.ts`, `attacks.ts`, `death.ts`). Each behaviour declares its numeric params
+  as `name: [default, min, max]`; `compileEnemy(def)` resolves them once per def (defaults filled, values clamped) and
+  `validateEnemyDef` (run by `validateContent`) rejects unknown kinds/params, out-of-range values and bad sprites.
+- Movement kinds: `idle, wander, chase, chasePath` (shared per-room Dijkstra flow field `world.flow`, refreshed every
+  few ticks, straight line when the way is clear), `hop` (crouch → airborne arc over pits/rocks → land, validated
+  landing spot), `dash` (line up → wind-up → straight charge → bonk + daze on walls; `axis` 1/2 = sideways/vertical
+  only), `orbitPlayer, keepDistance` (kiter), `burrow` (tunnels under everything, rumbles, surfaces only on open floor),
+  `teleport` (fade + destination marker → blink → fade in), `wallCrawl` (slides along the room edge), `float` (flying
+  sine drift; flyers only meet the walls), `turret` (pinned). A behaviour writes a desired velocity (`tvx/tvy`); one
+  integrator accelerates toward it, adds knockback (decays; frozen enemies slide), soft O(n²) separation, sub-stepped
+  grid collision (WALK, or walls-only for flyers / airborne / underground), pedestals and dummies as solid.
+- Attacks: `aimedShot, cardinal4, ringN (8 = the ring of 8), spreadFan, burst, lob` (arcing, lands on a marked spot:
+  splash / creep / split), `spawnMinion` (capped per spawner), `landShockwave` (expanding ground ring), `leaveTrail`
+  (passive damaging creep). Shared params: `windup` (telegraph s), `range/minRange`, `on` (0 timer, 1 hop landing,
+  2 burrow emerge, 3 teleport appear, 4 dash bonk), `still`, `first`; shot params `speed, dmg (half hearts), size,
+  accel, curve, phase, life`. On death: `explode, split` (copies, generations capped), `ringN`.
+- Fairness: every attack and sudden move is telegraphed (`teleT`: flash + squash / wind-up frame); fresh enemies are
+  inactive and harmless for `ENEMY_TUNING.spawnTime` (0.4 s, spawn poof). Contact damage uses 0.85 × radius; enemies
+  high in a hop, underground, blinking or faded can't touch or be touched.
+- Kills: `damageEnemy` / `killEnemy` only flag `dead` (released by `sweepEnemies` after the enemy update and at the end
+  of the step) so killing inside any loop is safe. A kill emits 'enemyKilled' (flags: frozen / champion / big), runs
+  death effects, champion extras and drop tables, and fires the player's 'kill' trigger when credited.
+- Enemy shots (`enemies/shots.ts`, cap 400): walls and rocks stop them unless `phase`, pits don't; they hit the player
+  with 0.8 × her radius, pop on contact even during i-frames (`damagePlayer` ignores the damage then). Lobs hurt only
+  where they land. Creep puddles (cap 48, oldest recycled) hurt feet that aren't flying; shockwaves (cap 16) hurt once
+  as the ring passes. Allied variants (charmed shooter, ice shards) hurt enemies × `allyDamage` instead of the player.
+- Status effects (`enemies/status.ts`, on enemies AND dummies): poison (DOT every 0.5 s), burn (DOT every 0.3 s),
+  freeze (frozen solid: no moves/attacks/contact; a frozen kill shatters into 6 allied ice shards), slow (speed ×(1 −
+  power), attacks ×0.6), charm (targets the nearest other enemy; its shots/contact hurt enemies, never the player),
+  fear (flees the player, no attacks), knockback (impulse along the last hit + short daze). Stacking: re-applying keeps
+  the LONGER timer and the STRONGER power (no intensity stacking); burn thaws / freeze extinguishes; charm and fear
+  replace each other; durations × the target's `resist` (bosses < 1), capped at 10 s; resist < 0.75 turns freeze into
+  a slow. DOT ticks don't flash; kill credit goes to the player.
+- Champions (`content/champions`, rolled on combatRng at spawn: 4 % + 1 % per luck, max 20 %; a second roll picks one
+  by weight): Swift, Bulwark (2× HP, bigger), Splitter, Vengeful (ring of shots on death), Regrowing, Phantom (faded =
+  intangible part of the time), Golden (coins). Coloured outline + glow, extra 'champion' drop table.
+- Room combat flow (`sim/arena.ts`): `startWave` spawns a weighted pick of the chapter pool (default 'gutterways')
+  at the room's markers or at free floor ≥ 56 px from the player, shuts the doors (`arena.doors` animates 0 → 1);
+  when every enemy is dead: doors open, 'roomClear' event, `roomCleared()` (actives +1, 'roomClear' triggers), reward
+  from the 'roomClear' table at the open floor nearest the centre. Events for the bestiary: 'enemySeen' (once per kind
+  per run), 'enemyKilled'. Full event list in `engine/events.ts`.
 
 ---
 
@@ -286,8 +348,14 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   `FamiliarDef { id, name, desc, sprite, behavior, radius, attackScale, … }`,
   `AchievementDef { id, name, desc, hidden?, condition: { counter, atLeast }, unlocks: { kind, id }[] }`.
 - `EnemyDef { id, name, hp, speed, radius, contact (half hearts), move: MoveSpec, attacks: AttackSpec[], sprite,
-  flying?, chapters: ChapterId[], weight, championable, bestiary }` — behaviours come from a shared library
-  (`sim/enemies/behaviors`), parameterised by data.
+  flying?, chapters: ChapterId[], weight, championable, bestiary, drops?, mass?, onDeath?: DeathSpec[], goo?: colours,
+  shot?: EnemyShotStyle, resist?, big? }` — behaviours come from a shared library (`sim/enemies/behaviors`),
+  parameterised by data. `MoveSpec { kind: MoveKind, params }`, `AttackSpec { kind: AttackKind, cooldown, params,
+  enemy?, shot? }`, `DeathSpec { kind: DeathKind, params, enemy?, shot? }` (`MOVE_KINDS`, `ATTACK_KINDS`,
+  `DEATH_KINDS`, `ENEMY_SHOT_STYLES`, `STATUS_KINDS` in types.ts). Enemy sprites need `anims.idle` + `anims.move`
+  (optional `windup`, `air`), face right, 8-24 px.
+- `ChampionDef { id, name, color, weight, hpMul?, speedMul?, sizeMul?, cooldownMul?, split?, deathRing?, regen?,
+  phantom?, coins?, drops? }`.
 - `BossDef { id, name, kind: 'boss'|'miniboss'|'final', chapters, hp, phases: PhaseSpec[] (≥2), sprite, size, music? }`.
 - `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7] }` (13 chars/row).
   Legend: `.` floor `#` rock `$` tinted rock `M` metal `O` pit `^` spikes `f` fire `x` crate `u` urn `e` enemy spawn
@@ -340,7 +408,16 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   room; a continuous bar for timed items), the active/consumable buttons show the held items' icons, trinket icons
   beside the consumable button, and the pickup banner in the top band. Short notices ("NO BOMBS") replace the room
   label in the top band.
-- Audio: procedural SFX recipes by name with voice limits; step-sequencer music with lookahead scheduling,
+- Enemies (`render/enemyRenderer.ts`): floor layer (creep, shockwave rings, lob landing markers, burrow mounds, blink
+  destinations), shadows, two depth passes around the player (walkers above her, then walkers below + flyers), shots
+  last (outline + bright core + additive glow; allied ones pink). Per enemy: spawn fade/rise, idle/move/windup/air
+  frames, telegraph blink + squash, hit flash + jolt, frozen tint, status wash + 5 px status icons, champion silhouette
+  outline (`getSilhouette`) + glow, phantom fade, split copies drawn smaller. Doors (`render/doors.ts`) are drawn on the
+  four wall centres; bars slide down while `arena.doors` > 0. Death bursts use the def's `goo` colours; big kills get a
+  1-2 tick hit-stop in the run scene (presentation only: the scene skips sim steps unless an input edge is pending).
+  No damage numbers.
+- Audio: procedural SFX recipes by name with voice limits; enemy/status/door sounds in `audio/sfxEnemies.ts` (names
+  prefixed `foe_`, `eshot_`, `gate_`, `room_`, `st_`); step-sequencer music with lookahead scheduling,
   a unique loop per chapter (+ boss variants), crossfades. Recipes are `{ minGap, length, gain, play(voice) }`
   built from the helpers in `audio/synth.ts` (leaf module); core sounds live in `audio/sfx.ts`, item/pickup/bomb/prop
   sounds in `audio/sfxGameplay.ts`; `audio/eventSounds.ts` maps GameEvents to sounds.
@@ -352,6 +429,9 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   `scale` = CSS px per game px), `safe`, `portrait`, `buttons()` / `button(id)` (game rect + `css` rect with centre
   `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
   counters…), `hud()` (HUD element rects in game px), `counts`,
-  `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, aim360, newRun, title, pause}`.
-  Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`).
+  `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, wave(count?), spawnEnemy(id, champion?),
+  killEnemies, god(on), aim360, newRun, title, pause}`; `counts` also has `enemies` / `enemyShots`; `run()` includes
+  `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`.
+  Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`). The training yard adds
+  `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

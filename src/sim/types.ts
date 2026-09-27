@@ -422,17 +422,77 @@ export interface ItemDef {
 
 // ── Enemies & bosses ───────────────────────────────────────────────────────────
 
+/**
+ * Movement behaviours of the shared library (sim/enemies/behaviors/movement.ts). Each reads its
+ * numeric params (with defaults and sane ranges declared next to its code) from `MoveSpec.params`.
+ */
+export const MOVE_KINDS = [
+  'idle',
+  'wander',
+  'chase',
+  'chasePath',
+  'hop',
+  'dash',
+  'orbitPlayer',
+  'keepDistance',
+  'burrow',
+  'teleport',
+  'wallCrawl',
+  'float',
+  'turret',
+] as const;
+export type MoveKind = (typeof MOVE_KINDS)[number];
+
+/** Attack behaviours (sim/enemies/behaviors/attacks.ts). `ringN` with count 8 is the classic ring of 8. */
+export const ATTACK_KINDS = [
+  'aimedShot',
+  'cardinal4',
+  'ringN',
+  'spreadFan',
+  'burst',
+  'lob',
+  'spawnMinion',
+  'landShockwave',
+  'leaveTrail',
+] as const;
+export type AttackKind = (typeof ATTACK_KINDS)[number];
+
+/** On-death effects (sim/enemies/behaviors/death.ts). */
+export const DEATH_KINDS = ['explode', 'split', 'ringN'] as const;
+export type DeathKind = (typeof DEATH_KINDS)[number];
+
+/** Colour/shape variants of enemy projectiles (render/enemyRenderer.ts draws each). */
+export const ENEMY_SHOT_STYLES = ['muck', 'water', 'dust', 'ink', 'ember', 'ice', 'charm'] as const;
+export type EnemyShotStyle = (typeof ENEMY_SHOT_STYLES)[number];
+
 /** Movement behaviour from the shared library (sim/enemies/behaviors), parameterised by data. */
 export interface MoveSpec {
-  kind: string;
+  kind: MoveKind;
   params?: Readonly<Record<string, number>>;
 }
 
 export interface AttackSpec {
-  kind: string;
+  kind: AttackKind;
   /** Seconds between uses. */
   cooldown: number;
+  /**
+   * Numeric parameters. Shared by every attack: `windup` (telegraph s), `range` / `minRange` (px),
+   * `on` (0 timer, 1 hop landing, 2 burrow emerge, 3 teleport appear, 4 dash bonk), `still` (1 = stop
+   * moving during the wind-up), `first` (seconds before the first use). Per-kind params: see attacks.ts.
+   */
   params?: Readonly<Record<string, number>>;
+  /** spawnMinion: the enemy to spawn. */
+  enemy?: EnemyId;
+  /** Projectile look (defaults to the enemy's `shot`). */
+  shot?: EnemyShotStyle;
+}
+
+export interface DeathSpec {
+  kind: DeathKind;
+  params?: Readonly<Record<string, number>>;
+  /** split: spawn this enemy instead of shrunken copies of itself. */
+  enemy?: EnemyId;
+  shot?: EnemyShotStyle;
 }
 
 export interface EnemyDef {
@@ -445,14 +505,62 @@ export interface EnemyDef {
   contact: number;
   move: MoveSpec;
   attacks: readonly AttackSpec[];
+  /** Needs `anims.idle` and `anims.move` (frame lists); optional `anims.windup` / `anims.air`. */
   sprite: SpriteDef | string;
   flying?: boolean;
   chapters: readonly ChapterId[];
-  /** Spawn weight inside its chapters' pools. */
+  /** Spawn weight inside its chapters' pools (0 = never rolled, e.g. minions). */
   weight: number;
   championable: boolean;
   /** Bestiary blurb. */
   bestiary: string;
+  drops?: DropTableId;
+  /** Knockback impulses are divided by this (default 1). Turrets and wall crawlers ignore knockback. */
+  mass?: number;
+  /** Effects when it dies (explode, split into smaller copies, ring of shots). */
+  onDeath?: readonly DeathSpec[];
+  /** Ink / goo colours for hit and death bursts. */
+  goo?: readonly string[];
+  /** Default projectile look for its attacks. */
+  shot?: EnemyShotStyle;
+  /** Status duration multiplier (bosses resist: < 1; below 0.75 freeze only slows). Default 1. */
+  resist?: number;
+  /** Big enemies get a 1-2 frame hit-stop when they die (presentation). */
+  big?: boolean;
+}
+
+/** Status effects on hittables (sim/enemies/status.ts). `knockback` is an impulse, not a timed status. */
+export const STATUS_KINDS = ['poison', 'burn', 'freeze', 'slow', 'charm', 'fear', 'knockback'] as const;
+export type StatusKind = (typeof STATUS_KINDS)[number];
+
+/**
+ * Champion variants (content/champions/*.ts): a rare roll on a championable enemy that changes its
+ * numbers, adds a behaviour flag and a coloured outline, and drops extra loot.
+ */
+export interface ChampionDef {
+  id: string;
+  name: string;
+  /** Outline / glow colour. */
+  color: string;
+  /** Relative weight among champions. */
+  weight: number;
+  hpMul?: number;
+  speedMul?: number;
+  /** Collision radius / sprite scale. */
+  sizeMul?: number;
+  /** Attack cooldown multiplier. */
+  cooldownMul?: number;
+  /** Splits into this many half-size copies on death. */
+  split?: number;
+  /** Ring of this many shots on death. */
+  deathRing?: number;
+  /** Regrows this fraction of max HP per second (after a short delay since the last hit). */
+  regen?: number;
+  /** Flickers: faded (intangible, harmless) part of the time. */
+  phantom?: boolean;
+  /** Coins dropped on death [min, max]. */
+  coins?: readonly [number, number];
+  /** Extra drop table rolled on death (besides the enemy's own). */
   drops?: DropTableId;
 }
 

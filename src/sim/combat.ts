@@ -1,12 +1,13 @@
 /**
  * Damage in both directions: the player getting hurt (health order, i-frames, Ember novas,
- * death, the 'hurt' trigger) and area damage to hittables (explosions, novas, item hooks).
- * Hittables are the training dummies today; enemies join `damageArea` when they exist.
+ * death, the 'hurt' trigger) and area damage to hittables — enemies and training dummies
+ * (explosions, novas, item hooks).
  */
 
 import { damageDummy } from './dummies';
 import { fireTrigger } from './effects';
 import { damageHealth, makeDamageResult } from './health';
+import { SRC_BOMB } from './hittable';
 import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { World } from './world';
 
@@ -27,7 +28,7 @@ const result = makeDamageResult();
  */
 export function damagePlayer(w: World, halves: number, source = DMG_GENERIC): boolean {
   const p = w.player;
-  if (p.dead || halves <= 0 || p.invuln > 0) return false;
+  if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode) return false;
   damageHealth(p.health, halves, result);
   if (result.taken <= 0) return false;
   const emberBroken = result.emberBroken;
@@ -63,10 +64,18 @@ export function hurtPlayer(w: World, halfHearts = 1): void {
 }
 
 /**
- * Damages every hittable whose circle overlaps (x, y, radius), knocked away from the centre.
- * Returns how many were hit.
+ * Damages every hittable (enemies, standing dummies) whose circle overlaps (x, y, radius), knocked
+ * away from the centre. Player-side area damage (bombs, novas, item blasts). Returns how many were hit.
  */
-export function damageArea(w: World, x: number, y: number, radius: number, damage: number, knock = 140): number {
+export function damageArea(
+  w: World,
+  x: number,
+  y: number,
+  radius: number,
+  damage: number,
+  knock = 140,
+  source: number = SRC_BOMB,
+): number {
   let hits = 0;
   const pool = w.dummies;
   for (let i = 0; i < pool.count; i++) {
@@ -80,7 +89,24 @@ export function damageArea(w: World, x: number, y: number, radius: number, damag
     const len = Math.sqrt(d2);
     const nx = len > 1e-6 ? dx / len : 0;
     const ny = len > 1e-6 ? dy / len : 1;
-    damageDummy(w, d, damage, nx, ny, knock);
+    damageDummy(w, d, damage, nx, ny, knock, source);
+    hits++;
+  }
+  // Enemies killed here are only flagged dead (released by the next sweep), so the loop stays valid;
+  // anything they spawn on death is appended and may be caught by this blast too.
+  const enemies = w.enemies;
+  for (let i = 0; i < enemies.count; i++) {
+    const e = enemies.items[i]!;
+    if (!e.hittable) continue;
+    const dx = e.x - x;
+    const dy = e.y - y;
+    const rr = radius + e.r;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= rr * rr) continue;
+    const len = Math.sqrt(d2);
+    const nx = len > 1e-6 ? dx / len : 0;
+    const ny = len > 1e-6 ? dy / len : 1;
+    e.hurt(damage, source, nx * knock * 1.6, ny * knock * 1.6);
     hits++;
   }
   return hits;

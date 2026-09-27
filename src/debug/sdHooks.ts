@@ -50,7 +50,7 @@ export interface SDHooks {
   run(): SimSummary | null;
   /** In-run HUD element rects (game px): hearts, counters, charge bar, trinkets, banner. */
   hud(): HudRect[];
-  readonly counts: { particles: number; projectiles: number };
+  readonly counts: { particles: number; projectiles: number; enemies: number; enemyShots: number };
   readonly debug: {
     overlay(on?: boolean): boolean;
     hurt(): void;
@@ -61,6 +61,14 @@ export interface SDHooks {
     spawn(kind: PickupName): void;
     /** Counts as clearing the room (charges actives, fires roomClear triggers). */
     roomClear(): void;
+    /** Training-yard arena: spawns a wave of chapter 1 enemies (like F / the bell). Returns the count. */
+    wave(count?: number): number;
+    /** Spawns one enemy by id (optionally forcing a champion id, or false for none). */
+    spawnEnemy(id: string, champion?: string | false): boolean;
+    /** Kills every enemy in the room. */
+    killEnemies(): void;
+    /** God mode: the player takes no damage. */
+    god(on: boolean): void;
     aim360(on: boolean): void;
     newRun(): void;
     title(): void;
@@ -137,7 +145,13 @@ export function installSdHooks(d: SdDeps): SDHooks {
       return d.getHudRects();
     },
     get counts() {
-      return { particles: app.particles.count, projectiles: d.getSim()?.world.projectiles.count ?? 0 };
+      const w = d.getSim()?.world;
+      return {
+        particles: app.particles.count,
+        projectiles: w?.projectiles.count ?? 0,
+        enemies: w?.enemies.count ?? 0,
+        enemyShots: w?.enemyShots.count ?? 0,
+      };
     },
     debug: {
       overlay(on?: boolean) {
@@ -158,6 +172,19 @@ export function installSdHooks(d: SdDeps): SDHooks {
       },
       roomClear() {
         d.getSim()?.roomCleared();
+      },
+      wave(count?: number) {
+        return d.getSim()?.startWave(count === undefined ? {} : { count }) ?? 0;
+      },
+      spawnEnemy(id: string, champion?: string | false) {
+        return !!d.getSim()?.spawnEnemy(id, undefined, undefined, { champion: champion === undefined ? true : champion });
+      },
+      killEnemies() {
+        d.getSim()?.killEnemies();
+      },
+      god(on: boolean) {
+        const sim = d.getSim();
+        if (sim) sim.world.godMode = on;
       },
       aim360(on: boolean) {
         app.settings.update({ aim360: on });

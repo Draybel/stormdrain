@@ -1,9 +1,12 @@
 /**
  * The run scene (Phase 2: Wren in the training yard). Owns the headless Sim, steps it with the
  * InputState each fixed tick, and turns its events into particles, shake, sound and HUD feedback.
+ * Training-yard arena: F (or the bell button) calls a wave of chapter 1 enemies; big kills get a
+ * 1-2 frame hit-stop (presentation only: the scene skips sim steps, the sim itself never pauses).
  */
 
 import type { InputState } from '../engine/inputState';
+import { ICON_FIGHT } from '../content/sprites/combat';
 import { randomSeed } from '../engine/rng';
 import { GAME_H, GAME_W } from '../engine/screen';
 import { Sim } from '../sim/sim';
@@ -18,7 +21,7 @@ import { WorldRenderer, itemIcon } from '../render/worldRenderer';
 import type { App } from './app';
 import type { Scene } from './scene';
 import { createRunButtons, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
-import { tickButtons, type UiButton } from './widgets';
+import { tickButtons, uiButton, type UiButton } from './widgets';
 
 const LABEL: TextStyle = { color: UI.textDim, shadow: UI.shadow };
 const NOTICE: TextStyle = { color: UI.text, shadow: UI.shadow };
@@ -28,7 +31,10 @@ const BG = '#07080d';
 /** Seconds the stick hints / keyboard hint stay up at the start of a run. */
 const HINT_TIME = 7;
 const HINT_KEYS_1 = 'WASD MOVE · ARROWS SHOOT · ESC PAUSE';
-const HINT_KEYS_2 = 'E BOMB · SPACE ACTIVE ITEM · Q CONSUMABLE';
+const HINT_KEYS_2 = 'E BOMB · SPACE ACTIVE · Q CONSUMABLE · F FIGHT';
+/** Hit-stop ticks on the death of a big enemy / a champion. */
+const HITSTOP_BIG = 2;
+const HITSTOP_CHAMPION = 1;
 
 /** What to say when the sim refuses an action (GameEvent 'denied' ids). */
 const DENIED: Readonly<Record<string, string>> = {
@@ -57,11 +63,19 @@ export class RunScene implements Scene {
   private usedSticks = false;
   /** Inventory version the button icons were last updated for. */
   private iconsFor = -1;
+  /** Training-yard bell: calls the next wave (hidden while one is running). */
+  private readonly fight: UiButton;
+  /** Remaining hit-stop ticks (presentation freeze after big kills). */
+  private hitStop = 0;
+  private label = '';
+  private labelFor = -1;
 
   constructor(app: App) {
     this.app = app;
     this.ui = createRunButtons();
-    this.buttons = this.ui.all;
+    this.fight = uiButton({ id: 'run.fight', trigger: 'release', icon: ICON_FIGHT, kind: 'hud', pad: 4 });
+    this.fight.onActivate = () => this.startWave();
+    this.buttons = [...this.ui.all, this.fight];
     this.fx = new WorldFx(app.particles, app.shake);
     this.sim = new Sim({ seed: randomSeed() });
   }
@@ -77,6 +91,11 @@ export class RunScene implements Scene {
     this.prepareRoom();
   }
 
+  /** Big kills freeze the picture briefly (for tests / tools). */
+  get hitStopTicks(): number {
+    return this.hitStop;
+  }
+
   private prepareRoom(): void {
     this.renderer.prepare(this.sim.world);
     this.app.particles.clear();
@@ -84,17 +103,36 @@ export class RunScene implements Scene {
     this.hud.reset();
     this.iconsFor = -1;
     this.time = 0;
+    this.hitStop = 0;
+    this.labelFor = -1;
   }
 
   onLayout(): void {
     layoutRunButtons(this.ui, this.app.settings.value.buttonScale);
+    // The bell sits under the consumable button in the left margin.
+    const c = this.ui.consumable;
+    this.fight.x = c.x;
+    this.fight.y = c.y + c.h + 6;
+    this.fight.w = c.w;
+    this.fight.h = c.h;
+  }
+
+  /** Training-yard arena: a wave of chapter 1 enemies (F key / bell button). */
+  startWave(): number {
+    const n = this.sim.startWave();
+    if (n === 0 && this.sim.world.arena.active) this.say('FINISH THIS WAVE FIRST');
+    return n;
   }
 
   onBackground(): void {
     this.app.nav.pause();
   }
 
-  onKey(): boolean {
+  onKey(code: string): boolean {
+    if (code === 'KeyF') {
+      this.startWave();
+      return true;
+    }
     return false;
   }
 
@@ -110,6 +148,13 @@ export class RunScene implements Scene {
       this.app.nav.pause();
       return;
     }
+    // Hit-stop: hold the picture for a tick or two after a big kill (only when no button edge is
+    // pending, so a press is never swallowed).
+    if (this.hitStop > 0 && !input.bomb && !input.active && !input.consumable && !input.firePressed) {
+      this.hitStop--;
+      return;
+    }
+    this.hitStop = 0;
     if (input.map) this.say('MAP: ONE ROOM SO FAR');
     if (this.noticeTime > 0) this.noticeTime -= dt;
     if (this.app.input.moveStick.active || this.app.input.aimStick.active) this.usedSticks = true;
@@ -123,7 +168,12 @@ export class RunScene implements Scene {
       this.hud.onEvent(e);
       playEventSound(this.app.audio, e);
       if (e.type === 'denied') this.say(DENIED[e.id] ?? 'NOPE');
+      else if (e.type === 'enemyKilled') {
+        const stop = (e.b & 4) !== 0 ? HITSTOP_BIG : (e.b & 2) !== 0 ? HITSTOP_CHAMPION : 0;
+        if (stop > this.hitStop) this.hitStop = stop;
+      } else if (e.type === 'roomClear') this.say('ROOM CLEARED!');
     }
+    this.fight.visible = this.sim.trainingRoom && !this.sim.world.arena.active && !this.sim.world.player.dead;
     this.fx.tick(sim.world, dt);
     this.hud.update(dt, sim.world);
     this.app.particles.update(dt);
@@ -169,7 +219,7 @@ export class RunScene implements Scene {
       drawTextCentered(ctx, this.notice, GAME_W / 2, ROOM_OUTER_Y - 12, NOTICE);
       ctx.globalAlpha = 1;
     } else if (!banner) {
-      drawTextCentered(ctx, 'THE GUTTERWAYS · TRAINING YARD', GAME_W / 2, ROOM_OUTER_Y - 12, LABEL);
+      drawTextCentered(ctx, this.roomLabel(), GAME_W / 2, ROOM_OUTER_Y - 12, LABEL);
     }
 
     const input = this.app.input;
@@ -186,7 +236,22 @@ export class RunScene implements Scene {
       if (b === this.ui.map) drawMinimapButton(ctx, b);
       else drawHudButton(ctx, b);
     }
+    drawHudButton(ctx, this.fight);
     this.hud.draw(ctx, this.sim.world, this.ui, this.time);
+  }
+
+  /** Room label: the yard's name, or the wave in progress (cached per wave / enemy count). */
+  private roomLabel(): string {
+    const w = this.sim.world;
+    if (!w.arena.active) return 'THE GUTTERWAYS · TRAINING YARD';
+    let n = 0;
+    for (let i = 0; i < w.enemies.count; i++) if (!w.enemies.items[i]!.dead) n++;
+    const key = w.arena.wave * 1000 + n;
+    if (key !== this.labelFor) {
+      this.labelFor = key;
+      this.label = `WAVE ${w.arena.wave} · ${n} LEFT`;
+    }
+    return this.label;
   }
 
   /** HUD element rects in game px (window.__SD.hud()). */

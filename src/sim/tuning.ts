@@ -112,6 +112,72 @@ export const HAZARD_TUNING = {
   fireReach: 1.5,
 } as const;
 
+export const ENEMY_TUNING = {
+  /** Seconds a fresh enemy is inactive (poof, no moves / attacks / contact) — fair room entries. */
+  spawnTime: 0.4,
+  /** Default acceleration toward the behaviour's desired velocity (px/s²). */
+  accel: 700,
+  /** Knockback velocity decay (1/s); frozen enemies slide on "ice" with much less drag. */
+  knockDrag: 10,
+  frozenDrag: 2.2,
+  /** Knockback speed cap (px/s) so stacked impulses never launch anything through walls. */
+  maxKnock: 320,
+  /** White hit-flash (s). */
+  hitFlash: 0.1,
+  /** Contact circle = radius × this (a touch forgiving for the player). */
+  contactScale: 0.85,
+  /** Enemy contact damage pushes the player this fast (px/s), decaying at `playerPushDecay` 1/s. */
+  playerPush: 120,
+  playerPushDecay: 14,
+  /** Soft separation between overlapping enemies (fraction of the overlap resolved per tick). */
+  separation: 0.45,
+  /** Height enemy shots fly at (render), their max age (s) and collision sub-step (px). */
+  shotHeight: 5,
+  shotMaxAge: 4,
+  shotSubstep: 4,
+  /** Enemy shots vs the player use this fraction of the player's radius (grazes are forgiven). */
+  playerHitScale: 0.8,
+  /** Charmed enemies: damage dealt to other enemies per half heart of shot/contact damage. */
+  allyDamage: 5,
+  /** Charmed contact / allied creep damage interval per victim (s). */
+  allyContactEvery: 0.5,
+  /** Regrowing champions start healing this long after their last hit (s). */
+  regenDelay: 1.2,
+  /** Phantom champions: flicker period (s) and the faded (intangible) fraction of it. */
+  phantomPeriod: 2.6,
+  phantomFaded: 0.32,
+  /** Champion chance: base + luck × perLuck, capped. */
+  championBase: 0.04,
+  championPerLuck: 0.01,
+  championMax: 0.2,
+  /** Frozen enemies shatter into this many ice shards (allied shots) when killed. */
+  shatterShards: 6,
+  shardSpeed: 150,
+  shardDamage: 5,
+  /** Radius at or above which an enemy counts as big (hit-stop on death) unless `big` says so. */
+  bigRadius: 8,
+} as const;
+
+/** Status effects on enemies / dummies (sim/enemies/status.ts). */
+export const STATUS_TUNING = {
+  /** No status lasts longer than this (s). */
+  maxDuration: 10,
+  /** Poison: damage every `poisonTick` s (default power = damage per tick). */
+  poisonTick: 0.5,
+  poisonDamage: 2.5,
+  /** Burn: faster, hotter ticks. */
+  burnTick: 0.3,
+  burnDamage: 2,
+  /** Slow: speed × (1 − power), default power. */
+  slowPower: 0.5,
+  /** Attack timers of slowed enemies run at this rate. */
+  slowAttackRate: 0.6,
+  /** Enemies with `resist` below this are never frozen solid (freeze becomes a slow). */
+  freezeImmuneBelow: 0.75,
+  /** Knockback status: impulse (px/s, before mass) when `power` is 0. */
+  knockPower: 180,
+} as const;
+
 export const ITEM_TUNING = {
   /** Seconds Wren holds a new item overhead. */
   holdTime: 0.8,

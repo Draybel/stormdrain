@@ -4,12 +4,13 @@
  * rapid fire from turning into mush or overloading older phones.
  */
 
+import { ENEMY_RECIPES, type EnemySfxName } from './sfxEnemies';
 import { GAMEPLAY_RECIPES, type GameplaySfxName } from './sfxGameplay';
 import { noise, osc, type Recipe, type Voice } from './synth';
 
 /** Phase 1 core sounds (UI, shooting, dummies, hurt/death). */
 export type CoreSfxName = 'shoot' | 'hit' | 'splash' | 'dummy_pop' | 'ui_click' | 'ui_back' | 'hurt' | 'death' | 'spawn';
-export type SfxName = CoreSfxName | GameplaySfxName;
+export type SfxName = CoreSfxName | GameplaySfxName | EnemySfxName;
 
 const MAX_VOICES = 20;
 
@@ -112,7 +113,7 @@ const CORE_RECIPES: Record<CoreSfxName, Recipe> = {
   },
 };
 
-const RECIPES: Record<SfxName, Recipe> = { ...CORE_RECIPES, ...GAMEPLAY_RECIPES };
+const RECIPES: Record<SfxName, Recipe> = { ...CORE_RECIPES, ...GAMEPLAY_RECIPES, ...ENEMY_RECIPES };
 
 export class SfxPlayer {
   private readonly ctx: AudioContext;

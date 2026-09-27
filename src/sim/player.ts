@@ -13,7 +13,7 @@ import { Health, initHealth } from './health';
 import { Inventory } from './inventory';
 import { Loadout, makeFlags, makeTriggerLists, type TempEffect, type TriggerLists } from './loadout';
 import { spawnMarble } from './projectiles';
-import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
+import { ENEMY_TUNING, ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { CharacterDef, Stats } from './types';
 import type { World } from './world';
 
@@ -50,6 +50,12 @@ export class Player {
   prevY = 0;
   vx = 0;
   vy = 0;
+  /**
+   * Short shove from enemy contact damage (px/s, decays fast) — separates Wren from what hit her.
+   * Nothing else moves the player (see DECISIONS: health).
+   */
+  pushX = 0;
+  pushY = 0;
   readonly r: number = PLAYER_TUNING.radius;
   /** Facing (4-way unit vector) used by the sprite: aim while firing, otherwise movement. */
   faceX = 0;
@@ -97,6 +103,7 @@ export class Player {
     this.x = this.prevX = x;
     this.y = this.prevY = y;
     this.vx = this.vy = 0;
+    this.pushX = this.pushY = 0;
   }
 }
 
@@ -118,6 +125,7 @@ export function updatePlayer(w: World, input: InputState, dt: number): void {
   if (p.dead) {
     p.deathTime += dt;
     p.vx = p.vy = 0;
+    p.pushX = p.pushY = 0;
     p.firing = false;
     return;
   }
@@ -168,9 +176,22 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   // Integrate, then resolve against tiles, dummies and pedestals. Remove the velocity component
   // pushing into whatever we hit so the player slides along instead of sticking.
   const mode = p.flags.flying ? FLY_MODE : WALK_MODE;
-  scratchPos.x = p.x + p.vx * dt;
-  scratchPos.y = p.y + p.vy * dt;
-  if (resolveCircleVsGrid(w.room, scratchPos, p.r, mode, scratchN)) cancelInto(p, scratchN.x, scratchN.y);
+  scratchPos.x = p.x + (p.vx + p.pushX) * dt;
+  scratchPos.y = p.y + (p.vy + p.pushY) * dt;
+  if (p.pushX !== 0 || p.pushY !== 0) {
+    const k = Math.max(0, 1 - ENEMY_TUNING.playerPushDecay * dt);
+    p.pushX *= k;
+    p.pushY *= k;
+    if (p.pushX * p.pushX + p.pushY * p.pushY < 4) p.pushX = p.pushY = 0;
+  }
+  if (resolveCircleVsGrid(w.room, scratchPos, p.r, mode, scratchN)) {
+    cancelInto(p, scratchN.x, scratchN.y);
+    const into = p.pushX * scratchN.x + p.pushY * scratchN.y;
+    if (into < 0) {
+      p.pushX -= into * scratchN.x;
+      p.pushY -= into * scratchN.y;
+    }
+  }
   let pushed = false;
   const dummies = w.dummies;
   for (let i = 0; i < dummies.count; i++) {

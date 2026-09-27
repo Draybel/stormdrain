@@ -5,7 +5,10 @@
  */
 
 import type { GameEvent } from '../engine/events';
+import { ENEMIES, allChampions } from '../content/registry';
 import { GLOW } from '../content/sprites/palette';
+import { ST_BURN, ST_CHARM, ST_FEAR, ST_FREEZE, ST_POISON } from '../sim/enemies/status';
+import { SRC_STATUS } from '../sim/hittable';
 import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import { PK } from '../sim/pickupKinds';
 import { Tile } from '../sim/tiles';
@@ -37,6 +40,40 @@ const TINTED = ['#7a6a62', '#a8988a', '#e0a040', '#fff0a0'] as const;
 const SHOCK = ['#ffffff', '#bfe8ff', '#6fb3e0', '#fff27a'] as const;
 const ITEM_RAYS = ['#fff4b0', '#ffd76a', '#ffffff'] as const;
 const CHEST_GOLD = ['#fff0a0', '#e8b83a', '#d4a020', '#ffffff'] as const;
+const GOO = ['#6a7a5a', '#4a5a3a', '#9aaa7a'] as const;
+const POOF = ['#8691ad', '#c9d3f0', '#5c6580', '#e9edf7'] as const;
+const DIRT = ['#5a4636', '#7e664e', '#a08466', '#3a2e24'] as const;
+const ICE = ['#ffffff', '#c8f4ff', '#8fd8f8', '#6fb3e0'] as const;
+const STARS = ['#fff27a', '#ffffff', '#ffcf57'] as const;
+const BLINK = ['#c9a0ff', '#ffffff', '#8a6ad8'] as const;
+/** Particle colours per enemy shot style (ENEMY_SHOT_STYLES order). */
+const SHOT_BITS: readonly (readonly string[])[] = [
+  ['#a8c050', '#e4f0a0', '#5e7426'],
+  ['#6fc0f0', '#eaf8ff', '#3b78b8'],
+  ['#d8cce6', '#ffffff', '#9d8cb0'],
+  ['#f04a6a', '#ffc0cc', '#9a1f3a'],
+  ['#ffa040', '#fff0b0', '#c0501e'],
+  ['#c8f4ff', '#ffffff', '#6fb3e0'],
+  ['#ff8ad0', '#ffe4f4', '#b04a8a'],
+];
+/** Status puff colours, index = ST_*. */
+const STATUS_BITS: readonly (readonly string[])[] = [
+  ['#7ee06a', '#3f9a3a', '#c8ff9a'],
+  ['#ffcf57', '#ff7a2a', '#fff3b0'],
+  ['#ffffff', '#bff0ff', '#6fb3e0'],
+  ['#b8c6d8', '#6e7e96', '#e4ebf7'],
+  ['#ff8ad0', '#ffe4f4', '#c0407a'],
+  ['#c9a0ff', '#7a4ad0', '#ffffff'],
+];
+
+function gooOf(id: string): readonly string[] {
+  return ENEMIES.get(id)?.goo ?? GOO;
+}
+
+/** Visual body centre height of an enemy kind above its feet (flyers hover). */
+function liftOf(id: string, r: number): number {
+  return (ENEMIES.get(id)?.flying ? 7 : 0) + r * 0.7;
+}
 
 function pickupColors(kind: number): readonly string[] {
   switch (kind) {
@@ -85,6 +122,8 @@ function tileColors(t: number): readonly string[] {
 export class WorldFx {
   /** Full-screen white flash (0..1), drawn by the run scene; decays quickly. */
   flash = 0;
+  /** Reused colour list for champion sparkles (no per-event allocation). */
+  private readonly champBits: string[] = ['#ffffff', '#ffffff'];
 
   constructor(
     private readonly particles: ParticleSystem,
@@ -106,6 +145,28 @@ export class WorldFx {
         }
       }
     }
+    // Status ambience on enemies and dummies: flames, bubbles, frost, hearts, sweat.
+    const enemies = world.enemies;
+    for (let i = 0; i < enemies.count; i++) {
+      const e = enemies.items[i]!;
+      if (e.dead) continue;
+      const ex = e.x + ROOM_X;
+      if (e.burrowed) {
+        if (e.moving && Math.random() < 0.25) {
+          const p = P.spawn(ex + (Math.random() - 0.5) * e.r * 2, e.y + ROOM_Y, (Math.random() - 0.5) * 20, -20 - Math.random() * 20, 0.35, DIRT[(Math.random() * 4) | 0]!);
+          if (p) p.gravity = 200;
+        }
+        continue;
+      }
+      const m = e.status.mask;
+      if (m === 0) continue;
+      this.statusAmbience(m, ex, e.y + ROOM_Y - liftOf(e.def.id, e.r), e.r);
+    }
+    const dummies = world.dummies;
+    for (let i = 0; i < dummies.count; i++) {
+      const d = dummies.items[i]!;
+      if (!d.popped && d.status.mask !== 0) this.statusAmbience(d.status.mask, d.x + ROOM_X, d.y + ROOM_Y - 8, d.r);
+    }
     const room = world.room;
     for (let r = 0; r < ROOM_ROWS; r++) {
       for (let c = 0; c < ROOM_COLS; c++) {
@@ -120,6 +181,29 @@ export class WorldFx {
         );
         if (p) p.drag = 0.8;
       }
+    }
+  }
+
+  private statusAmbience(mask: number, x: number, y: number, r: number): void {
+    const P = this.particles;
+    if (mask & (1 << ST_BURN) && Math.random() < 0.35) {
+      const p = P.spawn(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.3) * r, (Math.random() - 0.5) * 10, -25 - Math.random() * 25, 0.3 + Math.random() * 0.25, Math.random() < 0.5 ? '#ffcf57' : '#ff7a2a');
+      if (p) p.drag = 1;
+    }
+    if (mask & (1 << ST_POISON) && Math.random() < 0.1) {
+      const p = P.spawn(x + (Math.random() - 0.5) * r * 2, y, 0, -12 - Math.random() * 10, 0.5, Math.random() < 0.5 ? '#7ee06a' : '#c8ff9a', 1);
+      if (p) p.drag = 1;
+    }
+    if (mask & (1 << ST_FREEZE) && Math.random() < 0.06) {
+      P.spawn(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.5) * r * 1.5, 0, -4, 0.35, '#ffffff');
+    }
+    if (mask & (1 << ST_CHARM) && Math.random() < 0.05) {
+      const p = P.spawn(x + (Math.random() - 0.5) * r, y - r, (Math.random() - 0.5) * 8, -18, 0.6, '#ff8ad0', 2);
+      if (p) p.drag = 1.5;
+    }
+    if (mask & (1 << ST_FEAR) && Math.random() < 0.05) {
+      const p = P.spawn(x + r * 0.8, y - r * 0.6, 8, -10, 0.4, '#c9a0ff');
+      if (p) p.gravity = 120;
     }
   }
 
@@ -367,6 +451,138 @@ export class WorldFx {
       }
       case 'triggered': {
         P.burst(x, y - 6, 4, 10, 30, 0.3, GOLD, 1, 0, 3);
+        break;
+      }
+      // ── Enemies & room combat ──
+      case 'enemySpawn': {
+        P.burst(x, y - 3, 12, 15, 55, 0.4, POOF, 1, -25, 3);
+        const r = P.spawn(x, y, 0, 0, 0.3, '#c9d3f0', 1, P_RING);
+        if (r) r.endSize = Math.round(e.a + 5);
+        const ch = e.b > 0 ? allChampions()[e.b - 1] : undefined;
+        if (ch) this.champBits[0] = ch.color;
+        if (ch) P.burst(x, y - e.a, 10, 20, 60, 0.6, this.champBits, 1, -10, 2);
+        break;
+      }
+      case 'enemySummon': {
+        P.burst(x, y - 3, 10, 15, 45, 0.4, POOF, 1, -25, 3);
+        break;
+      }
+      case 'enemyHit': {
+        const status = e.b === SRC_STATUS;
+        P.burst(x, y, status ? 2 : 7, 20, 75, 0.35, gooOf(e.id), 1, 240, 2);
+        if (!status) this.shake.add(0.06);
+        break;
+      }
+      case 'enemyKilled': {
+        const r = e.a;
+        const by = y - liftOf(e.id, r);
+        const frozen = (e.b & 1) !== 0;
+        const big = (e.b & 4) !== 0;
+        const colors = frozen ? ICE : gooOf(e.id);
+        const n = Math.min(44, 16 + Math.round(r * 2.5));
+        for (let i = 0; i < n; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const sp = 30 + Math.random() * (frozen ? 120 : 95);
+          const p = P.spawn(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.7 - 45, 0.55 + Math.random() * 0.45, colors[(Math.random() * colors.length) | 0]!, Math.random() < 0.4 ? 2 : 1);
+          if (!p) break;
+          p.gravity = 300;
+          p.drag = 1.5;
+          p.floorY = y + 1 + Math.random() * 4;
+        }
+        const ring = P.spawn(x, y, 0, 0, 0.3, frozen ? '#ffffff' : colors[0]!, 1, P_RING);
+        if (ring) ring.endSize = Math.round(r * 2 + 4);
+        const flash = P.spawn(x, by, 0, 0, 0.08, '#ffffff', Math.round(r * 1.2));
+        if (flash) flash.endSize = 1;
+        if ((e.b & 2) !== 0) P.burst(x, by, 14, 30, 90, 0.6, STARS, 1, 60, 2);
+        this.shake.add(big ? 0.45 : 0.22);
+        break;
+      }
+      case 'enemyShoot': {
+        const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
+        P.burst(x, y - 5, 3 + Math.min(4, e.a), 10, 40, 0.2, bits, 1, 0, 5);
+        break;
+      }
+      case 'enemyLob': {
+        const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
+        P.burst(x, y - 6, 6, 20, 50, 0.3, bits, 1, 150, 3);
+        break;
+      }
+      case 'enemyHop': {
+        P.burst(x, y + 1, 4, 10, 30, 0.25, DUST, 1, 0, 6);
+        break;
+      }
+      case 'enemyLand': {
+        P.burst(x, y + 1, 6 + Math.round(e.a), 15, 45, 0.3, DUST, 1, 0, 6);
+        const r = P.spawn(x, y + 1, 0, 0, 0.2, '#8691ad', 1, P_RING);
+        if (r) r.endSize = Math.round(e.a + 4);
+        if (e.a >= 7) this.shake.add(0.12);
+        break;
+      }
+      case 'enemyDash': {
+        for (let i = 0; i < 6; i++) {
+          const p = P.spawn(x + (Math.random() - 0.5) * 6, y + (Math.random() - 0.5) * 3, -e.a * (30 + Math.random() * 40), -e.b * (30 + Math.random() * 40) - 8, 0.3, DUST[i % 3]!);
+          if (p) p.drag = 4;
+        }
+        break;
+      }
+      case 'bonk': {
+        P.burst(x, y - 4, 10, 30, 80, 0.45, STARS, 1, 120, 2);
+        const r = P.spawn(x, y, 0, 0, 0.2, '#fff27a', 1, P_RING);
+        if (r) r.endSize = Math.round(e.a + 4);
+        this.shake.add(0.25);
+        break;
+      }
+      case 'burrow': {
+        if (e.a === 1) {
+          P.burst(x, y, 6, 10, 35, 0.4, DIRT, 1, 160, 2);
+        } else {
+          P.burst(x, y, e.a === 2 ? 16 : 10, 25, 80, 0.5, DIRT, 1, 260, 1.5);
+          const r = P.spawn(x, y, 0, 0, 0.25, '#7e664e', 1, P_RING);
+          if (r) r.endSize = Math.round(e.b + 5);
+          if (e.a === 2) this.shake.add(0.12);
+        }
+        break;
+      }
+      case 'blink': {
+        P.burst(x, y - e.b, 10, 20, 60, 0.4, BLINK, 1, -20, 3);
+        const r = P.spawn(x, y, 0, 0, 0.25, '#c9a0ff', 1, P_RING);
+        if (r) r.endSize = Math.round(e.b + 6);
+        break;
+      }
+      case 'shockwave': {
+        P.burst(x, y, 12, 30, 70, 0.4, DUST, 1, -30, 3);
+        this.shake.add(0.18);
+        break;
+      }
+      case 'eshotPop': {
+        const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
+        P.burst(x, y - 5, e.a === 1 ? 5 : 2, 15, 45, 0.25, bits, 1, 150, 3);
+        break;
+      }
+      case 'lobLand': {
+        const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
+        P.burst(x, y, 10, 20, 60, 0.4, bits, 1, 200, 2);
+        const r = P.spawn(x, y, 0, 0, 0.25, bits[0]!, 1, P_RING);
+        if (r) r.endSize = Math.round(e.a + 2);
+        break;
+      }
+      case 'status': {
+        const bits = STATUS_BITS[e.a];
+        if (bits) P.burst(x, y, 8, 15, 45, 0.4, bits, 1, -20, 3);
+        break;
+      }
+      case 'doors': {
+        this.shake.add(e.a === 1 ? 0.2 : 0.1);
+        break;
+      }
+      case 'roomClear': {
+        for (let i = 0; i < 20; i++) {
+          const p = P.spawn(x + (Math.random() - 0.5) * 24, y + Math.random() * 6, (Math.random() - 0.5) * 20, -30 - Math.random() * 50, 0.7 + Math.random() * 0.4, ITEM_RAYS[i % 3]!, i % 4 === 0 ? 2 : 1);
+          if (!p) break;
+          p.drag = 1.5;
+        }
+        const r = P.spawn(x, y, 0, 0, 0.45, '#ffd76a', 1, P_RING);
+        if (r) r.endSize = 22;
         break;
       }
       default:

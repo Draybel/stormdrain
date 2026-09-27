@@ -4,11 +4,13 @@
  * sprites must be well-formed, and kinds must carry their required fields.
  */
 
+import { validateChampionDef, validateEnemyDef } from '../sim/enemies/validate';
 import { hasHook } from '../sim/hooks';
 import type { Effect, SpriteDef } from '../sim/types';
 import {
   ACHIEVEMENTS,
   BOSSES,
+  CHAMPIONS,
   CHAPTERS,
   CHARACTERS,
   DROP_TABLES,
@@ -82,7 +84,12 @@ export function validateContent(): string[] {
     const at = `enemy ${e.id}`;
     for (const ch of e.chapters) need(CHAPTERS.has(ch), `${at}: unknown chapter "${ch}"`);
     if (e.drops) need(DROP_TABLES.has(e.drops), `${at}: unknown drop table "${e.drops}"`);
-    sprite(e.sprite, at);
+    for (const err of validateEnemyDef(e, (id) => ENEMIES.has(id))) errs.push(err);
+  }
+
+  for (const c of CHAMPIONS.values()) {
+    for (const err of validateChampionDef(c)) errs.push(err);
+    if (c.drops) need(DROP_TABLES.has(c.drops), `champion ${c.id}: unknown drop table "${c.drops}"`);
   }
 
   for (const b of BOSSES.values()) {

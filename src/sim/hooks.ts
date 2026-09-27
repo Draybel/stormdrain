@@ -17,7 +17,7 @@ export interface HookApi {
   spawnPickup(name: PickupName, x: number, y: number): void;
   /** Rolls a drop table and pops the loot out at (x, y). */
   dropTable(id: DropTableId, x: number, y: number): void;
-  /** Damages every hittable (dummies, later enemies) inside the circle; returns how many were hit. */
+  /** Damages every hittable (enemies, dummies) inside the circle; returns how many were hit. */
   damageArea(x: number, y: number, radius: number, damage: number): number;
   /** A full bomb explosion (tiles, pickups, player, chain reactions). */
   explode(x: number, y: number, radius: number, damage: number): void;
