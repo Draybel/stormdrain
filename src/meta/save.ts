@@ -18,6 +18,7 @@
 import type { Sim } from '../sim/sim';
 import { RUN_SNAPSHOT_VERSION, type RunSnapshot } from '../sim/run/types';
 import { AchievementEngine } from './achievements';
+import { exportCode, importCode, type ImportResult } from './exportCode';
 import { MetaStore } from './metaState';
 import type { Migration } from './migrations';
 import { RunSaveStore } from './runSave';
@@ -162,6 +163,36 @@ export class GameSave {
   /** The unlock snapshot a new run carries (RunOptions.unlocked). */
   unlockedForRun(): string[] {
     return runUnlocks(this.meta.state);
+  }
+
+  /**
+   * Settings → Export: an `SD1:` code of the progress and the saved run (the room-entry checkpoint), so a
+   * player can move to another device (or from Safari to the home-screen app) mid-run.
+   */
+  exportCode(): string {
+    return exportCode(this.meta.state, { run: this.runs.peek() });
+  }
+
+  /** Settings → Import, step 1: validates a pasted code (nothing changes yet). */
+  checkImport(text: string): ImportResult {
+    return importCode(text, { runMigrations: this.runs.slot.migrations });
+  }
+
+  /**
+   * Settings → Import, step 2 (after the player confirmed): replaces all progress with the code's, restores
+   * its run (a code without a run keeps the local one), re-reads which achievements are still to earn and
+   * re-applies earned rewards, then saves at once. The caller re-applies the settings (they come along).
+   */
+  applyImport(r: Extract<ImportResult, { ok: true }>): void {
+    this.meta.replaceState(r.meta);
+    if (r.run) {
+      const res = this.runs.restore(r.run);
+      if (!res.ok) console.warn('imported run could not be stored', res.message);
+    }
+    this.achievements.rebuild();
+    this.achievements.syncRewards();
+    this.achievements.earned.length = 0;
+    this.meta.flush();
   }
 
   /** Once per loop tick: counter achievements, then meta's end-of-tick save. */

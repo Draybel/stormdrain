@@ -31,6 +31,10 @@ export interface Scene {
   onBackground?(): void;
   /** Settings affecting layout changed (button size). */
   onLayout?(): void;
+  /** Achievement / notice toasts slide in from the top while this scene is on top (buttons along the bottom). */
+  readonly toastsAtTop?: boolean;
+  /** Test hook (`__SD.screen()`): what the scene shows, as plain data. */
+  describe?(): Record<string, unknown>;
 }
 
 export class SceneManager {

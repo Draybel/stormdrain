@@ -1,22 +1,28 @@
 /**
- * Title screen: rainy drain-mouth backdrop, big pixel logo, Continue (when a run is saved) / New Run /
- * Settings, and a line about the save when it needs attention (restored, newer version, not kept).
+ * Title screen (Phase 4B): the rainy drain-mouth backdrop and the pixel logo; the play column inside the
+ * arch — CONTINUE (only with a saved run, then the main button) / NEW RUN / DAILY RUN / ENTER SEED; page tiles
+ * on the walls — COLLECTION, BESTIARY (left), ACHIEVEMENTS, STATS (right); SETTINGS in the top-right corner;
+ * the lasting save notice on the bottom line. Every button is >= 26 game px tall (≈ 46 pt).
+ *
+ * Keyboard: arrows move the focus, Enter / Space pick; shortcuts C continue, N new run, D daily, E enter seed,
+ * O collection, B bestiary, A achievements, T stats, S settings.
  */
 
 import type { InputState } from '../engine/inputState';
 import { GAME_H, GAME_W } from '../engine/screen';
-import { UI } from '../content/sprites/palette';
 import { MARBLE_SPRITE } from '../content/sprites/props';
 import { WREN_FRAME, WREN_SPRITE } from '../content/sprites/wren';
+import { ICON_BESTIARY, ICON_COLLECTION, ICON_GEAR, ICON_STATS, ICON_TICK, ICON_TROPHY } from '../content/sprites/menuIcons';
+import { utcDateKey } from '../meta/metaState';
 import { bakeText, drawText, measureText, type TextStyle } from '../render/font';
 import { P_RING, P_STREAK } from '../render/particles';
 import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from '../render/pixel';
-import { drawSpriteAnchored } from '../render/sprites';
+import { drawSprite, drawSpriteAnchored } from '../render/sprites';
 import { TITLE_GROUND_Y, buildLogo, buildTitleBackdrop } from '../render/titleArt';
 import { MUSIC } from '../audio/music/ids';
 import type { App } from './app';
 import type { Scene } from './scene';
-import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
+import { BTN_H, MenuNav, drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
 
 /** Outlined so it stays crisp where it crosses the arch bricks. */
 const SUBTITLE: TextStyle = { color: '#b4c3e6', outline: '#07080d', shadow: '#07080d' };
@@ -34,6 +40,14 @@ let subtitle: HTMLCanvasElement | null = null;
 const TRAIL_X = [124, 140, 157, 175, 192] as const;
 const TRAIL_Y = [TITLE_GROUND_Y + 1, TITLE_GROUND_Y + 3, TITLE_GROUND_Y + 2, TITLE_GROUND_Y + 4, TITLE_GROUND_Y + 1] as const;
 
+/** The play column (inside the arch) and the wall tiles. */
+const COL_W = 124;
+const COL_X = Math.round((GAME_W - COL_W) / 2);
+const TILE_W = 70;
+const TILE_H = 42;
+const TILE_Y0 = 62;
+const TILE_GAP = 5;
+
 export class TitleScene implements Scene {
   readonly name = 'title';
   readonly overlay = false;
@@ -42,9 +56,15 @@ export class TitleScene implements Scene {
   private readonly app: App;
   private readonly cont: UiButton;
   private readonly newRun: UiButton;
+  private readonly daily: UiButton;
+  private readonly seed: UiButton;
   private readonly settings: UiButton;
-  /** The save line under the buttons ('' = none). */
+  private readonly tiles: UiButton[];
+  private readonly menu: MenuNav;
+  /** The save line at the bottom ('' = none). */
   private notice = '';
+  /** Today's daily run has been played (a tick on its button). */
+  private dailyDone = false;
   private time = 0;
   private rainAcc = 0;
   private lightning = 0;
@@ -53,48 +73,50 @@ export class TitleScene implements Scene {
 
   constructor(app: App) {
     this.app = app;
-    const w = 124;
-    const x = Math.round((GAME_W - w) / 2);
+    const nav = app.nav;
+    const go = (fn: () => void, sound: 'ui_click' | 'menu_select' = 'ui_click') => () => {
+      app.audio.play(sound);
+      fn();
+    };
     this.cont = uiButton({
       id: 'title.continue',
       label: 'CONTINUE',
       kind: 'primary',
-      x,
-      y: 76,
-      w,
-      h: 26,
+      x: COL_X,
+      w: COL_W,
+      h: 28,
       visible: false,
       onActivate: () => {
         app.audio.play('ui_click');
-        if (!app.nav.continueRun()) this.layout();
+        if (!nav.continueRun()) this.layout();
       },
     });
-    this.newRun = uiButton({
-      id: 'title.newRun',
-      label: 'NEW RUN',
-      kind: 'primary',
-      x,
-      y: 84,
-      w,
-      h: 28,
-      onActivate: () => {
-        app.audio.play('ui_click');
-        app.nav.newRun();
-      },
-    });
+    this.newRun = uiButton({ id: 'title.newRun', label: 'NEW RUN', kind: 'primary', x: COL_X, w: COL_W, h: 28, onActivate: go(() => nav.characters(null)) });
+    this.daily = uiButton({ id: 'title.daily', label: 'DAILY RUN', x: COL_X, w: COL_W, h: BTN_H, onActivate: go(() => nav.daily()) });
+    this.seed = uiButton({ id: 'title.seed', label: 'ENTER SEED', x: COL_X, w: COL_W, h: BTN_H, onActivate: go(() => nav.seedEntry()) });
+    const tile = (id: string, label: string, icon: UiButton['icon'], x: number, row: number, fn: () => void): UiButton =>
+      uiButton({ id: `title.${id}`, label, icon, kind: 'tile', x, y: TILE_Y0 + row * (TILE_H + TILE_GAP), w: TILE_W, h: TILE_H, onActivate: go(fn) });
+    const right = GAME_W - 6 - TILE_W;
+    this.tiles = [
+      tile('collection', 'COLLECTION', ICON_COLLECTION, 6, 0, () => nav.collection()),
+      tile('bestiary', 'BESTIARY', ICON_BESTIARY, 6, 1, () => nav.bestiary()),
+      tile('achievements', 'ACHIEVEMENTS', ICON_TROPHY, right, 0, () => nav.achievements()),
+      tile('stats', 'STATS', ICON_STATS, right, 1, () => nav.stats()),
+    ];
     this.settings = uiButton({
       id: 'title.settings',
       label: 'SETTINGS',
-      x,
-      y: 118,
-      w,
-      h: 26,
-      onActivate: () => {
-        app.audio.play('ui_click');
-        app.nav.settings();
-      },
+      icon: ICON_GEAR,
+      textScale: 1,
+      x: right,
+      y: 6,
+      w: TILE_W,
+      h: BTN_H,
+      onActivate: go(() => nav.settings()),
     });
-    this.buttons = [this.cont, this.newRun, this.settings];
+    this.buttons = [this.cont, this.newRun, this.daily, this.seed, ...this.tiles, this.settings];
+    this.menu = new MenuNav(() => this.buttons);
+    this.menu.onMove = () => app.audio.play('menu_move');
     this.layout();
   }
 
@@ -103,11 +125,21 @@ export class TitleScene implements Scene {
     const saved = this.app.save.hasRun();
     this.cont.visible = saved;
     this.newRun.kind = saved ? 'secondary' : 'primary';
-    this.newRun.y = saved ? 106 : 84;
-    this.newRun.h = saved ? 26 : 28;
-    this.settings.y = saved ? 136 : 118;
+    this.newRun.h = saved ? BTN_H : 28;
+    let y = saved ? 60 : 66;
+    if (saved) {
+      this.cont.y = y;
+      y += this.cont.h + 4;
+    }
+    for (const b of [this.newRun, this.daily, this.seed]) {
+      b.y = y;
+      y += b.h + (saved ? 4 : 6);
+    }
     const n = this.app.save.notice;
     this.notice = n?.lasting ? `${n.title} · ${n.line}` : '';
+    this.dailyDone = this.app.save.meta.hasDaily(utcDateKey(Date.now()));
+    const f = this.menu.current();
+    if (!f || f === this.cont || f === this.newRun) this.menu.set(saved ? this.cont : this.newRun);
   }
 
   enter(): void {
@@ -122,24 +154,31 @@ export class TitleScene implements Scene {
     for (let i = 0; i < 60; i++) this.spawnDrop(Math.random() * GAME_H);
   }
 
+  /** Back from a page / settings / a modal: the save may have changed (import, a new daily). */
+  focus(): void {
+    this.layout();
+  }
+
   onKey(code: string): boolean {
-    if (code === 'Enter' || code === 'Space' || code === 'NumpadEnter') {
-      (this.cont.visible ? this.cont : this.newRun).onActivate?.();
+    const shortcut: Record<string, UiButton | undefined> = {
+      KeyC: this.cont.visible ? this.cont : undefined,
+      KeyN: this.newRun,
+      KeyD: this.daily,
+      KeyE: this.seed,
+      KeyO: this.tiles[0],
+      KeyB: this.tiles[1],
+      KeyA: this.tiles[2],
+      KeyT: this.tiles[3],
+      KeyS: this.settings,
+    };
+    const b = shortcut[code];
+    if (b) {
+      this.menu.set(b);
+      b.flash = 0;
+      b.onActivate?.();
       return true;
     }
-    if (code === 'KeyC' && this.cont.visible) {
-      this.cont.onActivate?.();
-      return true;
-    }
-    if (code === 'KeyN') {
-      this.newRun.onActivate?.();
-      return true;
-    }
-    if (code === 'KeyS') {
-      this.settings.onActivate?.();
-      return true;
-    }
-    return false;
+    return this.menu.onKey(code);
   }
 
   private spawnDrop(y0 = -6): void {
@@ -202,13 +241,20 @@ export class TitleScene implements Scene {
 
     const lg = logo!;
     const bob = Math.round(Math.sin(t * 1.3) * 1);
-    ctx.drawImage(lg, Math.round((GAME_W - lg.width) / 2), 14 + bob);
+    ctx.drawImage(lg, Math.round((GAME_W - lg.width) / 2), 12 + bob);
     const sub = subtitle!;
-    ctx.drawImage(sub, Math.round((GAME_W - sub.width) / 2), 49);
+    ctx.drawImage(sub, Math.round((GAME_W - sub.width) / 2), 46);
 
     drawMenuButtons(ctx, this.buttons);
-    if (this.notice) drawText(ctx, this.notice, Math.round((GAME_W - measureText(this.notice)) / 2), 166, NOTICE);
-    const v = 'V0.1';
+    // Today's daily is done: a tick on its button.
+    if (this.dailyDone) drawSprite(ctx, ICON_TICK, 0, this.daily.x + this.daily.w - 12, this.daily.y + 10);
+    this.menu.draw(ctx, this.time, this.app.input.lastDevice === 'keyboard');
+    if (this.notice) drawText(ctx, this.notice, Math.round((GAME_W - measureText(this.notice)) / 2), GAME_H - 8, NOTICE);
+    const v = 'V0.2';
     drawText(ctx, v, GAME_W - measureText(v) - 4, GAME_H - 8, VERSION);
+  }
+
+  describe(): Record<string, unknown> {
+    return { continue: this.cont.visible, dailyDone: this.dailyDone, notice: this.notice, focus: this.menu.current()?.id ?? null };
   }
 }

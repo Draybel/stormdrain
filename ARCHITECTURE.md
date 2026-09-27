@@ -26,9 +26,10 @@ src/
   content/           DATA ONLY (plus small named behaviour hooks): items, enemies, bosses, characters,
                      rooms, chapters, synergies, sets, achievements, familiars, music, sprites
   render/            renderer, sprite cache, pixel font, HUD, minimap, particles, lighting, effects
-  ui/                canvas UI scenes & widgets (title, menus, pause, collection, settings...)
+  ui/                canvas UI scenes & widgets (title, character select, pause, settings, collection, bestiary,
+                     stats, achievements, game over, endings) + the DOM modal layer for text entry (§7b)
   audio/             Web Audio engine, procedural SFX (built-in recipes + sfxLibrary), music/ sequencer (§8)
-  meta/              save slots, codec, migrations, MetaStore, RunSaveStore, export codes, settings, the game's
+  meta/              save slots, codec, migrations, MetaStore, RunSaveStore, export codes, seed codes, settings, the game's
                      save service, meta tracker, achievements engine, unlocks (§7, §7a)
   pwa/               service-worker registration + pure precache / worker-source builders (§7)
   debug/             hidden debug menu, perf overlay
@@ -99,6 +100,13 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
 - Buttons may opt into `draggable` (scrollable lists): a press that moves more than `DRAG_SLOP` (4 game px) becomes a
   drag (`dragged`) that never activates; `downX/downY/curX/curY` give the gesture. The mouse wheel over the canvas goes
   to the top scene's `onWheel(dy, x, y)`.
+- Menus take the keyboard too (Phase 4B, `MenuNav`, §7b): keys reach the top scene's `onKey` first (arrows, Enter, Esc…).
+  Keys and gestures aimed at the DOM modal layer (`[data-sd-modal]`: seed entry, save import / export) are left to it —
+  no game handling, no `preventDefault` (typing a space, Tab, double-tap to select work there).
+- Settings → LEFT-HANDED (`Input.setLeftHanded`): the move stick spawns on the right half, the shoot stick on the left, the
+  resting hints swap, and `layoutRunButtons(…, leftHanded)` swaps the thumb columns — active + bomb down the left margin
+  under the counters, the consumable (and the yard's bell) on the right under pause; pause and the minimap stay top-right.
+  The HUD puts the charge bar / trinkets on the side of their button that faces the room.
 - Audio unlocks on the first pointerdown/touchend/keydown (resume AudioContext + silent buffer).
 - `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run** (`saveRunNow()`: the run save + a meta
   flush, §7), suspend audio.
@@ -162,7 +170,10 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
   (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves,
   and every attack in flight (beams, swipes, queues; familiars regroup at the player — `resetAttackRoom`).
-  `world.godMode` (debug) makes `damagePlayer` refuse all damage.
+  `world.godMode` (debug) makes `damagePlayer` refuse all damage. `damagePlayer(w, halves, source, by?)`: `by` = the
+  attacker's enemy uid (contact, enemy shots / lob splashes, creep and shockwaves keep their owner's uid, boss beams); the
+  killing blow sets `world.killer` (the enemy / boss def id, looked up over the whole enemy pool — a dead owner's slot keeps
+  its uid until reused — '' when unknown) and `world.killedBy` (the DMG_* source): the game-over screen's "TAKEN BY".
 - Training yard (the Sim built without a `room`; `content/testRoom.ts`): `RoomSpawn` also has `{ kind: 'bell' }` and
   pedestal spawns take `pool` and `rotate`. ROTATING pedestals (`Pedestal.rotate` = an `ItemFilter`,
   `pedestals.updateRotation`, run with the Sim's room stream) offer a new item every `YARD_TUNING.rotatePeriod` s while
@@ -623,7 +634,8 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   Test-only markers (Phase 1 training room, `src/content/testRoom.ts`, deliberately outside `content/rooms/`):
   `@` player start, `D` training dummy.
 - `CharacterDef { id, name, desc, stats, hearts: { redMax, red?, tin?, ember? } (half hearts), startItems,
-  startPickups: { coins, bombs, keys }, sprite, shotColor? (base ShotStyle colour), mechanic: hookId, unlock? }`. Mechanics implemented inside the attack
+  startPickups: { coins, bombs, keys }, sprite, shotColor? (base ShotStyle colour), mechanic: hookId, mechanicDesc? (the
+  mechanic in a line or two for the character select, Phase 4B), unlock? }`. Mechanics implemented inside the attack
   pipeline register a placeholder hook (`content/hooks/characters.ts`) so validation can check the reference.
 - `ChapterDef { id, name, floors: [n, n+1], track: 'main'|'alt', palette, tileset, enemyPool, bossPool, minibossPool,
   music, curses?, decor? }`. `palette` holds every `CHAPTER_PALETTE_KEYS` colour (floor, floorLight, floorDark, mortar,
@@ -739,6 +751,11 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   (`map.lostMap`), maze (above), blind (render: '?' on pedestals / item pickups), unknown (render: hidden hearts),
   deluge (movement accel × 0.35 / decel × 0.2 unless flying, rain). `RunOptions.curse`: undefined rolled, null none, an
   id forced on every floor; debug `run.setCurse(c)`.
+- **Seeds as players see them** (Phase 4B): `RunOptions.seedInfo` → `RunData.seedInfo` (`RunSeedInfo { code, kind: 'random' |
+  'custom' | 'daily', date?, scored? }`, optional — absent on debug runs and older saves). `code` is the 8-character code
+  (`meta/seedCode.ts`) and the sim seed is its hash (`Sim.newRun(code)` → `seedToU32(code)`), so a code always replays the
+  same floors; it rides in the snapshot, so Continue, the pause menu and the game-over screen show it. `kind` / `scored` tell
+  the meta tracker what counts (§7a). Runs without it show their numeric seed as `#1A2B3C4D`.
 - **Snapshots** (`RUN_SNAPSHOT_VERSION` 2): every room entry stores a checkpoint — `JSON.stringify({ v, run: RunData,
   world: WorldSnap, player: PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck
   bonus, temporary effects by value, trigger cooldowns by list position, the per-player timers that carry across
@@ -835,7 +852,7 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
 - **Endings**: a final boss (floor 12 main Old Thunderhead → 1, 12 alt The Nestmother → 2, 13 The Undertow → 3) ends
   the run: `data.won` = 1, `data.ending`, 'runEnd' (a 1, b = ending). With 'ending1' + 'ending2' unlocked, beating a
   floor-12 final instead raises a WHIRLPOOL (→ floor 13, The Undertow) and a SKYLIGHT (→ that final's ending);
-  `RoomState.exits` keeps them. The run scene shows the ending card (title per ending; M4 polishes the screens).
+  `RoomState.exits` keeps them. The run scene then shows the ending screen (Phase 4B: a painted vignette + the epilogue per ending, §7b).
 
 ## 7. Saving & PWA (`src/meta`, `src/pwa`; integration guide: docs/saving.md)
 
@@ -845,7 +862,14 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - **Meta** saves itself: `save.endTick()` once per loop tick (also while portrait-paused) = counter achievements, then
   `meta.endTick()` (urgent changes at the end of the tick, frequent ones every 5 s). `saveRunNow()` flushes it too.
 - **Settings** persist: the runtime `SettingsStore` starts from `toRuntimeSettings(meta.settings)` and every change goes back
-  through `meta.updateSettings(fromRuntimeSettings(s))` (a no-op when nothing changed).
+  through `meta.updateSettings(fromRuntimeSettings(s))` (a no-op when nothing changed). Phase 4B: `leftHanded` and `showFps`
+  joined the runtime `Settings` and the adapters (they were in `MetaSettings` already).
+- **Export / Import** (Phase 4B, Settings → SAVE DATA, §7b): `save.exportCode()` = `exportCode(meta, { run: runs.peek() })`
+  (progress + the saved run, to move devices mid-run); `save.checkImport(text)` validates (nothing changes);
+  `save.applyImport(result)` (after the player confirmed) replaces the meta state, restores the code's run (a code without
+  one keeps the local run), rebuilds the achievement engine's pending lists, re-applies earned rewards quietly and flushes;
+  the caller re-applies the imported settings. Import is offered from the title only (a live run would overwrite the run
+  it brings).
 - **The run save** = `Sim.snapshot()` (the room-entry checkpoint, §6b): written when a run starts / is continued, after every
   room entry (door, trapdoor, grate, whirlpool — the run scene sees 'roomEnter'), on pause, when the page is hidden
   (visibilitychange / pagehide / blur) and before leaving a run for the title (`nav.title`). `save.host.savableRun()` (the
@@ -905,6 +929,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   polled each tick). A floor is finished when she drops through its exit ('trapdoor' a = 1) or wins on it; it is clean when
   `world.counters.hurts` didn't change since it began. Death / 'runEnd' end the run (`recordRunEnd`; a win also unlocks
   `endings: ending<n>` whatever the achievement content says). Nothing is tracked in the yard or after the run ended.
+- **Seeds** (Phase 4B, `RunData.seedInfo`, §6b): a scored DAILY run claims the day when it starts (`recordDaily` with
+  `done: false` — one scored attempt per UTC date; a second start that day runs unscored), updates the entry on every floor
+  (an abandoned attempt keeps how far it got; Continue picks the attempt up again with its kills) and finishes it at death /
+  victory (`meta.updateDaily`). A PRACTICE run (`isPracticeSeed`: a typed seed, a retry of the same seed, an unscored daily
+  replay) doesn't report run events to the achievements and doesn't unlock endings; lifetime stats, counters (and the
+  counter achievements they reach), the collection and the bestiary still count. `tracker.scoredDaily`, `featsCount`.
 - **AchievementEngine** (`save.achievements`): pending achievements split into counter watches (checked by
   `checkCounters()` — the tracker's `endTick` only when something changed) and event lists (`event(kind, id, value)`,
   filters `id` / `value` / `atLeast`). `grant(def)`: `meta.unlockAchievement`, then its rewards into the meta unlock sets —
@@ -921,19 +951,81 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 
 ## 7b. Scenes & UI
 - `ui/scene.ts` is a stack: the top scene gets updates and keys and owns the hit-testable buttons; `overlay` scenes
-  (pause, settings) draw over the scene below. Scenes never import each other: navigation goes through `App.nav`
-  (built in `main.ts`). Menu buttons are canvas-drawn `UiButton`s (>= 24 game px tall, about 44 pt).
-- The title (`ui/title.ts`): CONTINUE (primary, only when a run is saved) / NEW RUN / SETTINGS; keys Enter (the top
-  button), C, N, S; the lasting save notice on a line at the bottom.
+  (pause, settings, map, debug, the modal blocker, game over, the ending) draw over the scene below. Scenes never import
+  each other: navigation goes through `App.nav` (built in `main.ts`: `title, newRun, continueRun, characters(seed),
+  startRun(start), daily, seedEntry, collection, bestiary, stats, achievements, settings, pause, resume, back, map, yard,
+  gameOver(info), victory(info), debug`). Optional scene hooks: `describe()` (what it shows, for `__SD.screen()`),
+  `toastsAtTop` (toasts slide in from the top while it is on top — screens with buttons along the bottom).
+- **Menu kit** (Phase 4B, `ui/widgets.ts`): canvas-drawn `UiButton`s (`kind` primary / secondary / hud / tile; `icon`;
+  `nav` false for big invisible areas; `adjust(dir)` for sliders) >= `BTN_H` = 27 game px tall — >= 44 pt even in Safari's
+  short landscape view (≈ 1.67 CSS px per game px). Every UI button activates on pointer-up inside itself (touch, mouse)
+  or by keyboard. `MenuNav`: keyboard focus per scene — arrows move to the nearest focusable button in that direction,
+  Tab cycles, Enter / Space activate, a focused slider takes left / right; the focus ring (gold corner brackets) shows only
+  while the keyboard is the last device. `Scroller`: drag / flick / wheel scrolling of a draggable area button (momentum,
+  soft bounce, scroll bar). `pageBackdrop()` (the title's drain, darkened) + `drawPageHeader`, `wrapText` (cached).
+  `ui/page.ts` `PageScene`: a full-screen page pushed over the title — BACK (`<page>.back`, Esc / Backspace), the header,
+  MenuNav; `ui/gridPage.ts` `GridPage`: a scrolling cell grid + a detail panel (tap a cell; arrows move the selection).
+- The title (`ui/title.ts`): the play column inside the drain arch — CONTINUE (primary, only with a saved run) / NEW RUN /
+  DAILY RUN (a tick once today's daily is claimed) / ENTER SEED; wall tiles COLLECTION, BESTIARY (left), ACHIEVEMENTS, STATS
+  (right); SETTINGS in the top-right corner; the lasting save notice on the bottom line. Keys: arrows + Enter, C / N / D / E
+  / O / B / A / T / S. `focus()` re-lays it out (Continue appears after an import, the daily tick after a daily).
+- Character select (`ui/characterSelect.ts`, scene 'chars', `nav.characters(seed)`): New Run (seed null = a random code
+  rolled at START), Daily Run and Enter Seed all come here. A strip of slots for every `CharacterDef` (registry order; paged
+  with `<` `>` when more than 8), locked ones as dark silhouettes with a padlock; the picked one big (3× portrait, glow,
+  name) with its description, `mechanicDesc`, six stat bars, starting hearts / pickups / items — or, locked, '???' and the
+  unlock hint (its achievement's description; '???' for a hidden one). START (disabled while locked) → `nav.startRun({
+  character, seed })`; the header says which seed (random / DAILY date · code, scored or practice / SEED code, practice);
+  "STARTING ABANDONS YOUR SAVED RUN" when there is one. The last pick is remembered for the session (`lastCharacter()`).
+- Seeds (`meta/seedCode.ts`): every run has an 8-character code shown as `ABCD 1234` (`RunSeedInfo`, §6b). Enter Seed is a
+  DOM modal (below): letters / digits, spaces and dashes ignored, live validation ("TOO SHORT: 5 OF 8"), Enter / NEXT →
+  character select. Daily (`nav.daily()`): the code from the UTC date (`dailySeedCode`); scored when the day has no result
+  yet, else a practice replay (§7a).
+- **DOM modal layer** (`ui/domModal.ts` `DomModal`, `app.modal`; flows in `ui/modals.ts`): the only DOM UI — Enter Seed,
+  Export save (the `SD1:` code in a read-only textarea, SELECT ALL, COPY via `navigator.clipboard` with a select +
+  `execCommand('copy')` fallback) and Import save (paste → CHECK CODE → the plain-language error, or a summary + REPLACE /
+  BACK; `GameSave.checkImport` / `applyImport`, §7). A fixed full-viewport layer (`data-sd-modal`) above the canvas holds a
+  pixel-styled panel placed inside the game image; text selection / typing only inside it (inputs 16 px+ so iOS doesn't
+  zoom; focused synchronously inside the tap so the iPhone keyboard comes up); Escape / a tap on the backdrop cancels.
+  While open, main.ts pushes `ModalScene` (scene 'modal': dims, no buttons, swallows keys); engine/input.ts ignores keys
+  aimed at the modal and lets its gestures through.
+- Pause (`ui/pause.ts`): left — PAUSED (the secret 5-tap `pause.title`), the character, floor + chapter, the seed (DAILY /
+  PRACTICE tag), the curse, the run time; RESUME / SETTINGS / QUIT TO TITLE (`pause.resume` / `pause.settings` /
+  `pause.quit`; Esc / P resume, S settings, Q quit). Right — the six stats with icons (`ui/statRows.ts`; green above the
+  character's base, red below), every held passive as a grid (×N for copies; scrolls), the active with its charge, trinkets,
+  the consumable ("POCKET"), transformations; one tap area `pause.items` — tap anything for its name, kind, quality and
+  description underneath.
+- Settings (`ui/settingsPanel.ts`, overlay 'settings', from the title or the pause menu): MASTER / MUSIC / EFFECTS / SHAKE
+  sliders (tap the track to jump, drag to slide; volumes are heard live and committed on release — a quick tap is caught by
+  the release), SHOW FPS, AIM 4-WAY / 360°, LEFT-HANDED, BUTTON SIZE 75-150 % (5 % steps), EXPORT / IMPORT SAVE (import
+  only from the title: it replaces the saved run). Ids `settings.<master|music|sfx|shake|fps|aim|lefty|buttons|export|
+  import|back>`. Everything persists through the meta save.
+- Collection (`ui/collection.ts`): every item — '?' never seen, a dark silhouette seen, full colour collected, a padlock
+  locked — sorted by kind, quality, name; the detail shows name, kind, quality, description, counts, or the unlock hint.
+  Bestiary (`ui/bestiary.ts`): tabs FOES / BOSSES; '?' never met, dimmed met, full colour + kill count defeated; the detail
+  animates the sprite with met / defeated counts, where it lives and its blurb. Stats (`ui/statsPage.ts`): two scrolling
+  columns (runs, combat, routes & rooms; finds, the daily run with the last five days, per-character runs / wins).
+  Achievements (`ui/achievementsPage.ts`): earned (gold cup, date, "UNLOCKED: …") / locked (grey cup + padlock, "REWARD:
+  …", `rewardLines`) / hidden ('???' until earned), with a progress bar.
 - Toasts (`render/toasts.ts` `ToastLayer`, `app.toasts`): achievements (trophy, gold) and notices (drop, blue) slide up over the
-  bottom wall one at a time (3.2 s), drawn by main.ts over every scene; never a button, never over the room's interior.
-- The run scene (`ui/run.ts`, `RunScene(app, 'run' | 'yard', snapshot?)`): `nav.newRun()` = a real floor run,
-  `nav.continueRun()` = the saved one, `nav.yard()` = the training yard (debug menu). In a run: walking through a door
+  bottom wall one at a time (3.2 s), drawn by main.ts over every scene (from the top edge while a `toastsAtTop` scene is on
+  top); never a button, never over the room's interior. Settings → SHOW FPS draws a small readout bottom-left (main.ts).
+- The run scene (`ui/run.ts`, `RunScene(app, 'run' | 'yard', snapshot?, start?)`): `nav.startRun(start)` = a real floor run
+  with that character and seed code (`Sim.newRun(start.simSeed ?? code, { seedInfo, unlocked }, character)`), `nav.newRun()` =
+  the same with a random code and the last character, `nav.continueRun()` = the saved one, `nav.yard()` = the training
+  yard (debug menu). In a run: walking through a door
   freezes stepping for 0.25 s while the previous frame's room image (the back buffer's room rect, copied every run frame) slides out and the new room slides in, clipped to
   the room; the trapdoor closes an iris on the old image (0.45 s) and opens it on the new floor (0.5 s); the floor card
-  ('CHAPTER N · NAME', floor, curse) shows 2.8 s; death (after 1.8 s of the death animation) or a final boss shows
-  an ending card (the ending's title and line: 1 CLEAR SKIES, 2 THE QUIET HIVE, 3 WHAT THE RAIN KEPT — a stub M4
-  polishes), then a tap / any key / 8 s → title. Bosses (Phase 3B): the intro card ('bossIntro': portrait, CHAPTER /
+  ('CHAPTER N · NAME', floor, curse; Phase 4B: the band opens from its centre line, the title / floor slide in, and twelve
+  floor marks paired by chapter show the depth — past gold, here lit, violet on the hidden route) shows 2.8 s. Death
+  (after 1.8 s of the death animation) pushes the game-over screen (`ui/gameOver.ts`, overlay 'over': what took her — the
+  enemy / boss with its sprite from `World.killer`, or spikes / a brazier / her own bomb —, floor, chapter, time, character,
+  seed, the items carried; RETRY SEED (`over.retry`: the same code as a practice run; a daily replays unscored) / NEW RUN
+  (character select) / TITLE). A final boss dims the room for 1.4 s, then the ending screen (`ui/ending.ts`, overlay
+  'ending'): a painted vignette per ending (1 CLEAR SKIES: rooftops at sunrise; 2 THE QUIET HIVE: the paper hive asleep in
+  amber light; 3 WHAT THE RAIN KEPT: lost things rising from the calmed whirlpool), four lines of epilogue typed out (a tap
+  shows them all — `ending.skip`), what the win unlocked for the first time ('ending1' / 'ending2' / 'ending3' route lines,
+  the whirlpool hint, or "PRACTICE RUN · … NOT RECORDED"), the run in one line, NEW RUN / TITLE (`ending.newRun` /
+  `ending.title`). `presentation().ending` stays 'death' / 'win'. Bosses (Phase 3B): the intro card ('bossIntro': portrait, CHAPTER /
   MINIBOSS / FINAL BOSS, the name, the flavour line) over the room, the HP bar in the top band in place of the room
   label, 1.5 s of half-speed slow motion when a boss starts dying ('bossDying'; presentation only: every other tick is
   skipped and drawn at alpha 1), the boss's own theme (`BossDef.music`, finals' tracks, the miniboss theme). Special
@@ -1072,13 +1164,27 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   yard); `pedestals[]` carry `bell` / `rotate`.
   Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`). The training yard adds
   `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F; `run.map` is the minimap
-  (tap = the big map, whose full-screen `map.close` closes it); `run.end` is the full-screen tap after a run ends; the
+  (tap = the big map, whose full-screen `map.close` closes it); a finished run shows `over.retry` / `over.newRun` /
+  `over.title` (game over) or `ending.skip` / `ending.newRun` / `ending.title` (the endings); the
   pause overlay has the invisible `pause.title` (5 taps = debug menu); the debug menu's buttons are `debug.list`,
   `debug.tab.<items|foes|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-19>` (18 picks a boss, 19 fights it here).
 - Phase 4A: `__SD.meta()` (achievements, unlock sets, stats, counters, collection / bestiary sizes, `hasRun`, `runSaves`,
   `lastRunError`, the meta load status, `runUnlocks`), `__SD.toast()` (the toast on screen + how many wait),
   `__SD.save.now()` / `__SD.save.achievement(id)`; the title's buttons are `title.continue` (only with a saved run),
   `title.newRun`, `title.settings`.
-- E2E: the Phase 2 specs start in the training yard (`__SD.debug.yard()` after New Run); `e2e/floors.spec.ts` covers runs,
-  `e2e/save.spec.ts` the run save across a reload + Continue, `e2e/pwa.spec.ts` the manifest / icons / service worker.
+- Phase 4B: `__SD.screen()` = `{ name, info }` — the top scene's `describe()` (title: continue / dailyDone / focus; chars:
+  characters, selected, canStart, seed; pause: character, info lines, seed, tag, curse, stats, items, slots, selected,
+  `itemCells` (game-px centres to tap); settings: every value + importEnabled; collection / bestiary / stats / achievements /
+  over / ending: their counts and selection); `__SD.modal()` = `{ open, kind, value, note, error }` (the DOM modal);
+  `__SD.debug.demoCharacters()` (8 recoloured, locked placeholder characters so the character select pages) and
+  `__SD.save.demoProgress()` (sample collection / bestiary / stats / achievements) — debug / screenshot fixtures in
+  `debug/demo.ts`, never used by the game. More button ids: `title.<continue|newRun|daily|seed|collection|bestiary|
+  achievements|stats|settings>`, `chars.<back|start|prev|next|slot.<id>>`, `pause.<resume|settings|quit|items|title>`,
+  `settings.*` (§7b), `<page>.back`, `collection.grid`, `bestiary.grid` / `bestiary.tab.<foes|bosses>`, `stats.list`,
+  `achievements.list`. The DOM modal's buttons carry `data-action` (`cancel`, `start`, `select`, `copy`, `done`, `check`,
+  `back`, `replace`).
+- E2E: the Phase 2 specs start in the training yard (`__SD.debug.yard()` after New Run → START); `e2e/floors.spec.ts` covers
+  runs, `e2e/save.spec.ts` the run save across a reload + Continue, `e2e/pwa.spec.ts` the manifest / icons / service worker,
+  `e2e/menus.spec.ts` (Phase 4B) every title item by real touch taps + back, typed seed entry → a seeded run, settings
+  across a reload, the pause menu's stats / items, the daily attempt, export → import, retry-seed and keyboard navigation.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

@@ -120,8 +120,12 @@ describe('MetaState schema', () => {
       masterVolume: 0.3,
       musicVolume: 0.7,
       sfxVolume: 0.9,
+      leftHanded: false,
+      showFps: false,
     });
     expect(fromRuntimeSettings({ shake: 0, aim360: true })).toEqual({ screenShake: 0, aim360: true });
+    // Phase 4B: the left-handed layout and the FPS readout persist too.
+    expect(fromRuntimeSettings({ leftHanded: true, showFps: true })).toEqual({ leftHanded: true, showFps: true });
   });
 
   it('utcDateKey uses the UTC calendar date', () => {

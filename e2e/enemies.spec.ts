@@ -23,6 +23,10 @@ async function startRun(page: Page): Promise<void> {
   await waitScene(page, 'title');
   const b = await page.evaluate(() => window.__SD.button('title.newRun'));
   await page.touchscreen.tap(b!.css.cx, b!.css.cy);
+  // Character select (Phase 4B): START with the default character.
+  await page.waitForFunction(() => window.__SD?.scene === 'chars');
+  const s = await page.evaluate(() => window.__SD.button('chars.start'));
+  await page.touchscreen.tap(s!.css.cx, s!.css.cy);
   await waitScene(page, 'run');
   // Phase 2 features live in the training yard (New Run starts a real floor run since Phase 3A).
   await page.evaluate(() => window.__SD.debug.yard());

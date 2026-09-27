@@ -16,6 +16,7 @@ import type { DebugActions } from './actions';
 import type { FloorCurse } from '../sim/floor/types';
 import type { RunOptions } from '../sim/run/types';
 import { findAchievement } from '../content/registry';
+import { demoProgress, registerDemoCharacters } from './demo';
 
 /** Meta progress at a glance (window.__SD.meta()). */
 export interface MetaSummary {
@@ -154,7 +155,14 @@ export interface SDHooks {
     bosses(): string[];
     /** Starts a boss fight in the current room (default: the debug menu's selection). */
     boss(id?: string): boolean;
+    // ── Menus (Phase 4B) ──
+    /** Registers placeholder characters (recoloured, locked) so the character select shows N cards. */
+    demoCharacters(): number;
   };
+  /** Phase 4B: the top scene's name and what it shows (Scene.describe: stats, items, selection…). */
+  screen(): { name: string; info: Record<string, unknown> | null };
+  /** Phase 4B: the DOM modal (seed entry, save export / import): open, kind, field text, note line. */
+  modal(): { open: boolean; kind: string | null; value: string; note: string; error: boolean };
   /**
    * Run-scene presentation: camera slide, iris phase (1 closing, 2 opening), floor card, ending (and the
    * ending id), the boss intro card, boss-death slow motion.
@@ -168,6 +176,8 @@ export interface SDHooks {
   save: {
     now(): boolean;
     achievement(id: string): boolean;
+    /** Phase 4B: fills the meta save with sample progress (menus / screenshots). */
+    demoProgress(): void;
   };
 }
 
@@ -365,6 +375,18 @@ export function installSdHooks(d: SdDeps): SDHooks {
       boss(id?: string) {
         return d.actions.bossFight(id);
       },
+      demoCharacters() {
+        return registerDemoCharacters();
+      },
+    },
+    screen() {
+      const top = app.scenes.top;
+      return { name: app.scenes.name, info: top?.describe?.() ?? null };
+    },
+    modal() {
+      const m = app.modal;
+      const n = m.note;
+      return { open: m.isOpen, kind: m.kind, value: m.value, note: n.text, error: n.error };
     },
     presentation() {
       return d.getPresentation();
@@ -413,6 +435,9 @@ export function installSdHooks(d: SdDeps): SDHooks {
       achievement(id: string) {
         const def = findAchievement(id);
         return def ? app.save.achievements.grant(def) : false;
+      },
+      demoProgress() {
+        demoProgress(app.save);
       },
     },
   };

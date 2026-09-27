@@ -9,19 +9,28 @@
  * `playTime(dt)` while the run is being played. `endTick()` (once per loop tick, before `meta.endTick()`)
  * checks the counter achievements when something changed. The training yard is never tracked.
  *
+ * Seeds (Phase 4B, `RunData.seedInfo`): a DAILY run's attempt is claimed the moment it starts (one scored
+ * attempt per UTC day — `recordDaily` refuses a second, so replays run unscored), updated on every floor and
+ * finished at death / victory (an abandoned attempt keeps how far it got). A PRACTICE run (a typed seed, a
+ * restart of the same seed, or an unscored replay of a played daily — `isPracticeSeed`): its single-run feats
+ * (event achievements) and ending unlocks don't count; lifetime stats, counters (and the counter achievements
+ * they reach), the collection and the bestiary do.
+ *
  * DOM-free; no allocation per tick (the event switch only touches the MetaStore's maps).
  */
 
 import type { GameEvent } from '../engine/events';
 import { BOSSES, findItem } from '../content/registry';
 import { PK } from '../sim/pickupKinds';
+import type { RunSeedInfo } from '../sim/run/types';
 import type { Sim } from '../sim/sim';
+import type { AchievementEvent } from '../sim/types';
 import { AchievementEngine } from './achievements';
 import type { MetaStore } from './metaState';
 
 export type RunOutcome = 'win' | 'death' | 'quit';
 
-/** A daily run: one attempt per UTC date (recorded when the run ends). */
+/** A daily run: one attempt per UTC date (claimed when it starts, finished when it ends). */
 export interface DailyInfo {
   /** UTC date key `YYYY-MM-DD` (metaState.utcDateKey). */
   date: string;
@@ -50,6 +59,8 @@ export class MetaTracker {
   private kills = 0;
   /** Something changed since the last counter-achievement check. */
   private dirty = true;
+  /** Single-run feats (event achievements, ending unlocks) count: false for seeded (practice) runs. */
+  private feats = true;
 
   constructor(meta: MetaStore, achievements: AchievementEngine = new AchievementEngine(meta)) {
     this.meta = meta;
@@ -61,12 +72,38 @@ export class MetaTracker {
     return this.ended ? null : this.sim;
   }
 
-  /** A new run began: counts it (runs, per-character runs) and starts tracking. */
-  startRun(sim: Sim, daily: DailyInfo | null = null): void {
+  /** The run being tracked is the day's scored daily attempt. */
+  get scoredDaily(): boolean {
+    return this.daily !== null && !this.ended;
+  }
+
+  /** Single-run achievements count for the run being tracked (false: a seeded practice run). */
+  get featsCount(): boolean {
+    return this.feats;
+  }
+
+  /**
+   * A new run began: counts it (runs, per-character runs) and starts tracking. `daily` defaults to the run's
+   * own scored daily seed (RunData.seedInfo); the day's attempt is claimed now (a second one isn't scored).
+   */
+  startRun(sim: Sim, daily: DailyInfo | null = dailyOf(sim)): void {
     if (!sim.run) return;
     this.attach(sim);
-    this.daily = daily;
-    this.meta.recordRunStart(sim.run.data.character);
+    const d = sim.run.data;
+    this.meta.recordRunStart(d.character);
+    if (daily) {
+      const claimed = this.meta.recordDaily(daily.date, {
+        seed: daily.seed,
+        character: d.character,
+        won: false,
+        floor: d.floor,
+        kills: 0,
+        timeSec: 0,
+        score: dailyScore(d.floor, 0, false, 0),
+        done: false,
+      });
+      this.daily = claimed ? daily : null;
+    }
     this.reportFloor();
   }
 
@@ -76,6 +113,13 @@ export class MetaTracker {
     this.attach(sim);
     // What the collection already knows (the run saw these before it was saved).
     this.seenIdx = sim.run.data.seen.length;
+    // A scored daily attempt keeps being recorded (its kills so far come from the entry).
+    const daily = dailyOf(sim);
+    const entry = daily ? this.meta.state.stats.daily[daily.date] : undefined;
+    if (daily && entry && entry.done === false && entry.seed === daily.seed) {
+      this.daily = daily;
+      this.kills = entry.kills;
+    }
     this.reportFloor();
   }
 
@@ -96,20 +140,43 @@ export class MetaTracker {
     this.chapterNo = 0;
     this.maxItems = this.maxCoins = this.maxFamiliars = 0;
     this.kills = 0;
+    this.feats = !isPracticeSeed(run.data.seedInfo);
     this.dirty = true;
   }
 
-  /** The current floor / chapter as reached (best floor, floor & chapter achievements). */
+  /** Reports a run event to the achievements, unless this is a seeded (practice) run. */
+  private feat(kind: AchievementEvent, id = '', value = 0): void {
+    if (this.feats) this.achievements.event(kind, id, value);
+  }
+
+  /** Keeps the day's scored attempt up to date (an abandoned attempt keeps how far it got). */
+  private updateDaily(won: boolean, done: boolean): void {
+    const daily = this.daily;
+    const d = this.sim?.run?.data;
+    if (!daily || !d) return;
+    const time = Math.round(d.time);
+    this.meta.updateDaily(daily.date, {
+      won,
+      floor: d.floor,
+      kills: this.kills,
+      timeSec: time,
+      score: dailyScore(d.floor, this.kills, won, time),
+      done,
+    });
+  }
+
+  /** The current floor / chapter as reached (best floor, floor & chapter achievements, the daily's progress). */
   private reportFloor(): void {
     const run = this.sim!.run!;
     const d = run.data;
     this.meta.maxStat('bestFloor', d.floor);
-    this.achievements.event('floorReached', d.chapter, d.floor);
+    this.feat('floorReached', d.chapter, d.floor);
     const no = Math.min(6, Math.ceil(d.floor / 2));
     if (no !== this.chapterNo) {
       this.chapterNo = no;
-      this.achievements.event('chapterReached', d.chapter, no);
+      this.feat('chapterReached', d.chapter, no);
     }
+    this.updateDaily(false, false);
     this.dirty = true;
   }
 
@@ -125,7 +192,7 @@ export class MetaTracker {
       const id = w.boss.id;
       if (id) {
         this.meta.killEnemy(id, true);
-        this.achievements.event('bossKilled', id, w.boss.kind);
+        this.feat('bossKilled', id, w.boss.kind);
         if (w.boss.kind === 1) this.meta.bump('minibossKills');
         this.dirty = true;
       }
@@ -152,27 +219,16 @@ export class MetaTracker {
     this.ended = true;
     const d = sim.run.data;
     this.meta.recordRunEnd({ character: d.character, outcome, floor: d.floor });
-    if (outcome === 'death') this.achievements.event('death', '', d.floor);
+    if (outcome === 'death') this.feat('death', '', d.floor);
     if (outcome === 'win') {
       const e = Math.max(1, ending || d.ending || 1);
-      this.achievements.event('endingReached', '', e);
-      this.achievements.event('characterWin', d.character, e);
-      // Endings unlock their routes whatever the achievement content says.
-      this.meta.unlock('endings', `ending${e}`);
+      this.feat('endingReached', '', e);
+      this.feat('characterWin', d.character, e);
+      // Endings unlock their routes whatever the achievement content says (not in seeded practice runs).
+      if (this.feats) this.meta.unlock('endings', `ending${e}`);
     }
-    if (this.daily) {
-      const won = outcome === 'win';
-      const time = Math.round(d.time);
-      this.meta.recordDaily(this.daily.date, {
-        seed: this.daily.seed,
-        character: d.character,
-        won,
-        floor: d.floor,
-        kills: this.kills,
-        timeSec: time,
-        score: dailyScore(d.floor, this.kills, won, time),
-      });
-    }
+    this.updateDaily(outcome === 'win', true);
+    this.daily = null;
     this.dirty = true;
   }
 
@@ -191,13 +247,13 @@ export class MetaTracker {
     if (items > this.maxItems) {
       this.maxItems = items;
       this.meta.maxCounter('maxItemsHeld', items);
-      this.achievements.event('itemsHeld', '', items);
+      this.feat('itemsHeld', '', items);
       this.dirty = true;
     }
     if (inv.coins > this.maxCoins) {
       this.maxCoins = inv.coins;
       this.meta.maxCounter('maxCoinsHeld', inv.coins);
-      this.achievements.event('coinsHeld', '', inv.coins);
+      this.feat('coinsHeld', '', inv.coins);
       this.dirty = true;
     }
     const fl = w.atk.familiars.list;
@@ -206,7 +262,7 @@ export class MetaTracker {
     if (fam > this.maxFamiliars) {
       this.maxFamiliars = fam;
       this.meta.maxCounter('maxFamiliars', fam);
-      this.achievements.event('familiars', '', fam);
+      this.feat('familiars', '', fam);
       this.dirty = true;
     }
     // Items shown / taken this run → the collection (hidden by the Curse of the Blind: those only count
@@ -230,7 +286,7 @@ export class MetaTracker {
         if (BOSSES.has(e.id)) return;
         meta.killEnemy(e.id);
         this.kills++;
-        this.achievements.event('enemyKilled', e.id);
+        this.feat('enemyKilled', e.id);
         break;
       case 'item': {
         if (e.b !== 1) return;
@@ -238,13 +294,13 @@ export class MetaTracker {
         const def = findItem(e.id);
         if (def?.kind === 'trinket') meta.bump('trinketsFound');
         const inv = sim.world.player.inv;
-        this.achievements.event('itemCollected', e.id, inv.passives.length + (inv.active ? 1 : 0) + inv.trinkets.length);
+        this.feat('itemCollected', e.id, inv.passives.length + (inv.active ? 1 : 0) + inv.trinkets.length);
         break;
       }
       case 'chest':
         meta.bump('chestsOpened');
         if (e.a === PK.Lockbox) meta.bump('keysUsed');
-        this.achievements.event('chestOpened', e.a === PK.Lockbox ? 'lockbox' : 'satchel');
+        this.feat('chestOpened', e.a === PK.Lockbox ? 'lockbox' : 'satchel');
         break;
       case 'pickup':
         if (e.a === PK.Coin || e.a === PK.SilverCoin || e.a === PK.GoldCoin || e.a === PK.LuckyCoin) meta.bump('coinsCollected', e.b);
@@ -271,7 +327,7 @@ export class MetaTracker {
       case 'secretFound':
         if (e.b === 2) return; // the Broker's Nook opening
         meta.bump(e.b === 1 ? 'deepSecretsFound' : 'secretsFound');
-        this.achievements.event('secretFound', '', e.b);
+        this.feat('secretFound', '', e.b);
         break;
       case 'doorUnlock':
         meta.bump('keysUsed');
@@ -306,11 +362,11 @@ export class MetaTracker {
       }
       case 'transform':
         meta.bump('transformations');
-        this.achievements.event('transformation', e.id);
+        this.feat('transformation', e.id);
         break;
       case 'synergy':
         meta.bump('synergiesFound');
-        this.achievements.event('synergy', e.id);
+        this.feat('synergy', e.id);
         break;
       case 'trapdoor':
         // Dropped through (trapdoor / grate / whirlpool / debug): floor e.b is done.
@@ -337,8 +393,22 @@ export class MetaTracker {
     const clean = sim.world.counters.hurts === this.floorHurts;
     this.meta.addStat('floorsCleared');
     this.meta.bump(clean ? 'noDamageFloors' : 'damageTakenFloors');
-    if (clean) this.achievements.event('noDamageFloor', '', floor);
+    if (clean) this.feat('noDamageFloor', '', floor);
   }
+}
+
+/**
+ * A practice run: a typed seed / a restart of a known seed ('custom'), or a replay of a daily already played
+ * (unscored). Its single-run feats and ending unlocks don't count.
+ */
+export function isPracticeSeed(s: RunSeedInfo | undefined): boolean {
+  return !!s && (s.kind === 'custom' || (s.kind === 'daily' && !s.scored));
+}
+
+/** The run's scored daily attempt (RunData.seedInfo), or null. */
+function dailyOf(sim: Sim): DailyInfo | null {
+  const s = sim.run?.data.seedInfo;
+  return s && s.kind === 'daily' && s.scored && s.date ? { date: s.date, seed: s.code } : null;
 }
 
 /** Daily-run score: depth first, then kills, a big bonus for winning, a little for speed. */

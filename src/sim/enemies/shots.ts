@@ -80,6 +80,8 @@ export class Creep implements Poolable {
   allied = false;
   /** Cosmetic seed (shape wobble). */
   seed = 0;
+  /** uid of the enemy that left it (0 = unknown) — the game-over screen's killer. */
+  owner = 0;
 }
 
 export class Wave implements Poolable {
@@ -97,6 +99,8 @@ export class Wave implements Poolable {
   hitPlayer = false;
   allied = false;
   id = 0;
+  /** uid of the enemy that made it (0 = unknown). */
+  owner = 0;
 }
 
 let waveSerial = 0;
@@ -168,7 +172,7 @@ export function spawnLob(
   return s;
 }
 
-export function spawnCreep(w: World, x: number, y: number, r: number, life: number, dmg: number, style: number, allied: boolean): Creep | null {
+export function spawnCreep(w: World, x: number, y: number, r: number, life: number, dmg: number, style: number, allied: boolean, owner = 0): Creep | null {
   let c = w.creep.alloc();
   if (!c) {
     // Recycle the puddle closest to drying up.
@@ -184,11 +188,12 @@ export function spawnCreep(w: World, x: number, y: number, r: number, life: numb
   c.dmg = dmg;
   c.style = style;
   c.allied = allied;
+  c.owner = owner;
   c.seed = w.combatRng.next();
   return c;
 }
 
-export function spawnWave(w: World, x: number, y: number, maxRad: number, speed: number, dmg: number, band: number, allied: boolean): Wave | null {
+export function spawnWave(w: World, x: number, y: number, maxRad: number, speed: number, dmg: number, band: number, allied: boolean, owner = 0): Wave | null {
   const v = w.waves.alloc();
   if (!v) return null;
   v.x = x;
@@ -200,6 +205,7 @@ export function spawnWave(w: World, x: number, y: number, maxRad: number, speed:
   v.band = band;
   v.hitPlayer = false;
   v.allied = allied;
+  v.owner = owner;
   v.id = ++waveSerial;
   w.events.emit('shockwave', x, y, maxRad, speed);
   return v;
@@ -242,7 +248,7 @@ function splashAt(w: World, x: number, y: number, radius: number, dmg: number, a
   const dx = p.x - x;
   const dy = p.y - y;
   const rr = radius + p.r * ENEMY_TUNING.playerHitScale;
-  if (dx * dx + dy * dy < rr * rr) damagePlayer(w, dmg, DMG_ENEMY);
+  if (dx * dx + dy * dy < rr * rr) damagePlayer(w, dmg, DMG_ENEMY, owner);
 }
 
 function popShot(w: World, s: EnemyShot, hit: number): void {
@@ -256,7 +262,7 @@ function landLob(w: World, s: EnemyShot): void {
   w.events.emit('lobLand', s.x, s.y, s.splash, s.style, s.fall === 2 ? 'bolt' : s.fall === 1 ? 'rock' : '');
   splashAt(w, s.x, s.y, s.splash, s.dmg, s.allied, s.owner);
   if (s.creep > 0) {
-    spawnCreep(w, s.x, s.y, s.creepR > 0 ? s.creepR : Math.max(6, s.splash * 0.8), s.creepLife > 0 ? s.creepLife : 3, 1, s.style, s.allied);
+    spawnCreep(w, s.x, s.y, s.creepR > 0 ? s.creepR : Math.max(6, s.splash * 0.8), s.creepLife > 0 ? s.creepLife : 3, 1, s.style, s.allied, s.owner);
   }
   const n = s.split;
   if (n > 0) {
@@ -341,7 +347,7 @@ export function updateEnemyShots(w: World, dt: number): void {
         const dy = p.y - s.y;
         const rr = hitR + s.r;
         if (dx * dx + dy * dy < rr * rr) {
-          damagePlayer(w, s.dmg, DMG_ENEMY);
+          damagePlayer(w, s.dmg, DMG_ENEMY, s.owner);
           popShot(w, s, 1);
           done = true;
           break;
@@ -385,7 +391,7 @@ export function updateCreep(w: World, dt: number): void {
     const dx = p.x - c.x;
     const dy = (p.y - c.y) * 2;
     const rr = c.r + p.r * 0.4;
-    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, c.dmg, DMG_ENEMY);
+    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, c.dmg, DMG_ENEMY, c.owner);
   }
 }
 
@@ -420,7 +426,7 @@ export function updateWaves(w: World, dt: number): void {
     const d = Math.sqrt(dx * dx + dy * dy);
     if (Math.abs(d - v.rad) < v.band + p.r * 0.5) {
       v.hitPlayer = true;
-      damagePlayer(w, v.dmg, DMG_ENEMY);
+      damagePlayer(w, v.dmg, DMG_ENEMY, v.owner);
     }
   }
 }

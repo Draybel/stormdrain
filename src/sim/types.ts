@@ -735,6 +735,8 @@ export interface CharacterDef {
   shotColor?: string;
   /** Hook id of the character's unique mechanic (registered in src/content/hooks). */
   mechanic: HookId;
+  /** The mechanic in one or two short lines for the character select (Phase 4B), e.g. 'LUCKY MARBLE: ...'. */
+  mechanicDesc?: string;
   unlock?: AchievementId;
 }
 

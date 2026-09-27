@@ -56,32 +56,79 @@ const CARD_TITLE: TextStyle = { color: '#ffe9a8', shadow: '#2a1a08', outline: '#
 const CARD_SUB: TextStyle = { color: '#c9d3f0', shadow: '#07080d' };
 const CARD_CURSE: TextStyle = { color: '#e08ad8', shadow: '#07080d' };
 
-/** The floor card over the room (alpha 0..1). */
+const DOT_PAST = '#c98a1e';
+const DOT_NEXT = '#2a3350';
+const DOT_ALT = '#b06ad8';
+const DOT_HERE = '#fff3c4';
+
+/**
+ * The floor card over the room (alpha 0..1; `t` = seconds since it appeared). Phase 4B polish: the band opens
+ * from its centre line, the title slides in from the left and the floor line from the right, and a row of
+ * twelve floor marks (paired by chapter; the thirteenth only on floor 13) shows how deep the run is — floors
+ * behind in gold, this one lit and pulsing (violet on the hidden route), the rest dark.
+ */
 export function drawFloorCard(
   ctx: CanvasRenderingContext2D,
   title: string,
   sub: string,
   curse: FloorCurse | null,
   alpha: number,
+  t = 1,
+  floor = 0,
+  alt = false,
 ): void {
   if (alpha <= 0) return;
-  const y = 74;
-  const h = curse ? 44 : 34;
+  const fullH = (curse ? 44 : 34) + (floor > 0 ? 8 : 0);
+  const yc = 74 + fullH / 2;
+  const open = Math.min(1, t / 0.22);
+  const h = Math.max(2, Math.round(fullH * open * (2 - open)));
+  const y = Math.round(yc - h / 2);
   ctx.globalAlpha = alpha * 0.82;
   ctx.fillStyle = '#05060a';
   ctx.fillRect(0, y, GAME_W, h);
   ctx.fillStyle = '#ffcf57';
   ctx.fillRect(0, y, GAME_W, 1);
   ctx.fillRect(0, y + h - 1, GAME_W, 1);
-  ctx.globalAlpha = alpha;
-  drawTextCentered(ctx, title, GAME_W / 2, y + 6, CARD_TITLE);
-  drawTextCentered(ctx, sub, GAME_W / 2, y + 22, CARD_SUB);
+  if (open < 1) {
+    ctx.globalAlpha = 1;
+    return;
+  }
+  const k = Math.min(1, Math.max(0, (t - 0.16) / 0.3));
+  const e = k * (2 - k);
+  const top = Math.round(yc - fullH / 2);
+  ctx.globalAlpha = alpha * e;
+  drawTextCentered(ctx, title, GAME_W / 2 - Math.round((1 - e) * 36), top + 6, CARD_TITLE);
+  drawTextCentered(ctx, sub, GAME_W / 2 + Math.round((1 - e) * 36), top + 22, CARD_SUB);
+  let ry = top + 31;
+  if (floor > 0) {
+    const n = floor >= 13 ? 13 : 12;
+    const step = 7;
+    const width = (n - 1) * step + Math.floor((n - 1) / 2) * 3;
+    const x0 = Math.round(GAME_W / 2 - width / 2);
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * step + Math.floor(i / 2) * 3;
+      const f = i + 1;
+      if (f === floor) {
+        const pulse = Math.floor(t * 4) % 2 === 0;
+        ctx.fillStyle = alt ? DOT_ALT : DOT_HERE;
+        ctx.fillRect(x - 1, ry - 1, 4, 4);
+        if (pulse) {
+          ctx.fillStyle = '#ffcf57';
+          ctx.fillRect(x - 2, ry + 3, 6, 1);
+        }
+      } else {
+        ctx.fillStyle = f < floor ? DOT_PAST : DOT_NEXT;
+        ctx.fillRect(x, ry, 2, 2);
+      }
+    }
+    ry += 8;
+  }
   if (curse) {
     const name = CURSE_NAMES[curse];
     const w = measureText(name) + 10;
     const x = Math.round((GAME_W - w) / 2);
-    drawSprite(ctx, CURSE_ICONS[curse], 0, x, y + 31);
-    drawTextCentered(ctx, name, GAME_W / 2 + 5, y + 32, CARD_CURSE);
+    drawSprite(ctx, CURSE_ICONS[curse], 0, x, ry);
+    drawTextCentered(ctx, name, GAME_W / 2 + 5, ry + 1, CARD_CURSE);
   }
   ctx.globalAlpha = 1;
 }

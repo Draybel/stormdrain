@@ -21,12 +21,25 @@ import { ScreenShake } from './render/shake';
 import { CAP_ENEMIES, CAP_ENEMY_SHOTS, CAP_PROJECTILES } from './sim/constants';
 import type { RunOptions } from './sim/run/types';
 import type { App, Nav } from './ui/app';
+import { AchievementsScene } from './ui/achievementsPage';
+import { BestiaryScene } from './ui/bestiary';
+import { CharacterSelectScene, lastCharacter } from './ui/characterSelect';
+import { CollectionScene } from './ui/collection';
+import { DomModal } from './ui/domModal';
+import { EndingScene } from './ui/ending';
+import { GameOverScene } from './ui/gameOver';
 import { MapScene } from './ui/mapOverlay';
+import { ModalScene, openSeedEntry } from './ui/modals';
 import { PauseScene } from './ui/pause';
 import { RunScene } from './ui/run';
 import { SceneManager } from './ui/scene';
 import { SettingsScene } from './ui/settingsPanel';
+import { StatsScene } from './ui/statsPage';
 import { TitleScene } from './ui/title';
+import { utcDateKey } from './meta/metaState';
+import { dailySeedCode, randomSeedCode } from './meta/seedCode';
+import { drawText, type TextStyle } from './render/font';
+import { GAME_H } from './engine/screen';
 import { DebugActions } from './debug/actions';
 import { DebugMenu } from './debug/debugMenu';
 import { PerfOverlay } from './debug/perfOverlay';
@@ -52,16 +65,33 @@ function boot(): void {
   let rotate: RotateScreen | null = null;
   let clock = 0;
 
+  const modal = new DomModal(display);
   const nav: Nav = {
     title: () => {
       // Leaving a run keeps it for Continue (saved as it was when the player entered the room).
       saveRunNow();
       scenes.replace(new TitleScene(app));
     },
-    newRun: () => {
+    newRun: () => nav.startRun({ character: lastCharacter(), seed: { code: randomSeedCode(), kind: 'random' } }),
+    startRun: (start) => {
+      // Starting a run abandons a saved one (a 'quit': the win streak ends).
       save.abandonSavedRun();
-      scenes.replace(new RunScene(app, 'run'));
+      scenes.replace(new RunScene(app, 'run', null, start));
     },
+    characters: (seed) => scenes.push(new CharacterSelectScene(app, seed)),
+    daily: () => {
+      const date = utcDateKey(Date.now());
+      // One scored attempt per UTC day: a replay of a day already played runs unscored.
+      nav.characters({ code: dailySeedCode(date), kind: 'daily', date, scored: !save.meta.hasDaily(date) });
+    },
+    seedEntry: () => openSeedEntry(app),
+    collection: () => scenes.push(new CollectionScene(app)),
+    bestiary: () => scenes.push(new BestiaryScene(app)),
+    stats: () => scenes.push(new StatsScene(app)),
+    achievements: () => scenes.push(new AchievementsScene(app)),
+    back: () => scenes.pop(),
+    gameOver: (info) => scenes.push(new GameOverScene(app, info)),
+    victory: (info) => scenes.push(new EndingScene(app, info)),
     continueRun: () => {
       const r = save.loadRun();
       if (!r.ok) {
@@ -109,10 +139,16 @@ function boot(): void {
       scenes.push(new DebugMenu(app, debugActions));
     },
   };
-  const app: App = { display, input, scenes, audio, settings, particles, shake, nav, save, toasts };
+  const app: App = { display, input, scenes, audio, settings, particles, shake, nav, save, toasts, modal };
+  // A DOM modal (seed entry, save export / import) blocks the canvas UI while it is open.
+  modal.onChange = (open) => {
+    if (open) scenes.push(new ModalScene(app));
+    else if (scenes.top?.name === 'modal') scenes.pop();
+  };
 
   settings.subscribe((s) => {
     input.setAim360(s.aim360);
+    input.setLeftHanded(s.leftHanded);
     shake.scale = s.shake;
     audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
     scenes.relayout();
@@ -207,7 +243,8 @@ function boot(): void {
       wasPortrait = false;
       const ctx = display.ctx;
       scenes.render(ctx, alpha);
-      toasts.draw(ctx);
+      toasts.draw(ctx, scenes.top?.toastsAtTop === true);
+      if (settings.value.showFps && !perf.visible) drawFps(ctx, loop.fps);
       perf.draw(ctx);
       display.present();
     },
@@ -246,6 +283,15 @@ function boot(): void {
   });
   // Ask the browser not to evict the saves (best effort).
   void requestPersistentStorage();
+}
+
+const FPS_STYLE: TextStyle = { color: '#8fe0a0', shadow: '#07080d' };
+const fpsText: string[] = [];
+
+/** Settings → SHOW FPS: a small readout in the bottom-left corner (text cached per value). */
+function drawFps(ctx: CanvasRenderingContext2D, fps: number): void {
+  const n = Math.max(0, Math.min(999, Math.round(fps)));
+  drawText(ctx, (fpsText[n] ??= `${n} FPS`), 2, GAME_H - 7, FPS_STYLE);
 }
 
 try {

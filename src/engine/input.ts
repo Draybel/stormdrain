@@ -36,6 +36,8 @@ export class Input {
   readonly aimStick = new VirtualStick(AIM_STICK);
   /** The top scene wants twin sticks (in-run). */
   private sticksEnabled = false;
+  /** Settings → left-handed: the move stick lives on the right half, the shoot stick on the left. */
+  private leftHanded = false;
   /** True once a touch has been seen: show touch controls. */
   touchUsed = false;
   lastDevice: InputDevice = 'mouse';
@@ -84,9 +86,9 @@ export class Input {
     canvas.addEventListener('touchstart', prevent, nonPassive);
     canvas.addEventListener('touchmove', prevent, nonPassive);
     canvas.addEventListener('touchend', prevent, nonPassive);
-    document.addEventListener('gesturestart', prevent, nonPassive);
-    document.addEventListener('gesturechange', prevent, nonPassive);
-    document.addEventListener('dblclick', prevent, nonPassive);
+    document.addEventListener('gesturestart', preventOutsideModal, nonPassive);
+    document.addEventListener('gesturechange', preventOutsideModal, nonPassive);
+    document.addEventListener('dblclick', preventOutsideModal, nonPassive);
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -100,6 +102,15 @@ export class Input {
   /** 360° free aim instead of 4-way snapping (Settings → Aim). */
   setAim360(on: boolean): void {
     this.aimStick.snap4 = !on;
+  }
+
+  /** Settings → left-handed: swaps which half of the screen spawns which stick. */
+  setLeftHanded(on: boolean): void {
+    this.leftHanded = on;
+  }
+
+  get isLeftHanded(): boolean {
+    return this.leftHanded;
   }
 
   setSticksEnabled(on: boolean): void {
@@ -232,7 +243,8 @@ export class Input {
       return;
     }
     if (!this.sticksEnabled) return;
-    const stick = p.x < GAME_W / 2 ? this.moveStick : this.aimStick;
+    const left = p.x < GAME_W / 2;
+    const stick = left !== this.leftHanded ? this.moveStick : this.aimStick;
     if (stick.active) return; // one thumb per stick
     stick.begin(e.pointerId, p.x, p.y);
     this.owners.set(e.pointerId, stick);
@@ -315,6 +327,8 @@ export class Input {
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    // Typing in the DOM modal (seed entry, save import / export) is the modal's business.
+    if (inModalLayer(e.target)) return;
     const code = e.code;
     if (SWALLOW.has(code)) e.preventDefault();
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -359,6 +373,7 @@ export class Input {
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
+    if (inModalLayer(e.target)) return;
     const code = e.code;
     const wasArrow = ARROWS.includes(code as (typeof ARROWS)[number]) && this.keys.has(code);
     this.keys.delete(code);
@@ -368,4 +383,13 @@ export class Input {
 
 function prevent(e: Event): void {
   if (e.cancelable) e.preventDefault();
+}
+
+/** Inside the DOM modal layer (`data-sd-modal`, ui/domModal.ts): selection, typing and taps are allowed. */
+function inModalLayer(target: EventTarget | null): boolean {
+  return typeof Element !== 'undefined' && target instanceof Element && target.closest('[data-sd-modal]') !== null;
+}
+
+function preventOutsideModal(e: Event): void {
+  if (!inModalLayer(e.target)) prevent(e);
 }

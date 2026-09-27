@@ -365,7 +365,7 @@ function contact(w: World, e: Enemy): void {
   const rr = cr + p.r;
   const d2 = dx * dx + dy * dy;
   if (d2 >= rr * rr) return;
-  if (damagePlayer(w, dmg, DMG_ENEMY)) {
+  if (damagePlayer(w, dmg, DMG_ENEMY, e.uid)) {
     // A short shove apart so you aren't left standing inside it.
     const d = Math.sqrt(d2);
     const nx = d > 1e-4 ? dx / d : -p.faceX;

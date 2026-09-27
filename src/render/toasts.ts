@@ -71,14 +71,18 @@ export class ToastLayer {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
+  /**
+   * `atTop`: slide down from the top edge instead (screens whose buttons sit along the bottom — game over,
+   * the endings — ask for it through `Scene.toastsAtTop`).
+   */
+  draw(ctx: CanvasRenderingContext2D, atTop = false): void {
     const c = this.cur;
     if (!c) return;
     const t = this.t;
     const k = t < IN ? t / IN : t > IN + HOLD ? Math.max(0, 1 - (t - IN - HOLD) / OUT) : 1;
     const e = k * k * (3 - 2 * k);
     const x = Math.round((GAME_W - this.w) / 2);
-    const y = Math.round(GAME_H - e * (H + 1));
+    const y = atTop ? Math.round(-H + e * (H + 1)) : Math.round(GAME_H - e * (H + 1));
     ctx.globalAlpha = 0.94;
     drawPanel(ctx, x, y, this.w, H, '#141a2a', c.kind === TOAST_ACHIEVEMENT ? '#e0a020' : '#56648a', '#2a3350');
     ctx.globalAlpha = 1;

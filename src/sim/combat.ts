@@ -27,7 +27,7 @@ const result = makeDamageResult();
  * nova for every Ember heart emptied, fires the 'hurt' trigger, and kills at zero health.
  * Returns true if any damage was taken.
  */
-export function damagePlayer(w: World, halves: number, source = DMG_GENERIC): boolean {
+export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0): boolean {
   const p = w.player;
   if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0) return false;
   damageHealth(p.health, halves, result);
@@ -43,6 +43,8 @@ export function damagePlayer(w: World, halves: number, source = DMG_GENERIC): bo
   if (tinBroken > 0) w.events.emit('heartBreak', p.x, p.y - 10, 1, tinBroken);
   for (let i = 0; i < emberBroken; i++) emberNova(w, p.x, p.y);
   if (dead) {
+    w.killedBy = source;
+    w.killer = by > 0 ? enemyIdByUid(w, by) : '';
     killPlayer(w);
     return true;
   }
@@ -57,6 +59,19 @@ export function killPlayer(w: World): void {
   p.deathTime = 0;
   p.vx = p.vy = 0;
   w.events.emit('death', p.x, p.y - 8);
+}
+
+/**
+ * The def id of the enemy with this uid — searched over the whole pool, released slots included (a shot's
+ * owner may already be dead; its pooled object keeps the uid until the slot is reused). '' if not found.
+ */
+function enemyIdByUid(w: World, uid: number): string {
+  const items = w.enemies.items;
+  for (let i = 0; i < items.length; i++) {
+    const e = items[i]!;
+    if (e.uid === uid) return e.boss ? e.boss.def.id : (e.def?.id ?? '');
+  }
+  return '';
 }
 
 /** Debug/test hook (window.__SD.debug.hurt, Sim.hurtPlayer). */

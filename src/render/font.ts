@@ -3,7 +3,7 @@
  * input is drawn as uppercase). Glyphs are bitmaps in code, baked lazily into one atlas canvas
  * per colour, so drawing text is a drawImage per character.
  *
- * Special glyphs: ♥ heart, ¤ coin, ° degree, · middle dot, ← ↑ → ↓ arrows.
+ * Special glyphs: ♥ heart, ¤ coin, ° degree, · middle dot, × times, ← ↑ → ↓ arrows.
  */
 
 import { ctx2d, makeCanvas } from './canvas';
@@ -76,6 +76,7 @@ const GLYPHS: Readonly<Record<string, string>> = {
   '&': '.#..|#.#.|.#..|#.##|.##.',
   '°': '.#.|#.#|.#.|...|...',
   '·': '.|.|#|.|.',
+  '×': '...|#.#|.#.|#.#|...',
   '♥': '.#.#.|#####|#####|.###.|..#..',
   '¤': '.##.|####|####|####|.##.',
   '←': '.....|.#...|#####|.#...|.....',

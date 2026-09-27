@@ -11,6 +11,19 @@ import type { WorldCounters } from '../world';
 /** Bump when RunSnapshot changes shape (the run save migrates or drops older snapshots). */
 export const RUN_SNAPSHOT_VERSION = 2;
 
+/**
+ * How the run's seed came about (Phase 4B, optional so older snapshots load): the 8-character code players
+ * see (`meta/seedCode.ts`; the sim seed is its hash), and whether it was rolled at random, typed in (Enter
+ * Seed / a restart of the same seed — practice: single-run achievements and ending unlocks don't count) or
+ * the daily run (`date` = the UTC date key; `scored` = this is the day's one recorded attempt).
+ */
+export interface RunSeedInfo {
+  code: string;
+  kind: 'random' | 'custom' | 'daily';
+  date?: string;
+  scored?: boolean;
+}
+
 export interface RunOptions {
   /** First floor (debug / tests; default 1). */
   floor?: number;
@@ -26,6 +39,8 @@ export interface RunOptions {
    * whirlpool to floor 13 after a final boss. M3 feeds it from the meta save.
    */
   unlocked?: readonly string[];
+  /** The seed as players see it (Phase 4B): stored in RunData.seedInfo. */
+  seedInfo?: RunSeedInfo;
 }
 
 /** A pickup left lying in a room (kind = sim/pickupKinds PK). */
@@ -166,6 +181,8 @@ export interface RunData {
   won: number;
   /** The ending reached (1 Clear Skies, 2 The Quiet Hive, 3 What the Rain Kept; 0 none yet). */
   ending: number;
+  /** The seed code / kind (Phase 4B; absent on debug runs and older saves). */
+  seedInfo?: RunSeedInfo;
 }
 
 /** The player at a room entry (JSON). Derived state (stats, flags, loadout, profile) is recomputed. */

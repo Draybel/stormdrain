@@ -123,6 +123,12 @@ export class World {
   /** Debug god mode: the player takes no damage. */
   godMode = false;
   /**
+   * What dealt the killing blow (Phase 4B, the game-over screen): the enemy / boss def id ('' when not an
+   * enemy or unknown) and the damage source (combat DMG_*). Set once, when the player dies.
+   */
+  killer = '';
+  killedBy = -1;
+  /**
    * Items locked in the run's meta snapshot (`RunOptions.unlocked`, sim/run/pools.ts): drop tables never
    * roll them either. Null outside floor runs (the training yard offers everything).
    */

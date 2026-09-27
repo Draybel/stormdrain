@@ -66,6 +66,11 @@ export interface DailyResult {
   score: number;
   /** Epoch ms when recorded. */
   at: number;
+  /**
+   * Phase 4B: false while the day's attempt is still being played (it is claimed when the daily run starts,
+   * updated as it goes and finished at death / victory); absent on older entries (= done).
+   */
+  done?: boolean;
 }
 
 export const STAT_KEYS = [
@@ -262,6 +267,7 @@ function normalizeDaily(v: unknown): DailyResult | null {
     timeSec: num(v.timeSec, 0, 0, MAX_COUNT),
     score: num(v.score, 0, -MAX_COUNT, MAX_COUNT),
     at: num(v.at, 0, 0, MAX_COUNT * 1000),
+    ...(v.done === false ? { done: false } : {}),
   };
 }
 
@@ -355,6 +361,8 @@ export interface RuntimeSettingsLike {
   masterVolume: number;
   musicVolume: number;
   sfxVolume: number;
+  leftHanded: boolean;
+  showFps: boolean;
 }
 
 export function toRuntimeSettings(s: MetaSettings): RuntimeSettingsLike {
@@ -365,6 +373,8 @@ export function toRuntimeSettings(s: MetaSettings): RuntimeSettingsLike {
     masterVolume: s.masterVol,
     musicVolume: s.musicVol,
     sfxVolume: s.sfxVol,
+    leftHanded: s.leftHanded,
+    showFps: s.showFps,
   };
 }
 
@@ -376,6 +386,8 @@ export function fromRuntimeSettings(r: Partial<RuntimeSettingsLike>): Partial<Me
   if (r.masterVolume !== undefined) p.masterVol = r.masterVolume;
   if (r.musicVolume !== undefined) p.musicVol = r.musicVolume;
   if (r.sfxVolume !== undefined) p.sfxVol = r.sfxVolume;
+  if (r.leftHanded !== undefined) p.leftHanded = r.leftHanded;
+  if (r.showFps !== undefined) p.showFps = r.showFps;
   return p;
 }
 
@@ -618,6 +630,20 @@ export class MetaStore {
       dates.sort();
       for (let i = 0; i < dates.length - DAILY_KEEP; i++) delete daily[dates[i]!];
     }
+    this.touch(true);
+    return true;
+  }
+
+  /**
+   * Updates the day's recorded attempt (the daily run in progress, then its final result). Only an existing
+   * entry changes (the attempt was claimed by `recordDaily` when it started); its `at` is kept.
+   */
+  updateDaily(date: string, patch: Partial<Omit<DailyResult, 'at'>>): boolean {
+    const cur = this.meta.stats.daily[date];
+    if (!cur) return false;
+    const next = normalizeDaily({ ...cur, ...patch, at: cur.at })!;
+    if (patch.done === true) delete next.done;
+    this.meta.stats.daily[date] = next;
     this.touch(true);
     return true;
   }

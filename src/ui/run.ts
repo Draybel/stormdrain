@@ -18,7 +18,7 @@
 import type { InputState } from '../engine/inputState';
 import { ICON_FIGHT } from '../content/sprites/combat';
 import { CURSE_ICONS } from '../content/sprites/mapIcons';
-import { BOSSES, CHAPTERS, findItem, findSet, findSynergy } from '../content/registry';
+import { BOSSES, CHAPTERS, CHARACTERS, findItem, findSet, findSynergy } from '../content/registry';
 import { BOSS_BAR_W, BOSS_BAR_Y, BossHud } from '../render/bossHud';
 import { randomSeed } from '../engine/rng';
 import { GAME_H, GAME_W } from '../engine/screen';
@@ -39,8 +39,9 @@ import { drawFloorCard, drawIris } from '../render/transitions';
 import { WorldFx } from '../render/worldFx';
 import { WorldRenderer, itemIcon } from '../render/worldRenderer';
 import type { FloorCurse } from '../sim/floor/types';
-import type { RunOptions, RunSnapshot } from '../sim/run/types';
-import type { App } from './app';
+import type { RunOptions, RunSeedInfo, RunSnapshot } from '../sim/run/types';
+import { randomSeedCode } from '../meta/seedCode';
+import type { App, RunEndInfo, RunStart } from './app';
 import type { Scene } from './scene';
 import { createRunButtons, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
 import { tickButtons, uiButton, type UiButton } from './widgets';
@@ -48,8 +49,6 @@ import { tickButtons, uiButton, type UiButton } from './widgets';
 const LABEL: TextStyle = { color: UI.textDim, shadow: UI.shadow };
 const NOTICE: TextStyle = { color: UI.text, shadow: UI.shadow };
 const HINT: TextStyle = { color: '#8e98b5', shadow: UI.shadow };
-const END_TITLE: TextStyle = { color: '#ffe9a8', shadow: '#2a1a08', outline: '#07080d', scale: 3 };
-const END_SUB: TextStyle = { color: UI.text, shadow: UI.shadow };
 const BG = '#07080d';
 
 /** Seconds the stick hints / keyboard hint stay up at the start of a run. */
@@ -65,10 +64,9 @@ const SLIDE_TIME = 0.25;
 const IRIS_CLOSE = 0.45;
 const IRIS_OPEN = 0.5;
 const CARD_TIME = 2.8;
-/** Death animation before the game-over card; the card may be dismissed after END_WAIT. */
+/** Death animation before the game-over screen; the beat after a final boss before the ending screen. */
 const DEATH_WAIT = 1.8;
-const END_WAIT = 0.8;
-const END_AUTO = 8;
+const WIN_WAIT = 1.4;
 
 /** What to say when the sim refuses an action (GameEvent 'denied' ids). */
 const DENIED: Readonly<Record<string, string>> = {
@@ -81,13 +79,6 @@ const DENIED: Readonly<Record<string, string>> = {
   noHearts: 'NOT ENOUGH HEARTS',
   noKeys: 'NOT ENOUGH KEYS',
   full: "YOU CAN'T USE THAT RIGHT NOW",
-};
-
-/** Ending cards (DESIGN "Final bosses & endings"): id → title, line. */
-const ENDINGS: Readonly<Record<number, readonly [string, string]>> = {
-  1: ['CLEAR SKIES', 'THE STORM IS OVER. FOR NOW.'],
-  2: ['THE QUIET HIVE', 'THE PAPER QUEEN SLEEPS. THE DRAINS HUSH.'],
-  3: ['WHAT THE RAIN KEPT', 'EVERYTHING THE STORM TOOK COMES HOME.'],
 };
 
 /** Room label names of the special rooms (DESIGN "Rooms"). */
@@ -128,8 +119,10 @@ export class RunScene implements Scene {
   private iconsFor = -1;
   /** Training-yard bell: calls the next wave (hidden while one is running). */
   private readonly fight: UiButton;
-  /** Run over: a full-screen tap goes back to the title. */
-  private readonly endTap: UiButton;
+  /** How this run was started (character + seed); null = Continue / the yard / debug. */
+  private readonly start: RunStart | null;
+  /** Route flags ('ending1'…) already unlocked when the run started (the ending screen's "new" notices). */
+  private flagsBefore: string[] = [];
   /** Remaining hit-stop ticks (presentation freeze after big kills). */
   private hitStop = 0;
   private label = '';
@@ -150,11 +143,12 @@ export class RunScene implements Scene {
   private cardTitle = '';
   private cardSub = '';
   private cardCurse: FloorCurse | null = null;
-  /** '' running, 'death', 'win'. */
+  /** '' running, 'death', 'win' (the game-over / ending screen is up, or about to be). */
   private ending = '';
   private endT = 0;
-  private endSub = '';
-  /** The ending reached (1-3) for the victory card. */
+  /** The end screen was opened. */
+  private endShown = false;
+  /** The ending reached (1-3) for the ending screen. */
   private endingId = 0;
   /** Boss HP bar + intro card. */
   private readonly bossHud = new BossHud();
@@ -170,25 +164,29 @@ export class RunScene implements Scene {
 
   /**
    * `snapshot`: continue a saved run (Sim.fromSnapshot — throws when the snapshot can't be restored;
-   * nav.continueRun catches that).
+   * nav.continueRun catches that). `start`: a new run's character and seed (character select); without it a
+   * new run is Wren on a random seed.
    */
-  constructor(app: App, mode: RunMode = 'run', snapshot: RunSnapshot | null = null) {
+  constructor(app: App, mode: RunMode = 'run', snapshot: RunSnapshot | null = null, start: RunStart | null = null) {
     this.app = app;
     this.mode = mode;
+    this.start = start;
     this.ui = createRunButtons();
     this.fight = uiButton({ id: 'run.fight', trigger: 'release', icon: ICON_FIGHT, kind: 'hud', pad: 4 });
     this.fight.onActivate = () => this.startWave();
-    this.endTap = uiButton({ id: 'run.end', x: 0, y: 0, w: GAME_W, h: GAME_H, pad: 0, visible: false });
-    this.endTap.onActivate = () => this.leave();
-    this.buttons = [...this.ui.all, this.fight, this.endTap];
+    this.buttons = [...this.ui.all, this.fight];
     this.fx = new WorldFx(app.particles, app.shake);
     this.resumed = snapshot !== null && mode === 'run';
     this.sim = this.resumed ? Sim.fromSnapshot(snapshot!) : this.makeSim();
   }
 
   private makeSim(): Sim {
-    // A new run carries the meta unlock snapshot (locked items, the ending-gated routes).
-    return this.mode === 'run' ? Sim.newRun(randomSeed(), { unlocked: this.app.save.unlockedForRun() }) : new Sim({ seed: randomSeed() });
+    if (this.mode !== 'run') return new Sim({ seed: randomSeed() });
+    // A new run carries the meta unlock snapshot (locked items, the ending-gated routes) and its seed code.
+    const s = this.start;
+    const seed: RunSeedInfo = s?.seed ?? { code: randomSeedCode(), kind: 'random' };
+    const character = s ? CHARACTERS.get(s.character) : undefined;
+    return Sim.newRun(s?.simSeed ?? seed.code, { unlocked: this.app.save.unlockedForRun(), seedInfo: seed }, character);
   }
 
   enter(): void {
@@ -215,6 +213,7 @@ export class RunScene implements Scene {
     const save = this.app.save;
     if (fresh) save.tracker.startRun(this.sim);
     else save.tracker.resumeRun(this.sim);
+    this.flagsBefore = [...save.meta.state.unlocks.endings];
     this.saveCleared = false;
     save.saveRunNow();
   }
@@ -240,7 +239,7 @@ export class RunScene implements Scene {
     this.sim = Sim.newRun(seed, { ...opts, unlocked: opts.unlocked ?? this.app.save.unlockedForRun() });
     this.ending = '';
     this.endingId = 0;
-    this.endTap.visible = false;
+    this.endShown = false;
     this.slideT = SLIDE_TIME;
     this.irisPhase = 0;
     this.prepareRoom();
@@ -275,8 +274,9 @@ export class RunScene implements Scene {
   }
 
   onLayout(): void {
-    layoutRunButtons(this.ui, this.app.settings.value.buttonScale);
-    // The bell sits under the consumable button in the left margin.
+    const s = this.app.settings.value;
+    layoutRunButtons(this.ui, s.buttonScale, s.leftHanded);
+    // The bell sits under the consumable button (left margin; right margin when left-handed).
     const c = this.ui.consumable;
     this.fight.x = c.x;
     this.fight.y = c.y + c.h + 6;
@@ -297,10 +297,6 @@ export class RunScene implements Scene {
   }
 
   onKey(code: string): boolean {
-    if (this.ending && this.endT >= END_WAIT) {
-      this.leave();
-      return true;
-    }
     if (code === 'KeyF' && this.sim.trainingRoom) {
       this.startWave();
       return true;
@@ -308,9 +304,14 @@ export class RunScene implements Scene {
     return false;
   }
 
-  private leave(): void {
-    if (!this.ending || this.endT < END_WAIT) return;
-    this.app.nav.title();
+  /** The game-over screen (over the frozen run) or, after a final boss, the ending screen. */
+  private showEnd(): void {
+    this.endShown = true;
+    const meta = this.app.save.meta;
+    const newFlags = ['ending1', 'ending2', 'ending3'].filter((f) => meta.isUnlocked('endings', f) && !this.flagsBefore.includes(f));
+    const info: RunEndInfo = { sim: this.sim, ending: this.ending === 'win' ? this.endingId || 1 : 0, newFlags };
+    if (this.ending === 'win') this.app.nav.victory(info);
+    else this.app.nav.gameOver(info);
   }
 
   private say(text: string, time = 1.4): void {
@@ -330,9 +331,8 @@ export class RunScene implements Scene {
     if (this.noticeTime > 0) this.noticeTime -= dt;
     if (this.ending) {
       this.endT += dt;
-      this.endTap.visible = this.endT >= END_WAIT;
-      if (this.endT >= END_AUTO) this.leave();
       this.tickPresentation(dt, false);
+      if (!this.endShown && (this.ending === 'death' || this.endT >= WIN_WAIT)) this.showEnd();
       return;
     }
     if (input.pause) {
@@ -574,9 +574,7 @@ export class RunScene implements Scene {
     if (this.ending) return;
     this.ending = kind;
     this.endT = 0;
-    const d = this.sim.run?.data;
-    const ch = d ? CHAPTERS.get(d.chapter) : undefined;
-    this.endSub = d ? `FLOOR ${d.floor} · ${(ch?.name ?? '').toUpperCase()} · ${formatTime(d.time)}` : '';
+    this.endShown = false;
     this.app.audio.music.stinger(kind === 'win' ? MUSIC.victory : MUSIC.gameOver, { stopMusic: true });
   }
 
@@ -619,12 +617,19 @@ export class RunScene implements Scene {
     this.drawHud(ctx);
     if (this.cardT < CARD_TIME && this.irisPhase !== 1) {
       const a = this.cardT < 0.3 ? this.cardT / 0.3 : this.cardT > CARD_TIME - 0.6 ? (CARD_TIME - this.cardT) / 0.6 : 1;
-      drawFloorCard(ctx, this.cardTitle, this.cardSub, this.cardCurse, a);
+      const d = this.sim.run?.data;
+      drawFloorCard(ctx, this.cardTitle, this.cardSub, this.cardCurse, a, this.cardT, d?.floor ?? 0, d?.track === 'alt');
     } else if (this.slideT >= SLIDE_TIME) {
       this.bossHud.drawCard(ctx, world.boss, this.time);
     }
     if (this.irisPhase === 0) this.feat.drawTransform(ctx, this.time);
-    if (this.ending) this.drawEnding(ctx);
+    // After a final boss, the screen dims for a beat before the ending screen fades in over it.
+    if (this.ending === 'win' && !this.endShown) {
+      ctx.globalAlpha = Math.min(0.6, this.endT * 0.5);
+      ctx.fillStyle = '#04050a';
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+      ctx.globalAlpha = 1;
+    }
   }
 
   /** Keeps a copy of the room as drawn (the camera slide / iris start from it). */
@@ -649,23 +654,6 @@ export class RunScene implements Scene {
     ctx.drawImage(this.prevRoom!, Math.round(ROOM_OUTER_X - dx * t), Math.round(ROOM_OUTER_Y - dy * t));
     this.renderer.draw(ctx, this.sim.world, 1, this.time, Math.round(dx * (1 - t)), Math.round(dy * (1 - t)));
     ctx.restore();
-  }
-
-  private drawEnding(ctx: CanvasRenderingContext2D): void {
-    const a = Math.min(1, this.endT * 2);
-    ctx.globalAlpha = a * 0.78;
-    ctx.fillStyle = '#04050a';
-    ctx.fillRect(0, 0, GAME_W, GAME_H);
-    ctx.globalAlpha = a;
-    const win = this.ending === 'win';
-    // Victory screen stub (M4 polishes the ending screens): the ending's title and line.
-    const end = ENDINGS[this.endingId] ?? ENDINGS[1]!;
-    drawTextCentered(ctx, win ? end[0] : 'THE RAIN TAKES YOU', GAME_W / 2, 62, END_TITLE);
-    drawTextCentered(ctx, win ? end[1] : 'SOAKED THROUGH...', GAME_W / 2, 92, END_SUB);
-    if (win) drawTextCentered(ctx, `ENDING ${this.endingId || 1} OF 3`, GAME_W / 2, 118, LABEL);
-    drawTextCentered(ctx, this.endSub, GAME_W / 2, 106, LABEL);
-    if (this.endT >= END_WAIT) drawTextCentered(ctx, 'TAP TO CONTINUE', GAME_W / 2, 150, HINT);
-    ctx.globalAlpha = 1;
   }
 
   private drawHud(ctx: CanvasRenderingContext2D): void {
@@ -786,10 +774,4 @@ export class RunScene implements Scene {
       endingId: this.endingId,
     };
   }
-}
-
-function formatTime(s: number): string {
-  const m = Math.floor(s / 60);
-  const r = Math.floor(s % 60);
-  return `${m}:${r < 10 ? '0' : ''}${r}`;
 }

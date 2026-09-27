@@ -189,6 +189,18 @@ export class AchievementEngine {
   }
 }
 
+/**
+ * Everything an achievement unlocks, as display lines (the achievements page; nothing is unlocked): its
+ * `unlocks` entries, then every item / character whose `unlock` names it.
+ */
+export function rewardLines(def: AchievementDef): string[] {
+  const lines: string[] = [];
+  for (const u of def.unlocks) lines.push(rewardText(u));
+  for (const d of allItems()) if (d.unlock === def.id) lines.push(`NEW ITEM: ${d.name.toUpperCase()}`);
+  for (const c of CHARACTERS.values()) if (c.unlock === def.id) lines.push(`NEW CHARACTER: ${c.name.toUpperCase()}`);
+  return lines;
+}
+
 function rewardText(u: UnlockRef): string {
   switch (u.kind) {
     case 'item':

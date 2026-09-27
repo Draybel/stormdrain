@@ -316,7 +316,7 @@ function updateBeams(w: World, e: Enemy, b: BossState): void {
     const dx = px - c * t;
     const dy = py - s * t;
     const rr = bm.width / 2 + p.r * BOSS_TUNING.beamGrace;
-    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, bm.dmg, DMG_ENEMY);
+    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, bm.dmg, DMG_ENEMY, e.uid);
   }
 }
 

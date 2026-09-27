@@ -12,8 +12,12 @@ the run's GameEvents). main.ts installs it (`installGameSave`), persists setting
 `save.endTick()` every loop tick, shows its notices as toasts, registers the service worker and asks for
 persistent storage. The run scene is its save host (`savableSim()`), saves at run start / every room entry,
 clears the save on death / victory; the title's Continue calls `nav.continueRun()` (`save.loadRun()` →
-`Sim.fromSnapshot`). Still to do (later Phase 4 items): the Settings "save data" page (export / import codes,
-the in-memory warning) and the daily-run UI (`tracker.startRun(sim, { date, seed })` already records results).
+`Sim.fromSnapshot`).
+
+**Phase 4B** added the UI for the rest: Settings → EXPORT SAVE / IMPORT SAVE (DOM modals, `src/ui/modals.ts`, through
+`GameSave.exportCode()` / `checkImport()` / `applyImport()` — section 5 below), the "can't keep saves" line on the Settings
+page, and the daily run (title → DAILY RUN: the date's seed code; the tracker claims the day's one scored attempt when it
+starts — `recordDaily(..., done: false)` — and finishes it with `updateDaily`; ARCHITECTURE §7a).
 
 | Module | What it gives you |
 |---|---|

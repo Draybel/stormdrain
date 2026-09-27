@@ -57,6 +57,11 @@ export interface HudButtons {
 
 const COUNTER_ICONS = [HUD_COIN_ICON, HUD_BOMB_ICON, HUD_KEY_ICON] as const;
 
+/** Trinket icons sit beside the consumable button, on the side facing the room. */
+function trinketX(b: { x: number; w: number }): number {
+  return b.x < GAME_W / 2 ? Math.round(b.x + b.w + 3) : Math.round(b.x) - 17;
+}
+
 function counterValue(world: World, i: number): number {
   const inv = world.player.inv;
   return i === 0 ? inv.coins : i === 1 ? inv.bombs : inv.keys;
@@ -176,7 +181,8 @@ export class Hud {
     if (!slot || slot.max <= 0) return;
     const b = buttons.active;
     const shake = this.deniedShake < 0.25 ? Math.round(Math.sin(this.deniedShake * 60) * 1.5) : 0;
-    const x = Math.round(b.x) - 6 + shake;
+    // Beside the button, on the side facing the room (left-handed layouts put the active on the left).
+    const x = (b.x < GAME_W / 2 ? Math.round(b.x + b.w) + 3 : Math.round(b.x) - 6) + shake;
     const y = Math.round(b.y) + 1;
     const h = b.h - 2;
     const full = slot.charge >= slot.max;
@@ -212,7 +218,7 @@ export class Hud {
     const t = world.player.inv.trinkets;
     if (t.length === 0) return;
     const b = buttons.consumable;
-    const x = Math.round(b.x + b.w + 3);
+    const x = trinketX(b);
     let y = Math.round(b.y + (b.h - 14) / 2);
     if (t.length > 1) y -= 8;
     for (let i = 0; i < t.length && i < 2; i++) {
@@ -250,12 +256,12 @@ export class Hud {
     ];
     if (world.player.inv.active && world.player.inv.active.max > 0) {
       const b = buttons.active;
-      out.push({ id: 'charge', x: Math.round(b.x) - 7, y: Math.round(b.y), w: 5, h: b.h });
+      out.push({ id: 'charge', x: b.x < GAME_W / 2 ? Math.round(b.x + b.w) + 2 : Math.round(b.x) - 7, y: Math.round(b.y), w: 5, h: b.h });
     }
     const t = world.player.inv.trinkets.length;
     if (t > 0) {
       const b = buttons.consumable;
-      out.push({ id: 'trinkets', x: Math.round(b.x + b.w + 3), y: Math.round(b.y + (b.h - 14) / 2) - (t > 1 ? 8 : 0), w: 14, h: t > 1 ? 30 : 14 });
+      out.push({ id: 'trinkets', x: trinketX(b), y: Math.round(b.y + (b.h - 14) / 2) - (t > 1 ? 8 : 0), w: 14, h: t > 1 ? 30 : 14 });
     }
     if (this.bannerVisible && this.bannerId) {
       out.push({ id: 'banner', x: Math.round((GAME_W - this.bannerW) / 2), y: BANNER_Y, w: this.bannerW, h: BANNER_H });

@@ -242,6 +242,7 @@ export class Run {
       won: 0,
       ending: 0,
     };
+    if (opts.seedInfo) data.seedInfo = { ...opts.seedInfo };
     const run = new Run(host, data);
     run.checkpoint();
     run.enterCurrent();

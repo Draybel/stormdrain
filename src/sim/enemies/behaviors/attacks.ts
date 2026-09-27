@@ -268,7 +268,7 @@ const landShockwave: AttackBehavior = {
   },
   fire(w, e, a) {
     const p = a.p;
-    spawnWave(w, e.x, e.y, p.radius!, p.speed!, p.dmg!, p.band!, allied(e));
+    spawnWave(w, e.x, e.y, p.radius!, p.speed!, p.dmg!, p.band!, allied(e), e.uid);
   },
 };
 
@@ -290,7 +290,7 @@ const leaveTrail: AttackBehavior = {
     const p = a.p;
     if (p.moving! > 0 && !e.moving) return;
     if (e.flying || e.z > 0 || e.burrowed) return;
-    spawnCreep(w, e.x, e.y + 1, p.radius!, p.life!, p.dmg!, a.style, allied(e));
+    spawnCreep(w, e.x, e.y + 1, p.radius!, p.life!, p.dmg!, a.style, allied(e), e.uid);
   },
 };
 

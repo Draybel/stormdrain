@@ -30,6 +30,8 @@ async function startRun(page: Page): Promise<void> {
   await page.goto('./');
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   // Phase 2 features live in the training yard (New Run starts a real floor run since Phase 3A).
   await page.evaluate(() => window.__SD.debug.yard());

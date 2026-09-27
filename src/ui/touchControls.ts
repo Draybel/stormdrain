@@ -38,19 +38,31 @@ const BASE = 24;
 const GAP = 6;
 const EDGE = 4;
 
+/** Top of the left-handed action column: below the hearts and the coin / bomb / key counters. */
+const LEFTY_TOP = 56;
+
 /**
  * Right margin column: pause (top-right corner), active, bomb. Minimap to the left of pause.
  * Left margin: consumable at mid height (hearts/counters own the top-left).
+ * Left-handed (Settings): the thumb columns swap — active + bomb go down the left margin (under the
+ * counters), the consumable to the right margin under pause; pause and the minimap stay top-right.
  */
-export function layoutRunButtons(b: RunButtons, scale: number): void {
+export function layoutRunButtons(b: RunButtons, scale: number, leftHanded = false): void {
   const s = Math.round(BASE * scale);
   const right = GAME_W - EDGE - s;
   place(b.pause, right, EDGE, s, s);
-  place(b.active, right, EDGE + s + GAP, s, s);
-  place(b.bomb, right, EDGE + (s + GAP) * 2, s, s);
   const mw = Math.round(36 * scale);
   const mh = Math.round(26 * scale);
   place(b.map, right - GAP - mw, EDGE, mw, mh);
+  if (leftHanded) {
+    const top = Math.max(LEFTY_TOP, EDGE + (s + GAP) * 2);
+    place(b.active, EDGE, top, s, s);
+    place(b.bomb, EDGE, top + s + GAP, s, s);
+    place(b.consumable, right, EDGE + s + GAP, s, s);
+    return;
+  }
+  place(b.active, right, EDGE + s + GAP, s, s);
+  place(b.bomb, right, EDGE + (s + GAP) * 2, s, s);
   place(b.consumable, EDGE, EDGE + (s + GAP) * 2, s, s);
 }
 
@@ -160,8 +172,12 @@ function drawStickHint(ctx: CanvasRenderingContext2D, x: number, y: number, labe
 export function drawSticks(ctx: CanvasRenderingContext2D, input: Input, hintAlpha: number): void {
   const m = input.moveStick;
   const a = input.aimStick;
+  // Left-handed: the move stick rests on the right, the shoot stick on the left.
+  const lefty = input.isLeftHanded;
+  const mb = lefty ? AIM_KNOB_BASE : MOVE_KNOB_BASE;
+  const ab = lefty ? MOVE_KNOB_BASE : AIM_KNOB_BASE;
   if (m.active) drawStick(ctx, m, false);
-  else if (hintAlpha > 0.01) drawStickHint(ctx, MOVE_KNOB_BASE.x, MOVE_KNOB_BASE.y - 6, 'MOVE', hintAlpha);
+  else if (hintAlpha > 0.01) drawStickHint(ctx, mb.x, mb.y - 6, 'MOVE', hintAlpha);
   if (a.active) drawStick(ctx, a, true);
-  else if (hintAlpha > 0.01) drawStickHint(ctx, AIM_KNOB_BASE.x, AIM_KNOB_BASE.y - 6, 'SHOOT', hintAlpha);
+  else if (hintAlpha > 0.01) drawStickHint(ctx, ab.x, ab.y - 6, 'SHOOT', hintAlpha);
 }

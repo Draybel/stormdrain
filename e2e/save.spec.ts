@@ -35,6 +35,8 @@ test('a run save survives a reload: Continue resumes the same floor and room', a
   await waitScene(page, 'title');
   expect(await visible(page, 'title.continue')).toBe(false);
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   await page.evaluate(() => window.__SD.debug.god(true));
   // Something to carry: an item and a few coins.
@@ -90,6 +92,8 @@ test('a finished run leaves no Continue; progress and settings persist across re
   await page.goto('./');
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   // A setting changed during the run.
   await page.evaluate(() => window.__SD.debug.aim360(true));
@@ -105,7 +109,8 @@ test('a finished run leaves no Continue; progress and settings persist across re
   await page.waitForFunction(() => !window.__SD.meta().hasRun);
   await page.waitForFunction(() => window.__SD.presentation()?.ending === 'death', undefined, { timeout: 6000 });
   await page.waitForTimeout(900);
-  await tap(page, 'run.end');
+  await waitScene(page, 'over');
+  await tap(page, 'over.title');
   await waitScene(page, 'title');
   expect(await visible(page, 'title.continue')).toBe(false);
 
@@ -119,6 +124,8 @@ test('a finished run leaves no Continue; progress and settings persist across re
   expect(m.achievements).toContain('first-splash');
   // The setting came back from the save.
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   expect(await page.evaluate(() => window.__SD.meta().stats.runs)).toBe(2);
   const aim = await page.evaluate(() => {

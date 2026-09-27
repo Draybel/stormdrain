@@ -126,6 +126,16 @@ export function registerItem(def: ItemDef): void {
   ITEMS.set(def.id, def);
   ALL_ITEMS.push(def);
 }
+
+/**
+ * Runtime registration of a character for tests and tools (the debug hook's demo cards; game content belongs
+ * in src/content/characters/*.ts). Throws on a duplicate id.
+ */
+export function registerCharacter(def: CharacterDef): void {
+  if (CHARACTERS.has(def.id)) throw new Error(`duplicate character id "${def.id}"`);
+  CHARACTERS.set(def.id, def);
+}
+
 /**
  * Runtime registration of an enemy for tests and tools (game content belongs in
  * src/content/enemies/*.ts). Throws on a duplicate id.

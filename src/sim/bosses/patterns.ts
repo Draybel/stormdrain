@@ -294,7 +294,7 @@ const jumpSlam: PatternBehavior = {
       b.anim = 'slam';
       w.events.emit('enemyLand', e.x, e.y, e.r, 0, e.def.id);
       w.events.emit('bossSlam', e.x, e.y, e.r * 2, 0, e.def.id);
-      if (p.waves! > 0) spawnWave(w, e.x, e.y, p.waveRadius!, p.waveSpeed!, p.dmg!, 6, allied(e));
+      if (p.waves! > 0) spawnWave(w, e.x, e.y, p.waveRadius!, p.waveSpeed!, p.dmg!, 6, allied(e), e.uid);
       ring(w, e, cp, b, p.ring!, w.combatRng.next() * TAU, p.ringSpeed!);
       b.mode = 2;
       b.k = 1;
@@ -305,7 +305,7 @@ const jumpSlam: PatternBehavior = {
     b.t -= dt;
     // Follow-up rings, 0.22 s apart.
     if (b.k < p.waves! && p.pause! - b.t >= 0.22 * b.k) {
-      spawnWave(w, e.x, e.y, p.waveRadius! * (1 + 0.15 * b.k), p.waveSpeed! * 0.85, p.dmg!, 6, allied(e));
+      spawnWave(w, e.x, e.y, p.waveRadius! * (1 + 0.15 * b.k), p.waveSpeed! * 0.85, p.dmg!, 6, allied(e), e.uid);
       b.k++;
     }
     if (b.t > 0) return false;
@@ -691,7 +691,7 @@ const burrow: PatternBehavior = {
         w.events.emit('burrow', e.x, e.y, 2, e.r, e.def.id);
         w.events.emit('bossSlam', e.x, e.y, e.r * 2, 0, e.def.id);
         ring(w, e, cp, b, p.ring!, w.combatRng.next() * TAU, p.ringSpeed!);
-        if (p.waves! > 0) spawnWave(w, e.x, e.y, p.waveRadius!, 120, p.dmg!, 6, allied(e));
+        if (p.waves! > 0) spawnWave(w, e.x, e.y, p.waveRadius!, 120, p.dmg!, 6, allied(e), e.uid);
         b.mode = 3;
         b.t = 0.55;
         return false;

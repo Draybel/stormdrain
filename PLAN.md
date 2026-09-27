@@ -116,18 +116,28 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [x] Versioned save envelope + migrations; meta save on change; run autosave on room transition + background
       — `src/meta`: checksummed `{ v, data, sum }` slots with `.bak` / `.corrupt`, step-by-step migrations,
       `MetaStore` (end-of-tick / 5 s saves), `RunSaveStore`; wired in 4A (above)
-- [ ] Title (Continue / New Run / Daily / Seed / Collection / Bestiary / Stats / Achievements / Settings)
-      (4A: Continue / New Run / Settings + the save notice line; the rest to do)
-- [ ] Character select (locked silhouettes), seed entry (DOM input modal), daily run
-- [ ] Pause menu with stats + items; settings (volumes, aim mode, shake, button size, left-handed?); save export/import
-      (export / import codes `SD1:` are done in `src/meta/exportCode.ts`; the menus and the DOM modal to do)
+- [x] Title (Continue / New Run / Daily / Seed / Collection / Bestiary / Stats / Achievements / Settings)
+      (4A: Continue / New Run / Settings + the save notice line; 4B: the play column in the arch, page tiles on the walls,
+      Settings in the corner, the daily tick, keyboard navigation (`MenuNav`) — every button >= 27 game px ≈ 45 pt)
+- [x] Character select (locked silhouettes), seed entry (DOM input modal), daily run
+      (4B: `ui/characterSelect.ts` — N characters, paged strip, silhouettes + unlock hints, stat bars, START; 8-character seed
+      codes `meta/seedCode.ts` + `RunSeedInfo` in RunData; the DOM modal layer `ui/domModal.ts`; the daily seed from the UTC
+      date, one scored attempt per day claimed at start, practice replays; seeded runs = practice (no run feats / endings))
+- [x] Pause menu with stats + items; settings (volumes, aim mode, shake, button size, left-handed?); save export/import
+      (4B: pause — character, floor, seed, curse, time, six stats with icons, item grid (tap to read), active + charge,
+      trinkets, consumable, transformations; settings — master / music / sfx / shake sliders (drag + tap), show fps, aim
+      4-way / 360°, left-handed (sticks + thumb columns swap), button size 75-150 %, export (select all + copy) / import
+      (validate → confirm → replace) DOM modals; the secret 5 taps on PAUSED still open the debug menu)
 - [x] Achievements framework + unlocks (items, characters, routes, endings)
       (4A: `meta/achievements.ts` — counter + event conditions with id / value / at-least filters, rewards into the
       meta unlock sets incl. items / characters naming the achievement, trophy toast + sfx; `meta/tracker.ts` records the
       collection, bestiary, lifetime stats, counters and daily results from a run's events; `meta/unlocks.ts` — locked
       items never roll (pedestals, shops, drop tables) and new runs carry the unlock snapshot incl. 'ending1' / 'ending2';
       15 achievements in `content/achievements/core.ts`, 6 starter items locked behind them)
-- [ ] Collection, bestiary, stats and achievements pages (the data is all in `MetaState` / `__SD.meta()`)
+- [x] Collection, bestiary, stats and achievements pages (the data is all in `MetaState` / `__SD.meta()`)
+      (4B: collection '?' / silhouette / colour / padlock grid + details; bestiary foes / bosses with counts and animated
+      sprites; stats in two scrolling columns incl. the daily results; achievements with dates, rewards and hidden ones;
+      game-over screen (killer, floor, seed, items, time; retry seed / new run / title); e2e/menus.spec.ts)
 - [x] PWA: manifest, generated icons, service worker (offline), iOS meta tags; GitHub Pages base path
       (4A: `registerServiceWorker()` + `requestPersistentStorage()` called from main.ts) — `public/manifest.webmanifest`,
       `npm run icons`, build-time `dist/sw.js` (scripts/sw-plugin.mjs), relative URLs for any Pages sub-path
@@ -166,9 +176,11 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
       top of the Phase 2 sounds; wired into the title / runs / pause in Phase 3A
-- [ ] Hidden routes to alt chapters; endings 1–3 with ending screens
-      (3B: routes, whirlpool and endings flow done with run options standing in for the meta unlocks; ending screens are
-      stubs — the ending's title card — for M4; 4A: 'ending1' / 'ending2' / item unlocks now come from the meta save)
+- [x] Hidden routes to alt chapters; endings 1–3 with ending screens
+      (3B: routes, whirlpool and endings flow done with run options standing in for the meta unlocks; 4A: 'ending1' /
+      'ending2' / item unlocks now come from the meta save; 4B: the ending screens — a painted vignette and a typed epilogue
+      per ending, unlock notices, the run summary; the floor card got its opening animation and a floor-progress track.
+      The final bosses themselves are still the 3B placeholders — see "Bosses → 20+")
 
 ## Phase 7 — Integration, balance & performance
 - [ ] Merge all content; full test suite green; bot clears every floor/track

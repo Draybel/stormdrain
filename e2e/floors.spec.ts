@@ -29,6 +29,8 @@ async function startRun(page: Page): Promise<void> {
   await page.goto('./');
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
 }
 
@@ -138,7 +140,8 @@ test('dying ends the run; a tap goes back to the title', async ({ page }) => {
   await page.evaluate(() => window.__SD.debug.kill());
   await page.waitForFunction(() => window.__SD.presentation()?.ending === 'death', undefined, { timeout: 6000 });
   await page.waitForTimeout(900);
-  await tap(page, 'run.end');
+  await waitScene(page, 'over');
+  await tap(page, 'over.title');
   await waitScene(page, 'title');
   expect(errors).toEqual([]);
 });

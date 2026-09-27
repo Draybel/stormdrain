@@ -60,6 +60,8 @@ test('boots to the title, taps into a run, pauses and resumes — no errors', as
   expect(newRun.css.x + newRun.css.w).toBeLessThanOrEqual(view.x + view.w + 0.5);
 
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   const run = await page.evaluate(() => window.__SD.run());
   expect(run).not.toBeNull();
@@ -103,6 +105,8 @@ test('touch sticks move and shoot', async ({ page }) => {
   await page.goto('./');
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   // The training yard (no doors to walk through by accident).
   await page.evaluate(() => window.__SD.debug.yard());
@@ -140,6 +144,8 @@ test('portrait shows the rotate screen and pauses the run', async ({ page }) => 
   await page.goto('./');
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
   await waitScene(page, 'run');
   const vp = page.viewportSize()!;
   await page.setViewportSize({ width: vp.height, height: vp.width });
