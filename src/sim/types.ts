@@ -386,7 +386,13 @@ export interface ActiveSpec {
 
 export type CostumeLayer = 'body' | 'cape' | 'eyes' | 'hat' | 'aura' | 'held';
 
-/** Overlay sprite layer drawn on the character (major items, set transformations). */
+/**
+ * Overlay sprite layer drawn on the character (major items, set transformations). The sprite is
+ * anchored like the character's (feet), offset by dx/dy.
+ * - `frames: 'dir'` (default when the sprite has 3+ frames): frame 0 facing down, 1 up, 2 side (right;
+ *   mirrored for left). A 1-frame sprite is used for every facing.
+ * - `frames: 'anim'`: frames cycle at `fps` whatever the facing (auras, crackles).
+ */
 export interface CostumeDef {
   id: string;
   layer: CostumeLayer;
@@ -395,6 +401,26 @@ export interface CostumeDef {
   dy?: number;
   /** Drawn behind the character (capes, auras). */
   behind?: boolean;
+  frames?: 'dir' | 'anim';
+  /** Animation speed for `frames: 'anim'` (frames per second, default 8). */
+  fps?: number;
+  /** Additive glow under the layer: 'r,g,b'. */
+  glow?: string;
+  /** Occasional spark particles around the character in this colour. */
+  sparks?: string;
+  /** Additive blending for the layer itself (glowing eyes, auras). */
+  additive?: boolean;
+}
+
+/** One costume or several layers (e.g. an aura + glowing eyes). */
+export type CostumeSpec = CostumeDef | readonly CostumeDef[];
+
+const NO_COSTUMES: readonly CostumeDef[] = [];
+
+/** A costume spec as a list of layers (allocates for a single def: callers cache the result). */
+export function costumeList(c: CostumeSpec | undefined): readonly CostumeDef[] {
+  if (!c) return NO_COSTUMES;
+  return Array.isArray(c) ? (c as readonly CostumeDef[]) : [c as CostumeDef];
 }
 
 export interface ItemDef {
@@ -416,7 +442,7 @@ export interface ItemDef {
   use?: readonly Effect[];
   /** 14×14 icon (a string is a placeholder reference until art exists). */
   sprite: SpriteDef | string;
-  costume?: CostumeDef;
+  costume?: CostumeSpec;
   unlock?: AchievementId;
 }
 
@@ -616,6 +642,8 @@ export interface CharacterDef {
   startItems: readonly ItemId[];
   startPickups: StartPickups;
   sprite: SpriteDef;
+  /** Base shot colour (ShotStyle, ARCHITECTURE §4.6); default candle-gold. */
+  shotColor?: string;
   /** Hook id of the character's unique mechanic (registered in src/content/hooks). */
   mechanic: HookId;
   unlock?: AchievementId;
@@ -664,24 +692,43 @@ export interface ItemSetDef {
   /** Items needed (default design: 3). */
   need: number;
   effects: readonly Effect[];
-  costume?: CostumeDef;
+  costume?: CostumeSpec;
   hook?: HookId;
 }
 
+/**
+ * Familiar movement (sim/attack/familiars.ts):
+ * - follow: joins the follower chain trailing the player (spaced along her recent path);
+ * - hover: like follow, bobbing a little higher (render);
+ * - orbit: circles the player, blocks enemy shots it touches;
+ * - guard: orbits closer and slower, blocks enemy shots;
+ * - chase: runs at the nearest enemy (contact damage), returns to the player when there is none.
+ */
 export type FamiliarBehavior = 'follow' | 'orbit' | 'guard' | 'chase' | 'hover';
 
 export interface FamiliarDef {
   id: FamiliarId;
   name: string;
   desc: string;
+  /** Needs 1+ frames (2 frames = idle bob animation); anchored at the feet. */
   sprite: SpriteDef | string;
   behavior: FamiliarBehavior;
   radius: number;
-  /** Scale of the player's AttackProfile when it fires (0 = never fires; ~0.35-0.5 typical). */
+  /**
+   * Scale of the player's AttackProfile when it fires (0 = never fires; ~0.35-0.5 typical). Shooters
+   * fire through fireVolley with the player's profile, so they inherit every carrier and modifier.
+   */
   attackScale: number;
+  /** Fire-rate multiplier vs the player's (default 1). */
   fireRateMul?: number;
+  /** Damage per touch to enemies (every 0.3 s per target). */
   contactDamage?: number;
+  /** Movement speed, px/s (default 110). */
   speed?: number;
+  /** Destroys hostile enemy shots it touches (orbit / guard default true). */
+  blocks?: boolean;
+  /** Glow colour 'r,g,b' (render). */
+  glow?: string;
 }
 
 export interface AchievementCondition {

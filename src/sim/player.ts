@@ -1,18 +1,20 @@
 /**
- * The player: snappy analog movement with circle-vs-grid sliding, hold-to-fire marbles that
- * alternate between the left and right eye, and the run-level state that travels with them
- * (health, inventory, flags, triggers, attack loadout — see sim/effects.ts for how items feed it).
+ * The player: snappy analog movement with circle-vs-grid sliding, the trigger finger (attack/charge.ts:
+ * fire at the fire rate or hold-to-charge, everything through the attack pipeline's fireVolley), and the
+ * run-level state that travels with them (health, inventory, flags, triggers, attack loadout and profile —
+ * see sim/effects.ts for how items feed it).
  */
 
 import type { InputState } from '../engine/inputState';
 import { vec2 } from '../engine/math';
 import { placeBomb } from './bombs';
 import { FLY_MODE, WALK_MODE, resolveCircleVsCircle, resolveCircleVsGrid } from './collision';
-import { fireTrigger, useActive, useConsumable } from './effects';
+import { useActive, useConsumable } from './effects';
 import { Health, initHealth } from './health';
 import { Inventory } from './inventory';
 import { Loadout, makeFlags, makeTriggerLists, type TempEffect, type TriggerLists } from './loadout';
-import { spawnMarble } from './projectiles';
+import { PlayerAttack, updatePlayerAttack } from './attack/charge';
+import type { AttackProfile } from './attack/profile';
 import { ENEMY_TUNING, ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { CharacterDef, Stats } from './types';
 import type { World } from './world';
@@ -40,6 +42,12 @@ export class Player {
   statsVersion = 0;
   /** Loadout version the attack pipeline last built from (see attack/recomputeAttack.ts). */
   attackVersion = -1;
+  /** The attack profile (rebuilt by recomputeAttack whenever items change; set in the Sim constructor). */
+  attack!: AttackProfile;
+  /** Trigger-finger state: charge meter, bursts, Wren's keeper marble (attack/charge.ts). */
+  readonly atk = new PlayerAttack();
+  /** Anchor for shots / beams / swipes (the player object is never pooled). */
+  readonly alive = true;
   /** Item currently held overhead after a pickup (render pose + banner). */
   holdItem = '';
   holdTime = 0;
@@ -127,11 +135,13 @@ export function updatePlayer(w: World, input: InputState, dt: number): void {
     p.vx = p.vy = 0;
     p.pushX = p.pushY = 0;
     p.firing = false;
+    p.atk.reset();
     return;
   }
 
   movePlayer(w, input, dt);
-  firePlayer(w, input, dt);
+  updatePlayerAttack(w, input, dt);
+  if (p.firing) setFacing(p, p.atk.dirX, p.atk.dirY);
   // Action buttons (edge-triggered): bomb (E), active (Space), consumable (Q).
   if (input.bomb) placeBomb(w);
   if (input.active) useActive(w);
@@ -239,50 +249,4 @@ function setFacing(p: Player, x: number, y: number): void {
     p.faceX = 0;
     p.faceY = y > 0 ? 1 : -1;
   }
-}
-
-function firePlayer(w: World, input: InputState, dt: number): void {
-  const p = w.player;
-  const T = PLAYER_TUNING;
-  const ax = input.aimX;
-  const ay = input.aimY;
-  const hasAim = ax !== 0 || ay !== 0;
-  const wants = (input.fireHeld || input.firePressed) && hasAim;
-  p.firing = wants;
-
-  // Only count down while cooling: a ready weapon (0) fires on the very tick the press arrives,
-  // and the fractional remainder carries over so e.g. 3/s is exactly every 20 ticks.
-  if (p.fireCooldown > 0) p.fireCooldown -= dt;
-  if (!wants) {
-    // No banking shots while idle: resting at 0 means the next press fires instantly.
-    if (p.fireCooldown < 0) p.fireCooldown = 0;
-    return;
-  }
-  setFacing(p, ax, ay);
-  // Epsilon keeps the cadence exact despite float drift (3/s must be exactly every 20 ticks).
-  if (p.fireCooldown > 1e-7) return;
-
-  const period = 1 / Math.max(0.1, p.stats.fireRate);
-  p.fireCooldown += period;
-  if (p.fireCooldown < 0) p.fireCooldown = 0;
-
-  // Spawn ahead of the feet, offset sideways to the current "eye" for an alternating look.
-  const px = -ay;
-  const py = ax;
-  const side = p.eyeSide * T.eyeOffset;
-  p.eyeSide = -p.eyeSide;
-  const sx = p.x + ax * T.muzzleForward + px * side;
-  const sy = p.y + ay * T.muzzleForward + py * side;
-  const s = p.stats;
-  const vx = ax * s.shotSpeed + p.vx * T.inheritVelocity;
-  const vy = ay * s.shotSpeed + p.vy * T.inheritVelocity;
-  const m = spawnMarble(w, sx, sy, T.shotHeight, vx, vy, s.damage, s.range, s.shotSize, s.knockback);
-  if (m && p.flags.spectral) m.phase = true;
-  p.aimX = ax;
-  p.aimY = ay;
-  p.sinceShot = 0;
-  p.shotsFired++;
-  w.counters.shots++;
-  w.events.emit('shoot', sx, sy - T.shotHeight, ax, ay);
-  fireTrigger(w, 'fire', sx, sy);
 }

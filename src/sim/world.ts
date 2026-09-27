@@ -4,6 +4,8 @@ import { EventQueue } from '../engine/events';
 import { Pool } from '../engine/pool';
 import type { Rng } from '../engine/rng';
 import { Arena } from './arena';
+import { AttackWorld } from './attack/attackWorld';
+import { Shot } from './attack/shot';
 import { Bomb } from './bombs';
 import {
   CAP_BOMBS,
@@ -27,7 +29,6 @@ import type { HookApi } from './hooks';
 import { Pedestal } from './pedestals';
 import { Pickup } from './pickups';
 import { Player } from './player';
-import { Projectile } from './projectiles';
 import { RoomGrid } from './room';
 import type { CharacterDef } from './types';
 
@@ -54,7 +55,10 @@ export interface WorldCounters {
 export class World {
   readonly room = new RoomGrid();
   readonly player: Player;
-  readonly projectiles = new Pool<Projectile>(CAP_PROJECTILES, () => new Projectile());
+  /** Player-side projectiles of the attack pipeline (marbles, blades, crescents, bombs, orbit blades…). */
+  readonly projectiles = new Pool<Shot>(CAP_PROJECTILES, () => new Shot());
+  /** The rest of the attack pipeline: beams, swipes, familiars, queues, target snapshot (sim/attack). */
+  readonly atk = new AttackWorld();
   readonly dummies = new Pool<Dummy>(CAP_DUMMIES, () => new Dummy(this));
   readonly pickups = new Pool<Pickup>(CAP_PICKUPS, () => new Pickup());
   readonly bombs = new Pool<Bomb>(CAP_BOMBS, () => new Bomb());
@@ -73,7 +77,8 @@ export class World {
   readonly seenEnemies = new Set<string>();
   /** Last enemy uid handed out. */
   enemySerial = 0;
-  readonly events = new EventQueue(512);
+  /** Big enough for absurd builds (dozens of beams hitting everything on one tick). */
+  readonly events = new EventQueue(1024);
   /** In-room randomness (pop arcs, trigger rolls, enemy AI, champion rolls; serialized with the run later). */
   readonly combatRng: Rng;
   /** Run-level loot stream (drop tables, chest contents; serialized with the run later). */

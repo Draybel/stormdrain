@@ -4,13 +4,14 @@
  * rapid fire from turning into mush or overloading older phones.
  */
 
+import { ATTACK_RECIPES, type AttackSfxName } from './sfxAttack';
 import { ENEMY_RECIPES, type EnemySfxName } from './sfxEnemies';
 import { GAMEPLAY_RECIPES, type GameplaySfxName } from './sfxGameplay';
 import { noise, osc, type Recipe, type Voice } from './synth';
 
 /** Phase 1 core sounds (UI, shooting, dummies, hurt/death). */
 export type CoreSfxName = 'shoot' | 'hit' | 'splash' | 'dummy_pop' | 'ui_click' | 'ui_back' | 'hurt' | 'death' | 'spawn';
-export type SfxName = CoreSfxName | GameplaySfxName | EnemySfxName;
+export type SfxName = CoreSfxName | GameplaySfxName | EnemySfxName | AttackSfxName;
 
 const MAX_VOICES = 20;
 
@@ -113,7 +114,7 @@ const CORE_RECIPES: Record<CoreSfxName, Recipe> = {
   },
 };
 
-const RECIPES: Record<SfxName, Recipe> = { ...CORE_RECIPES, ...GAMEPLAY_RECIPES, ...ENEMY_RECIPES };
+const RECIPES: Record<SfxName, Recipe> = { ...CORE_RECIPES, ...GAMEPLAY_RECIPES, ...ENEMY_RECIPES, ...ATTACK_RECIPES };
 
 export class SfxPlayer {
   private readonly ctx: AudioContext;
@@ -132,14 +133,15 @@ export class SfxPlayer {
     this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.voice = { ctx, out, t: 0, noise: this.noiseBuf, jitter: 0 };
+    this.voice = { ctx, out, t: 0, noise: this.noiseBuf, jitter: 0, param: 0 };
   }
 
   /**
    * @param pan    -1 (left) .. 1 (right)
    * @param volume 0..1 extra scale
+   * @param param  recipe-specific level (pitch / intensity), default 0
    */
-  play(name: SfxName, pan = 0, volume = 1): void {
+  play(name: SfxName, pan = 0, volume = 1, param = 0): void {
     const r = RECIPES[name];
     if (!r) return;
     const now = this.ctx.currentTime;
@@ -172,6 +174,7 @@ export class SfxPlayer {
     v.out = g;
     v.t = now + 0.005;
     v.jitter = Math.random() * 2 - 1;
+    v.param = param;
     r.play(v);
   }
 }

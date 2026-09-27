@@ -21,6 +21,8 @@ export interface Voice {
   noise: AudioBuffer;
   /** Random ±1 value for per-play variation. */
   jitter: number;
+  /** Caller-supplied value (0 by default): pitch / intensity for sounds that follow a level. */
+  param: number;
 }
 
 export function env(g: GainNode, t: number, attack: number, peak: number, decay: number): void {

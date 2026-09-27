@@ -384,7 +384,7 @@ describe('training room', () => {
     for (const k of ['coin', 'silverCoin', 'goldCoin', 'luckyCoin', 'halfHeart', 'heart', 'tinHeart', 'emberHeart', 'bomb', 'key', 'sparkSmall', 'sparkFull', 'satchel', 'lockbox', 'trinket', 'consumable']) {
       expect(kinds.has(k), k).toBe(true);
     }
-    expect(s.pedestals.filter((p) => p.item).length).toBe(5);
+    expect(s.pedestals.filter((p) => p.item).length).toBe(6);
     for (const k of s.pickups.filter((x) => x.kind === 'trinket' || x.kind === 'consumable')) expect(k.item).not.toBe('');
   });
 

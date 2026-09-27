@@ -108,6 +108,7 @@ export const getSet = (id: string): ItemSetDef => must(SETS, 'set', id);
 export const findSet = (id: string): ItemSetDef | undefined => SETS.get(id);
 export const getAchievement = (id: string): AchievementDef => must(ACHIEVEMENTS, 'achievement', id);
 export const getFamiliar = (id: string): FamiliarDef => must(FAMILIARS, 'familiar', id);
+export const findFamiliar = (id: string): FamiliarDef | undefined => FAMILIARS.get(id);
 export const getDropTable = (id: string): DropTableDef => must(DROP_TABLES, 'drop table', id);
 export const findDropTable = (id: string): DropTableDef | undefined => DROP_TABLES.get(id);
 

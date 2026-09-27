@@ -122,14 +122,17 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   put out fires and call `World.onSecretWallBombed(x, y)` for secretWall tiles and for the four wall door slots in
   reach — the floor code decides what is there.
 - World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (8),
-  enemies (64), enemy shots (400), creep puddles (48), shockwaves (16), all pooled (`sim/constants.ts` CAP_*).
+  enemies (64), enemy shots (400), creep puddles (48), shockwaves (16), all pooled (`sim/constants.ts` CAP_*); the
+  attack pipeline's beams (48), swipes (16) and familiars (12 stable slots) live in `world.atk` (§4). The event
+  queue holds 1024 events per tick.
 - `Sim` API used by room/floor code and tools: `roomCleared()` (actives +1 charge, 'roomClear' triggers),
   `floorStarted()`, `loadRoom(layout, spawns)`, and debug helpers `giveItem`, `spawnPickup`, `placeBomb`, `explode`,
   `hurtPlayer`, `killPlayer`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
   generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
   as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)`,
   `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
-  (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves.
+  (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves,
+  and every attack in flight (beams, swipes, queues; familiars regroup at the player — `resetAttackRoom`).
   `world.godMode` (debug) makes `damagePlayer` refuse all damage.
 
 ### Health model (`sim/health.ts`, pure; `sim/combat.ts` applies it)
@@ -157,7 +160,8 @@ object (its identity never changes).
   (`heal, hearts, pickups, hook`: run once). `recomputePlayer(w)` rebuilds stats, flags, trigger lists, slot counts,
   completed sets, active synergies and `player.loadout` (mod stacks, carriers, familiars) from passives (duplicates
   count), the active item, trinkets, sets, synergies and temporary effects, then calls
-  `recomputeAttack(player)` (`sim/attack/recomputeAttack.ts`, the attack pipeline's entry point).
+  `recomputeAttack(player)` (`sim/attack/recomputeAttack.ts`), which rebuilds `player.attack` (the AttackProfile,
+  §4.1). The loadout also counts carrier copies (`carrierStacks`) and lists the held items with a costume.
 - Instants run when a FRESH copy is first picked up, when an active/consumable is used, or when a trigger fires.
   Persistent effects executed in those contexts become TEMPORARY: `duration` seconds, else until the player leaves
   the room (`leftRoom`, called by `loadRoom`).
@@ -194,8 +198,8 @@ Enemies, training dummies and shot-breakable tiles (one `TileTarget` adapter per
 `firstHittable` returns the first enemy/dummy. `kx, ky` is a knockback impulse in px/s (divided by the target's mass,
 direction remembered for a later `'knockback'` status). Sources (`SRC_PLAYER, SRC_BOMB, SRC_STATUS, SRC_ALLY,
 SRC_ENEMY, SRC_HAZARD`) decide kill credit (`creditsPlayer`). The attack pipeline (§4) hits everything through this.
-`combat.damageArea` (bombs, novas, hooks) hurts enemies and dummies; marbles hit enemies in `projectiles.ts` (a
-stand-in until the pipeline owns shot hits).
+`combat.damageArea` (bombs, novas, hooks, player shot blasts) hurts enemies and dummies; every player attack
+(projectiles, beams, swipes, orbit blades, familiars, chains) hits through this interface (§4).
 
 ### Enemies (`sim/enemies/`)
 - `Enemy` (pooled): everything comes from its `EnemyDef` = ONE movement behaviour + up to 4 attacks + on-death effects
@@ -248,22 +252,36 @@ stand-in until the pipeline owns shot hits).
 Goal: **every item that affects attacks is a composable modifier.** Adding an item never requires special-case code
 for other items. Any combination must work, and stacking must snowball.
 
+Code: `src/sim/attack/` — `state.ts` (shared shapes), `profile.ts`, `fire.ts`, `shot.ts`, `beam.ts`, `melee.ts`,
+`orbit.ts`, `familiars.ts`, `charge.ts` (the trigger finger), `impacts.ts` (explosions, puddles, split, chain),
+`style.ts`, `targets.ts` (per-tick target snapshot), `update.ts`, `attackWorld.ts` (`world.atk`), `carriers/*.ts`,
+`modifiers/*.ts`. Tuning numbers: `ATTACK_TUNING` in `sim/tuning.ts`.
+
 ### 4.1 AttackProfile
-Rebuilt whenever items change (`buildAttackProfile(player)`), never per shot. Contains:
-- `carriers: Set<CarrierId>` and the resolved `primary` carrier.
-- `mods: Map<ModId, ModStack>` (stack count + summed params), and pre-sorted hook lists per stage
-  (`spawn`, `motion`, `hit`, `expire`) so firing iterates flat arrays.
-- Numbers: damage, shots per volley, spread, shot speed, range, size, knockback, status chances, etc.
-- `style: ShotStyle` — composed visuals (see 4.6), cached.
+Rebuilt whenever items change (`buildAttackProfile(player)`, called by `recomputeAttack(player)` at the end of
+`recomputePlayer`), never per shot; stored as `player.attack`. Contains:
+- `carrierStacks` (held copies per carrier — duplicates stack), the resolved `primary`, rider stacks (`riderLaser`,
+  `riderMelee`, `riderBomb`, `riderCharge`, `riderOrbit`, `riderBoomerang`, `riderMarble`) and `chargeMode`
+  (`CM_NONE` / `CM_LANCE` / `CM_CHARGE`).
+- `stacks[]` / `held`: one `ModStack { id, index, stacks, params (summed item params), v0..v3 (derived once by
+  ModifierDef.prepare), slot (scratch offset) }` per held modifier, plus IMPLICIT stacks: the boomerang carrier
+  (primary or rider) adds `boomerang`, the bomb rider adds `explode`, the `spectral` flag adds `phase`.
+- Pre-sorted flat hook lists: `spawnHooks, initHooks, motionHooks, hitHooks, statusHooks, wallHooks, expireHooks,
+  beamHooks` (sorted by `order`), so firing iterates flat arrays.
+- Numbers from the stats: `damage, shotSpeed, range, size, knockback, luck, periodMul` (carrier multiplier on the
+  time between volleys; the cadence reads the LIVE fire rate), `chargeTime`, lance width/life/tick damage, laser
+  width/life/damage, `orbitCount`, `phase`, `splitStacks`, `keeperMechanic` (Wren).
+- `style` / `keeperStyle: ShotStyle` — composed visuals (see 4.6).
 
 ### 4.2 Carriers (attack types)
 Primary precedence: **lance > laser > boomerang > melee > marble**. The primary decides *how damage travels*.
 Every non-primary carrier the player holds becomes a **rider** that merges into the primary — combinations always
-produce something new, nothing is silently replaced.
+produce something new, nothing is silently replaced. `carriers/*.ts` implement `emit(volley, spec)` (as primary)
+and `rider(volley, stacks)` (as rider); riders merge in the order marble, melee, laser, boomerang, bomb, charge, orbit.
 
 | Carrier | As primary | As rider (merges into the primary) |
 |---|---|---|
-| `marble` (default) | round glowing projectile | — (default, not an item) |
+| `marble` (default) | round glowing projectile | a half-strength companion marble joins every volley (only if a marble carrier is explicitly held) |
 | `lance` (Storm Lance) | hold to charge (meter on the character); release: huge thick beam traced instantly to the far wall, pierces everything, ticks rapid damage over ~0.5 s; flash, shake, boom | — (always primary when held) |
 | `laser` | thin rapid beam, short duration, fires at fire-rate | shots/beams sprout thin side-lasers at nearby enemies; lance gets feathered sub-beams |
 | `boomerang` | thrown spinning blade: flies out, returns, pierces | adds `boomerang` motion: shots return; beams bend back into a U; melee crescents fly out and back |
@@ -272,61 +290,181 @@ produce something new, nothing is silently replaced.
 | `charge` | (rider only) hold to charge, release = damage/size multiplier by charge % | lance overcharges (wider, longer); laser becomes a charged burst |
 | `orbit` | (rider only) spinning blades orbit the player and hit | blades inherit all hit modifiers and fire a mini version of the primary when you fire |
 
+Extra copies of a carrier make it stronger: lance +35 % damage and +3 px width per copy, laser +30 % and +1 px,
+boomerang +25 % damage / +15 % size, melee +30 % damage / +15 % reach, bomb +6 px blast radius, charge +0.5× max
+multiplier, orbit +1 blade (max 8), marble +10 % size.
+
+Numbers (defaults, `ATTACK_TUNING`):
+- **Lance**: charge `1.0 s × 3 / fireRate` clamped 0.25–2 s; releasing before full = fizzle (no damage). Beam
+  12 px wide × √(shotSize / 3), life 0.5 s, a damage tick of 1.1 × damage every 3 ticks per target (10 ticks), non-
+  damage hit hooks every 3rd tick. Passes through rocks and props (burning crates / urns / fires it crosses);
+  only walls stop it. No new charge while its beam is live. Charge rider = overcharge to 200 % (up to ×1.5 damage,
+  ×1.6 width, ×1.5 life).
+- **Laser**: 3 px, 0.12 s, 1 × damage once per target; pierces enemies but stops at rocks / props (cracking
+  breakable ones) unless phasing. Charge rider = a burst of 1–6 lasers 0.06 s apart.
+- **Boomerang**: blade × 1.25 damage, 0.55 × range out, turns back and is caught (catch radius 8 px + size),
+  pierces everything both ways (re-hits after 14 ticks), phases through rocks on the way back, 1.35 × fire period.
+- **Melee**: swipe ±55° (~110°), reach 26 px, 0.16 s, 2.2 × damage, 2.5 × knockback, each target once, swats hostile
+  enemy shots, cracks props; plus a crescent (1 × damage, 1.1 × speed, 0.55 × range, pierces 1). One swipe per
+  distinct direction (≥ 60° apart, max 4 per volley). 1.1 × fire period.
+- **Charge rider**: `0.9 s × 3 / fireRate`; release multiplies damage 0.5 → 2.5 (+0.5 per extra copy) and size
+  0.8 → 1.8 by charge. **Orbit rider**: 1 + copies blades (max 8), radius 22 px, 0.9 × damage, re-hit every 12
+  ticks, mini volleys at scale 0.4. **Bomb rider**: blasts 24 px (+6 per extra copy), ≥ 1.8 × shot damage, break rocks.
+
 ### 4.3 Shots: one abstraction for everything
 All damage delivery is built from two primitives that share the same modifier hooks:
-- **Projectile** (pooled): marbles, blades, crescents, bomb shots, split children, familiar shots.
-- **Beam** (pooled): lance and laser. A beam's geometry is produced each tick by **tracing a virtual projectile**:
-  step along from the origin in small steps (≈4 px), applying the *same motion modifiers* a projectile would
-  (homing steers, wavy wiggles, bounce reflects off walls, boomerang bends back, spiral curls, orbit rotates the
-  origin angle), up to max length / step cap. Result: a polyline (≤ 128 points) that is collided and drawn.
-  So every motion modifier automatically works on beams. The beam re-traces every tick of its life (so homing
-  beams follow moving enemies and orbiting/melee-rider beams sweep).
-- Melee swipes are a short-lived arc hitbox **plus** a crescent projectile, so projectile modifiers apply to melee.
-- Orbit blades are projectiles with a permanent orbit motion.
+- **Projectile** (`Shot`, pooled in `world.projectiles`, cap 700): marbles, blades, crescents, bomb shots, split
+  children, familiar shots, orbit blades (`SK_ORBIT`, a permanent orbit). Kinds `SK_MARBLE, SK_BLADE, SK_CRESCENT,
+  SK_BOMB, SK_ORBIT`; marbles and bomb shots drop with gravity past their range, the others end there.
+- **Beam** (pooled in `world.atk.beams`, cap 48): lance, laser, the lance's feathers (laser rider) and side zaps
+  (laser rider on projectiles). A beam's geometry is produced each tick by **tracing a virtual projectile**:
+  step along from the origin in small steps (4 px), applying the *same motion modifiers* a projectile would
+  (homing steers, wavy wiggles, bounce reflects off walls, boomerang bends back, spiral corkscrews, orbit rotates the
+  origin angle), up to max length / step cap. Result: a polyline (≤ 128 points per trace) that is collided and
+  drawn. The cursor runs at a virtual speed of 240 px/s (hooks see dt = step / speed). The beam re-traces every
+  tick of its life, from its anchor's current position (so homing beams follow moving enemies and orbiting /
+  melee-rider beams sweep). `split` FORKS the trace at the first enemy on the path into 1 + stacks child traces
+  (max 5, half damage, depth ≤ min(2, stacks)); points per beam ≤ 384 in ≤ 16 segments. Hit / expire hooks run at
+  hit points, rate-limited per beam per target (16 slots); expire hooks run once at the end point when the beam dies.
+  Guardrail: all beams share a trace budget of 5000 points per tick — crowded beams get fewer fork points and a
+  coarser step (≤ 12 px) so the main line still reaches as far.
+- **Swipes** (`world.atk.swipes`, cap 16) are a short-lived arc hitbox **plus** a crescent projectile, so projectile
+  modifiers apply to melee; swipe hits run the hit hooks through a pseudo shot (`SK_SWIPE`).
+- Orbit blades are projectiles with a permanent orbit motion (`attack/orbit.ts` keeps their count in step).
 
 `fireVolley(sim, source, origin, dir, profile, scale)` is the single entry point. The player, familiars
-(`scale` ≈ 0.35–0.5) and item hooks all call it, so **familiars inherit every modifier and carrier** (a familiar with
-the Storm Lance fires its own smaller beams).
+(`scale` ≈ 0.35–0.5), orbit blades (0.4) and item hooks all call it, so **familiars inherit every modifier and
+carrier** (a familiar with the Storm Lance charges with you and fires its own smaller beams). `AttackSource` carries
+the owner (`anchor`: player / familiar / blade; beams and returning shots follow it), inherited velocity, the charge
+multipliers (`mul`, `sizeMul`, `lifeMul`), `keeper` and `mini` (familiar / blade volleys never trigger more
+volleys). A volley starts as one main spec; spawn hooks edit it; specs that don't fit the pool are merged
+(damage summed); specs with a `delay` wait in a small queue (`PendingSpecs`); then the primary emits and the riders
+merge in. Wren's **Lucky Marble** (`wren.luckyMarble`): the first volley after a wave starts (an uncleared room)
+has its main shot as a keeper — ×3 damage, ×1.6 size, pierces everything, gilded star style.
+
+The trigger finger (`attack/charge.ts`, `player.atk`): normal primaries fire at the fire rate while aim is held
+(fractional cooldown carry, never banks shots). Charge modes charge while held and fire on release; the charge
+meter, 'lanceCharge' ticks and 'lanceReady' come from here. Player volleys fire the 'fire' trigger and the
+familiars (`familiarVolleys`; for charge releases they fire regardless of their cooldown).
 
 ### 4.4 Modifier hook stages
-Modifiers are plain objects registered by id in `sim/attack/modifiers/*.ts`:
+Modifiers are plain objects registered by id in `sim/attack/modifiers/*.ts` (`modifiers/index.ts` throws if any
+`MOD_IDS` entry has no def):
 ```ts
 interface ModifierDef {
   id: ModId; color?: string; trail?: TrailKind; shape?: ShapeHint; order: number;
+  status?: boolean;                                           // chain lightning re-applies these
+  prepare?(stack: ModStack, profile: AttackProfile): void;    // once per profile build: fill stack.v0..v3
   spawn?(ctx: SpawnCtx, stack: ModStack): void;              // edit the volley: add shots, angles, delays
   initShot?(s: ShotState, stack: ModStack): void;             // set per-shot params once
   motion?(s: ShotState, stack: ModStack, sim: SimView, dt: number): void; // per-step velocity/pos transform
   hit?(s: ShotState, target: Hittable, stack: ModStack, sim: SimView): void; // on damaging something
   wall?(s: ShotState, stack: ModStack, sim: SimView, nx: number, ny: number): boolean; // return true = survive
   expire?(s: ShotState, stack: ModStack, sim: SimView): void;
+  beamTick?(b: Beam, stack: ModStack, sim: SimView, dt: number): void; // beams: steer the beam itself (rings, spins)
 }
 ```
-`ShotState` is the shared view used by projectiles AND beam trace cursors (pos, vel, dir, speed, traveled, age,
-damage, size, depth, flags, hitCount, pierceLeft, bounceLeft, owner, style, per-modifier scratch slots).
-For beams, `hit/expire` run at the hit point along the path, **rate-limited per beam per target** (e.g. every 4 ticks).
+`SimView` is the World. `SpawnCtx` holds per-spec `ang` (offset from the aim), `dmg`, `size`, `speed`, `delay`,
+`flags` (`SF_MAIN, SF_EXTRA, SF_BACK, SF_SIDE, SF_PELLET, SF_CIRCLE`) plus `beam` (the primary shoots beams), `rng`
+(combatRng) and `mergeTo(max)`.
+`ShotState` is the shared view used by projectiles AND beam trace cursors: position, height `z`, heading `ang` +
+non-accumulating `angOff` + `speed` (velocity is derived; a hook may set a one-step velocity override `ovr/ovx/ovy` —
+orbits, corkscrews, circling), owner position `ax, ay`, traveled / range / age / life, `damage = baseDamage ×
+dmgMul` and `size = baseSize × sizeMul` (the multipliers reset to 1 before the motion hooks, so grow and shrink
+compose), knock, depth, flags (`F_FALLING, F_RETURNING, F_PHASE, F_KEEPER, F_BOMB, F_SIDELASER, F_CIRCLING, F_MINI,
+F_CAUGHT, F_CHILD`), hitCount, pierceLeft, bounceLeft, rehit, owner kind, style, `m[]` (3 scratch slots per
+modifier at `stack.slot`) and a 4-entry recent-hit memory (piercing shots re-hit a target only after `rehit` ticks).
+For beams, `hit/expire` run at the hit point along the path, **rate-limited per beam per target**.
+A hit: `target.hurt(damage, SRC_PLAYER, knockback along the motion)` → hit hooks → used up unless pierce is left
+(keepers never are). `expire` runs when a shot ends WITHOUT being used up by a hit (range, landing, wall, timeout).
 
 Required modifiers (all must work with every carrier; the stress test enforces it):
 - spawn: `extraShots` (+1 per stack, fan), `spread`, `backShot`, `sideShots`, `circleFirst` (shots circle you, then launch), `inaccuracy`
 - motion: `homing`, `wavy`, `spiral`, `orbitPlayer`, `boomerang`, `grow`, `shrink`, `accelerate`, `decelerate`, `bounce`, `phase` (through rocks)
 - hit/expire: `pierce`, `split` (depth ≤ 3), `chain` (lightning arcs, ≤ N targets), `explode`, `puddle`, `poison`, `burn`, `freeze`, `slow`, `charm`, `fear`, `knockback`
 
+Player blasts (`explode`, bomb rider) are queued (`impacts.ts`) and never hurt the player; puddles are allied
+creep (they hurt enemies, never the player); charmed enemies are left out of the target snapshot.
+
 ### 4.5 Stacking rules (snowball!)
 - Stacks add intensity: homing turn rate, split count, chain jumps, bounce count, explosion radius, status duration…
 - Multiplicative stat items multiply. Extra shots multiply with split, split with chain, etc. — it SHOULD get absurd.
 - Guardrails degrade gracefully instead of blocking: global caps (projectiles 700, enemy shots 400, beams 48,
-  particles 1500, explosions 48 live, chain arcs 32/tick, split depth 3, puddles 48). When a cap is hit, children
-  merge into bigger/stronger shots (damage is conserved) rather than vanishing.
+  swipes 16, particles 1500, explosions 48 live, chain arcs 32/tick, split depth 3, puddles 48). When a cap is hit,
+  children merge into bigger/stronger shots (damage is conserved) rather than vanishing:
+  - a volley bigger than the free pool merges neighbouring specs (damage summed); a beam that can't spawn adds its
+    damage to the volley's previous beam; a projectile that can't spawn adds its damage to the previous shot;
+  - split children that don't fit (8 slots are kept in reserve) become fewer, stronger, bigger children — or, if
+    none fit, their damage lands on the target at once;
+  - explosions queue (64, merged by proximity, full queue merges into the nearest); at most 6 go off per tick and
+    48 per 0.5 s — the rest wait a tick; chain arcs over 32 per tick add half their damage to the first target;
+  - puddles merge into an allied puddle already there (≤ 4 new per tick); the beam trace budget (4.3) bounds
+    beam work per tick; the event queue holds 1024 events per tick.
+
+Per-modifier stacking (s = stacks; "dmg" = the shot's damage):
+
+| Modifier | Stage | 1 stack | Each stack adds / formula |
+|---|---|---|---|
+| `extraShots` | spawn | +1 shot in a 10° fan (8° for beams) | +1 shot (`params.shots` adds more) |
+| `spread` | spawn | 2 pellets (½ dmg, 0.7 size) in a ±14° cone | +2 pellets, cone ±(10 + 4s)° |
+| `backShot` | spawn | 1 shot behind you | +1 (fanned 12°) |
+| `sideShots` | spawn | 2 shots at ±90° (0.8 dmg) | +2 at ±70°, ±110°, ±50°… |
+| `circleFirst` | spawn / motion | one lap (0.45 s, r 14 px) before launching; beams spin 360° in 0.25 s | lap +0.1 s, radius +2 px; laps don't use range |
+| `inaccuracy` | spawn | ±9° scatter, ±10 % speed, ×1.08 dmg | scatter ±(5 + 4s)°, dmg ×(1 + 0.08s) |
+| `homing` | motion | seeks within 104 px at 4.5 rad/s | reach 80 + 24s, turn 2.5 + 2s (`params.radius/turn`) |
+| `wavy` | motion | ±0.47 rad heading wave per 44 px | amplitude 0.35 + 0.12s (max 1.1) |
+| `spiral` | motion | corkscrew: loops at 10.5 rad/s widening to 13 px around a centre advancing at 0.6 × speed, range ×1.6 | loop speed 9 + 1.5s, radius 10 + 3s |
+| `orbitPlayer` | spawn / motion / beamTick | shots orbit their owner out to 27 px (then creep outward), range ×2; beams: a ring of 2 beams turning 3.6 rad/s | ring radius 20 + 7s, range ×(1.6 + 0.4s); beams: 1 + s beams, 3 + 0.6s rad/s |
+| `boomerang` | motion | turns back at 48 % of range (beams: after 95 px), steers home at 9 rad/s, caught by the owner | turn 7 + 2s rad/s, turn point +3 %/stack (beams +15 px) |
+| `grow` | motion | size ×(1 + 1.4·age) up to ×2, dmg +50 % of the growth | rate 1.1 + 0.3s, max 1.6 + 0.4s (≤ 3.6) |
+| `shrink` | motion | starts ×1.75 size & dmg, shrinks to ×0.5 at the end of its range | start 1.5 + 0.25s (≤ 2.75) |
+| `accelerate` | motion | +1.9/s speed growth up to ×2.5 | growth 1.4 + 0.5s, max 2 + 0.5s, range +15 %/stack |
+| `decelerate` | motion | slows at 1.8/s to 23 % speed (lingers) | decay 1.5 + 0.3s, floor 0.25 − 0.02s (≥ 0.12) |
+| `bounce` | wall | 2 bounces off walls / rocks / props | +2 bounces (`params.bounces`) |
+| `phase` | init | passes rocks and props (walls stop it) | +10 % range |
+| `pierce` | init | pierces 3 enemies, ×1.08 dmg (beams ×1.12) | +2 pierces, +8 % dmg (+12 % beams) |
+| `split` | hit | splits into 2 children (½ dmg, 0.75 size, 100° fan); children don't re-split | children 1 + s (max 6), depth min(3, s); beams fork (see 4.3) |
+| `chain` | hit | lightning to 2 more targets within 60 px, 60 % dmg | jumps 1 + s, range 52 + 8s; re-applies statuses |
+| `explode` | hit + expire | 21 px blast, 0.75 × dmg | radius 16 + 5s, dmg 0.5 + 0.25s (bomb rider: ≥ 24 px, ≥ 1.8×, breaks rocks) |
+| `puddle` | hit + expire | allied puddle r 10 px, 3.1 s, 0.25 × dmg per 0.5 s to enemies in it | radius 8 + 2s, life 2.5 + 0.6s, dmg +30 %/stack |
+| `poison` | hit (status) | 3.5 s, 0.35 × dmg per 0.5 s (min 1) | +1 s, +40 % power |
+| `burn` | hit (status) | 2.75 s, 0.3 × dmg per 0.3 s (min 1) | +0.75 s, +40 % power |
+| `freeze` | hit (status) | 22 % chance, frozen 1.6 s | chance +13 % (+2 %/luck), +0.4 s |
+| `slow` | hit (status) | always, 2 s at −45 % speed | +0.5 s, −10 % speed (max −80 %) |
+| `charm` | hit (status) | 14 % chance, 4 s | chance +8 % (+2 %/luck), +1 s |
+| `fear` | hit (status) | 18 % chance, 2.8 s | chance +10 % (+2 %/luck), +0.8 s |
+| `knockback` | init + hit | knockback ×2.6, +0.12 s daze | ×(1.8 + 0.8s), daze 0.12s, push 60 + 30s |
+
+Statuses follow the status API's own rules (§3: longer timer / stronger power win, no intensity stacking, bosses
+resist); stacks make each application longer and stronger, not more frequent.
 
 ### 4.6 Visible combos: ShotStyle
-Composed once per profile: base color from character, tinted by each modifier's color (weighted blend + outline),
-size from stats, shape hint (marble, spiky, bomb, blade, crescent, star, gear…), trail kinds (embers, bubbles, ice,
-sparks, wisps…), glow. Pre-rendered into a cached sprite per (style, size bucket). Beams get core/glow colors and
-jitter from the same style. **Major items also add character costumes** (overlay sprite layers).
+Composed once per profile (`attack/style.ts`, pure data): base colour from the character (`CharacterDef.shotColor`,
+default candle-gold), replaced / tinted by the primary carrier (lance electric blue, laser red-pink, boomerang steel,
+melee white), then tinted by each modifier's colour weighted by stacks (weighted blend, up to 80 %); rim in the
+dominant modifier's colour, dark outline, highlight, and up to **3 accent colours** (the top modifiers' colours,
+drawn as sparkle pixels on the shot — combos read at a glance). Shape hint: the carrier first (boomerang blade,
+melee crescent, bomb rider bomb), else the strongest shaped modifier (spiky, star, gear, shard, bubble…).
+Trail kinds (embers, bubbles, ice, sparks, wisps, dust, drops — up to 3, with colours; bomb shots always spark),
+glow radius. Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
+frame) and a glow per (style, size); crescents and shards turn with the heading, blades / gears / stars spin.
+Beams get core / glow / edge colours and lightning jitter from the same style. Wren's keeper marble has its own
+gilded star style.
+**Major items also add character costumes** (overlay sprite layers, `CostumeDef`, see §5): the Storm Lance adds a
+crackling blue aura (behind, animated, additive, sparks) and glowing storm eyes (per facing).
 
 ### 4.7 Special synergies
 `SynergyDef { id, name, requires: ItemId[] (or tags), effects: Effect[], style?: StyleOverride, hook?: string }`.
 Evaluated when inventory changes; active ones are added to the profile like items. Automatic stacking is the default;
 special synergies add unique flourishes on top. All listed in SYNERGIES.md.
+
+### 4.8 Familiars (`attack/familiars.ts`, `content/familiars/*.ts`)
+Synced from the loadout (stable slots, cap 12). `follow` / `hover` join a follower chain trailing the player along
+her recent path (breadcrumbs every 2 px, 13 px apart); `orbit` / `guard` circle her and swat enemy shots; `chase`
+runs at the nearest enemy. Shooters (`attackScale` > 0) fire `fireVolley` with the player's profile at their scale
+whenever the player fires and their own cooldown (`period / fireRateMul`) allows — or always on charge releases.
+`contactDamage` hurts touched enemies every 0.3 s. Content: Lamplet (follow, 0.45), Paper Boat (follow, 0.35, fires
+faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
 
 ---
 
@@ -334,7 +472,11 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 
 - `ItemDef { id, name, desc, kind: 'passive'|'active'|'trinket'|'consumable', quality 0-4, pools: PoolId[],
   tags: string[], set?: SetId, effects: Effect[], active?: { charge: number, chargeType: 'room'|'timed', use: Effect[] },
-  use?: Effect[] (consumables), sprite: SpriteDef (14×14) | string, costume?: CostumeDef, unlock?: AchievementId }`.
+  use?: Effect[] (consumables), sprite: SpriteDef (14×14) | string, costume?: CostumeSpec, unlock?: AchievementId }`.
+- `CostumeDef { id, layer: 'body'|'cape'|'eyes'|'hat'|'aura'|'held', sprite, dx?, dy?, behind?, frames?: 'dir'|'anim',
+  fps?, glow? ('r,g,b'), sparks? (colour), additive? }` anchored like the character; `frames: 'dir'` = frame 0 facing
+  down, 1 up, 2 side (mirrored for left); `'anim'` cycles at `fps`. `CostumeSpec` = one def or an array of layers
+  (`costumeList(spec)` flattens it). Items and sets may carry costumes.
   `name` is shown uppercase on the banner, `desc` is ONE short line (≤ 46 chars, a test enforces it).
 - `Effect` = discriminated union: `stat` (add/mul), `mod` (stacks, params), `carrier`, `familiar`, `heal` (half hearts),
   `hearts` (containers in whole hearts; red/tin/ember in halves), `pickups` (coins/bombs/keys, charge, spawn[], table),
@@ -345,7 +487,8 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 - Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
 - `DropTableDef { id, rolls: [min, max], nothing?, luck?, entries: { kind: PickupName, weight, count?, pool? }[] }`.
 - `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook? }`,
-  `FamiliarDef { id, name, desc, sprite, behavior, radius, attackScale, … }`,
+  `FamiliarDef { id, name, desc, sprite, behavior: 'follow'|'hover'|'orbit'|'guard'|'chase', radius, attackScale
+  (0 = never fires), fireRateMul?, contactDamage?, speed?, blocks? (swats enemy shots), glow? }` (§4.8),
   `AchievementDef { id, name, desc, hidden?, condition: { counter, atLeast }, unlocks: { kind, id }[] }`.
 - `EnemyDef { id, name, hp, speed, radius, contact (half hearts), move: MoveSpec, attacks: AttackSpec[], sprite,
   flying?, chapters: ChapterId[], weight, championable, bestiary, drops?, mass?, onDeath?: DeathSpec[], goo?: colours,
@@ -363,7 +506,7 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   Test-only markers (Phase 1 training room, `src/content/testRoom.ts`, deliberately outside `content/rooms/`):
   `@` player start, `D` training dummy.
 - `CharacterDef { id, name, desc, stats, hearts: { redMax, red?, tin?, ember? } (half hearts), startItems,
-  startPickups: { coins, bombs, keys }, sprite, mechanic: hookId, unlock? }`. Mechanics implemented inside the attack
+  startPickups: { coins, bombs, keys }, sprite, shotColor? (base ShotStyle colour), mechanic: hookId, unlock? }`. Mechanics implemented inside the attack
   pipeline register a placeholder hook (`content/hooks/characters.ts`) so validation can check the reference.
 - `ChapterDef { id, name, floors: [n, n+1], track: 'main'|'alt', palette, tileset, enemyPool, bossPool, minibossPool,
   music, curses? }`.
@@ -398,8 +541,16 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 ## 8. Rendering & audio
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
   White hit-flash and tinted variants cached lazily. Animations: idle/walk, hurt, death.
-- Layers: pre-rendered room background → shadows → pickups/props → enemies → player/familiars → projectiles →
-  beams (`lighter`) → particles → lighting/darkness → HUD → touch controls → UI overlays.
+- Layers: pre-rendered room background → shadows → pickups/props → enemies → familiars → player (costume layers
+  behind / in front) → swipes → projectiles → beams (`lighter`) → enemy shots → charge meter → particles → chain
+  arcs → full-screen flash → lighting/darkness → HUD → touch controls → UI overlays.
+- Attack visuals (`render/attackRenderer.ts`): shot sprites and glows cached per (ShotStyle, shape, size bucket,
+  rotation frame) — no string keys per frame; beams stroked straight from the sim's trace arrays (lance: layered
+  additive glows dimmed when many overlap, a white-hot core, 2-3 jagged animated lightning strands, muzzle and wall
+  flares; lasers: thin zaps); swipes as a sweeping crescent band; familiars; costume layers; the charge meter.
+  `render/attackFx.ts` (owned by WorldFx): lance charge sparks, the blinding blue-white flash + heavy shake + recoil
+  kick on release, sparks along the beam and at hits / the wall, shot trails, split shards, bounce sparks, chain
+  arcs, keeper sparkles, familiar poofs, costume sparks. The run scene's flash uses `fx.flashColor / flashMax`.
 - Particles are presentation-only, pooled, capped. Screen shake/hit flash scale with Settings.
 - The room background is pre-rendered and rebuilt only on `RoomGrid.version` changes; per-cell variation uses a
   positional hash so breaking one crate never reshuffles the rest. Fires are drawn live (flame height from hp).
@@ -420,7 +571,10 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   prefixed `foe_`, `eshot_`, `gate_`, `room_`, `st_`); step-sequencer music with lookahead scheduling,
   a unique loop per chapter (+ boss variants), crossfades. Recipes are `{ minGap, length, gain, play(voice) }`
   built from the helpers in `audio/synth.ts` (leaf module); core sounds live in `audio/sfx.ts`, item/pickup/bomb/prop
-  sounds in `audio/sfxGameplay.ts`; `audio/eventSounds.ts` maps GameEvents to sounds.
+  sounds in `audio/sfxGameplay.ts`, attack sounds (lance_charge / lance_ready / lance_fire / crackle / laser_zap /
+  swipe / blade_* / shot_boom / chain_zap …) in `audio/sfxAttack.ts`; `audio/eventSounds.ts` maps GameEvents to
+  sounds. `AudioOut.play(name, pan?, volume?, param?)`: `param` reaches the recipe as `voice.param` (the lance charge
+  hum rises with it).
 
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
@@ -430,8 +584,9 @@ special synergies add unique flourishes on top. All listed in SYNERGIES.md.
   `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
   counters…), `hud()` (HUD element rects in game px), `counts`,
   `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, wave(count?), spawnEnemy(id, champion?),
-  killEnemies, god(on), aim360, newRun, title, pause}`; `counts` also has `enemies` / `enemyShots`; `run()` includes
-  `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`.
+  killEnemies, god(on), aim360, newRun, title, pause}`; `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
+  includes `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`,
+  `attack { primary, riders, mods, charge, beams, swipes, familiars }`.
   Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`). The training yard adds
   `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

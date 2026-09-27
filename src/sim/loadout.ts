@@ -66,14 +66,25 @@ export interface ModStackRecord {
 export class Loadout {
   readonly mods = new Map<ModId, ModStackRecord>();
   readonly carriers = new Set<CarrierId>();
+  /** Copies of each carrier held (duplicates stack: thicker lances, more orbit blades…). */
+  readonly carrierStacks = new Map<CarrierId, number>();
   readonly familiars = new Map<FamiliarId, number>();
+  /** Item ids with a costume (in pickup order; duplicates collapsed). */
+  readonly costumes: string[] = [];
   /** Bumped on every rebuild (the attack pipeline can cache on it). */
   version = 0;
 
   clear(): void {
     this.mods.clear();
     this.carriers.clear();
+    this.carrierStacks.clear();
     this.familiars.clear();
+    this.costumes.length = 0;
+  }
+
+  addCarrier(c: CarrierId, stacks = 1): void {
+    this.carriers.add(c);
+    this.carrierStacks.set(c, (this.carrierStacks.get(c) ?? 0) + stacks);
   }
 
   addMod(mod: ModId, stacks: number, params: Readonly<Record<string, number>> | undefined, source: string): void {

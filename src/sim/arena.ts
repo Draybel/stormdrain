@@ -134,6 +134,8 @@ export function startWave(w: World, opts: WaveOpts = {}): number {
   if (spawned === 0) return 0;
   a.active = true;
   a.wave++;
+  // Wren's Lucky Marble: the first volley in an uncleared room is a keeper marble.
+  w.player.atk.keeper = true;
   w.events.emit('doors', 0, 0, 1, a.wave);
   return spawned;
 }

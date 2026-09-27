@@ -18,7 +18,8 @@ export interface Volumes {
 
 export interface AudioOut {
   readonly unlocked: boolean;
-  play(name: SfxName, pan?: number, volume?: number): void;
+  /** `param`: recipe-specific level (e.g. the Storm Lance charge), default 0. */
+  play(name: SfxName, pan?: number, volume?: number, param?: number): void;
   setVolumes(v: Volumes): void;
   /** Background / lifecycle. */
   suspend(): void;
@@ -116,13 +117,13 @@ export class WebAudio implements AudioOut {
     this.applyVolumes();
   }
 
-  play(name: SfxName, pan = 0, volume = 1): void {
+  play(name: SfxName, pan = 0, volume = 1, param = 0): void {
     const ctx = this.ctx;
     if (!this.sfx || !ctx || this.suspendedByLifecycle) return;
     // Right after an unlocking gesture, resume() is still pending: schedule anyway so the very
     // first UI click is heard the moment the context starts. Otherwise only play when running.
     if (ctx.state !== 'running' && !(ctx.state === 'suspended' && performance.now() - this.unlockAt < 300)) return;
-    this.sfx.play(name, pan, volume);
+    this.sfx.play(name, pan, volume, param);
   }
 
   suspend(): void {

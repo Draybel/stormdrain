@@ -1,16 +1,13 @@
 /**
- * Attack pipeline entry point for item changes (ARCHITECTURE §4.1).
- *
- * STUB (Phase 2 part A): recomputePlayer() already gathers every 'mod', 'carrier' and 'familiar'
- * effect the player holds into `player.loadout` (see sim/loadout.ts) and calls this function right
- * after the stats are recomputed. Part B replaces the body with `buildAttackProfile(player)`:
- * resolve the primary carrier + riders, sort modifier hooks per stage, compose the ShotStyle, and
- * cache the result on the player. Until then marbles keep using the plain stats.
+ * Attack pipeline entry point for item changes (ARCHITECTURE §4.1). recomputePlayer() gathers every
+ * 'mod', 'carrier' and 'familiar' effect into `player.loadout` (sim/loadout.ts) and calls this right
+ * after the stats were recomputed: the AttackProfile is rebuilt here — never per shot.
  */
 
 import type { Player } from '../player';
+import { buildAttackProfile } from './profile';
 
 export function recomputeAttack(player: Player): void {
-  // Part B: player.attack = buildAttackProfile(player);
+  player.attack = buildAttackProfile(player);
   player.attackVersion = player.loadout.version;
 }

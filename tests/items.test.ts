@@ -316,7 +316,9 @@ describe('item pools', () => {
     const a = makeSim('pedestals').summary().pedestals.map((p) => p.item);
     const b = makeSim('pedestals').summary().pedestals.map((p) => p.item);
     expect(a).toEqual(b);
-    expect(a.length).toBe(5);
+    expect(a.length).toBe(6);
+    // The sixth pedestal (Phase 2B) offers a random attack carrier.
+    expect(getItem(a[5]!).tags).toContain('starter-attack');
     const stats = a.slice(0, 2);
     expect(new Set(stats).size).toBe(2);
     for (const id of stats) expect(getItem(id).tags).toContain('starter-stat');

@@ -57,7 +57,7 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
   const pan = panFor(e.x);
   switch (e.type) {
     case 'shoot':
-      audio.play('shoot', pan);
+      audio.play('shoot', pan, e.id === 'mini' ? 0.45 : 1);
       break;
     case 'splash':
       if (e.a !== 2) audio.play('splash', pan, e.a === 1 ? 1 : 0.6);
@@ -105,7 +105,7 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
       audio.play('bomb_place', pan);
       break;
     case 'explosion':
-      audio.play('explosion', pan);
+      audio.play(e.id === 'shot' ? 'shot_boom' : 'explosion', pan);
       break;
     case 'tileHit':
       audio.play(e.a === Tile.Fire ? 'fire_hit' : 'crate_hit', pan);
@@ -179,6 +179,64 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
       break;
     case 'roomClear':
       audio.play('room_clear', 0);
+      break;
+    // ── Attack pipeline ──
+    case 'lanceCharge':
+      audio.play(e.a >= 1 ? 'crackle' : 'lance_charge', pan, e.a >= 1 ? 0.5 : 0.7, e.a);
+      break;
+    case 'lanceReady':
+      audio.play('lance_ready', pan, 1, e.a);
+      break;
+    case 'lanceFire': {
+      const mini = e.id === 'mini';
+      audio.play('lance_fire', pan, mini ? 0.35 : 1, mini ? 1 : 0);
+      if (!mini) audio.play('crackle', pan, 0.9);
+      break;
+    }
+    case 'lanceFizzle':
+      audio.play('lance_fizzle', pan);
+      break;
+    case 'laserFire':
+      audio.play('laser_zap', pan, e.id === 'mini' ? 0.4 : 1, e.id === 'mini' ? 1 : 0);
+      break;
+    case 'beamHit':
+      audio.play('crackle', pan, 0.35);
+      break;
+    case 'swipe':
+      audio.play('swipe', pan, e.id === 'mini' ? 0.4 : 1);
+      break;
+    case 'swipeHit':
+      audio.play('swipe_hit', pan);
+      break;
+    case 'bladeCatch':
+      audio.play('blade_catch', pan);
+      break;
+    case 'bladeSpawn':
+      audio.play('blade_whirr', pan);
+      break;
+    case 'chainArc':
+      audio.play('chain_zap', pan);
+      break;
+    case 'shotSplit':
+      audio.play('split_pop', pan);
+      break;
+    case 'shotBounce':
+      audio.play('bounce_tink', pan);
+      break;
+    case 'chargeTick':
+      audio.play('charge_tick', pan, 0.8, e.a);
+      break;
+    case 'chargeReady':
+      audio.play('lance_ready', pan, 0.5);
+      break;
+    case 'chargeRelease':
+      audio.play('charge_release', pan, 1, e.a);
+      break;
+    case 'keeper':
+      audio.play('keeper_chime', pan);
+      break;
+    case 'familiar':
+      audio.play('familiar_poof', pan);
       break;
     default:
       break;

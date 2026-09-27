@@ -7,7 +7,8 @@
  * along the top wall; a pit in the middle (fly over it!); a column of dummies on the right
  * (pop all three at once = "room cleared" → active charge); a hazard corner (fire, spikes)
  * guarding a satchel and a lockbox; item pedestals in rows 1 and 5 (their floating items use the
- * cells above them, so those stay free).
+ * cells above them, so those stay free): two stat items, a special passive (flight, ember heart or a
+ * shot modifier), both actives, and a random attack carrier.
  *
  * Unit tests rely on: rock at (1,0) and (0,1); row 2 open end to end; columns 0 and 2 open top to
  * bottom; row 3 open from the start to the pit at (6-7,3) with a dummy behind it at (10,3).
@@ -32,6 +33,8 @@ export const TEST_ROOM_SPAWNS: readonly RoomSpawn[] = [
   { kind: 'pedestal', col: 8, row: 5, tag: 'starter-special' },
   { kind: 'pedestal', col: 6, row: 1, item: 'jar-of-lightning' },
   { kind: 'pedestal', col: 8, row: 1, item: 'picnic-basket' },
+  // A random attack carrier (Storm Lance, lasers, boomerang, melee, bombs, charge, orbit blades).
+  { kind: 'pedestal', col: 3, row: 1, tag: 'starter-attack' },
   // Coins right by the start.
   { kind: 'pickup', pickup: 'coin', col: 3, row: 3 },
   { kind: 'pickup', pickup: 'silverCoin', col: 4, row: 3 },

@@ -193,3 +193,147 @@ export const ITEM_TUNING = {
   novaRadius: 44,
   novaDamage: 14,
 } as const;
+
+/**
+ * The attack pipeline (sim/attack, ARCHITECTURE §4). Multipliers are relative to the player's stats
+ * (damage per shot, shots per second, shot speed, range, shot size, knockback).
+ */
+export const ATTACK_TUNING = {
+  /** Max px per collision sub-step for projectiles. */
+  substep: 4,
+  /** Hard lifetime of any projectile (s) — safety net for hovering / orbiting shots. */
+  maxAge: 6,
+  /** A piercing projectile can hit the same target again after this many ticks. */
+  rehitTicks: 30,
+  /** Height (px) non-marble projectiles fly at (render + splash height). */
+  flyHeight: 6,
+
+  // ── Storm Lance (primary) ──
+  /** Charge time at the reference fire rate (s); scaled by refRate / fireRate, clamped. */
+  lanceCharge: 1.0,
+  lanceRefRate: 3,
+  lanceChargeMin: 0.25,
+  lanceChargeMax: 2.0,
+  /** Beam width (px) at shot size 3; grows with sqrt(size / 3) and with extra lance copies. */
+  lanceWidth: 12,
+  /** Beam life (s), damage tick interval (ticks) and damage per tick (× damage). */
+  lanceLife: 0.5,
+  lanceEvery: 3,
+  lanceDamage: 1.1,
+  /** Non-damage hit hooks (statuses, chain, explode…) run on every Nth damage tick per target. */
+  lanceHookEvery: 3,
+  /** Extra lance copies: damage and width per extra stack. */
+  lanceStackDamage: 0.35,
+  lanceStackWidth: 3,
+
+  // ── Laser (primary) ──
+  laserWidth: 3,
+  laserLife: 0.12,
+  laserDamage: 1.0,
+  laserStackDamage: 0.3,
+
+  // ── Beams (shared) ──
+  /** Trace step (px), points per trace, total point budget per beam (forks), max segments. */
+  beamStep: 4,
+  /**
+   * Guardrail: trace points for ALL beams per tick. When many beams are live each gets a share
+   * (fewer fork points, and a coarser step so the main line still reaches as far).
+   */
+  beamTickBudget: 5000,
+  beamMaxStep: 12,
+  /** Lance hit sparks: at most this many 'beamHit' events per tick. */
+  beamHitEvents: 6,
+  beamMaxPoints: 128,
+  beamBudget: 384,
+  beamMaxSegments: 16,
+  /** Virtual projectile speed used when tracing (px/s): motion hooks see dt = step / speed. */
+  beamSpeed: 240,
+  /** Beam origin: px in front of the owner's feet, and the drawn height (render). */
+  beamMuzzle: 5,
+  beamHeight: 6,
+  /** Laser-rider side zaps from projectiles: range (px), interval (s), damage (× damage). */
+  sideLaserRange: 72,
+  sideLaserEvery: 0.4,
+  sideLaserDamage: 0.35,
+  /** Laser-rider feathered sub-beams on the lance: angle step (rad), damage, width. */
+  featherAngle: 0.13,
+  featherDamage: 0.35,
+  featherWidth: 2,
+  /** Melee rider on beams: the beam sweeps across ± this arc (rad) over its life. */
+  beamSweep: 0.96,
+  /** Split forks on beams: children per fork = 1 + stacks (max), damage × childDamage, max fork depth. */
+  beamForkMax: 5,
+  beamForkDamage: 0.5,
+  beamForkDepth: 2,
+  beamForkSpread: 0.6,
+
+  // ── Boomerang (primary) ──
+  boomerangRange: 0.55,
+  boomerangDamage: 1.25,
+  boomerangPeriod: 1.35,
+  boomerangSpeed: 1.05,
+  /** Returning blades are caught within this distance of the owner (px, + shot size). */
+  catchRadius: 8,
+
+  // ── Melee (primary) ──
+  meleeReach: 26,
+  /** Half of the ~110° arc (rad). */
+  meleeArc: 0.96,
+  meleeLife: 0.16,
+  meleeDamage: 2.2,
+  meleeKnock: 2.5,
+  meleePeriod: 1.1,
+  crescentRange: 0.55,
+  crescentSpeed: 1.1,
+  crescentDamage: 1.0,
+  /** Melee as a rider: the extra swipe's damage (× damage). */
+  meleeRiderDamage: 1.4,
+
+  // ── Bomb rider ──
+  bombRadius: 24,
+  bombRadiusStack: 6,
+  bombDamage: 1.8,
+  /** Beams: explosions every N px along the beam (max count), re-armed every N ticks. */
+  beamBombSpacing: 44,
+  beamBombMax: 5,
+  beamBombEvery: 12,
+
+  // ── Charge rider ──
+  chargeTime: 0.9,
+  chargeMinMul: 0.5,
+  chargeMaxMul: 2.5,
+  chargeMulStack: 0.5,
+  chargeSizeMax: 1.8,
+  /** Laser + charge: a burst of up to N lasers, `burstGap` s apart. */
+  burstMax: 6,
+  burstGap: 0.06,
+  /** Lance + charge: overcharge to this level (2 = 100 % extra). */
+  overcharge: 2,
+
+  // ── Orbit rider ──
+  orbitRadius: 22,
+  orbitSpin: 4.2,
+  orbitDamage: 0.9,
+  orbitRehit: 12,
+  orbitMiniScale: 0.4,
+  orbitMax: 8,
+  orbitSize: 3.5,
+
+  // ── Familiars ──
+  familiarSpacing: 13,
+  familiarMax: 12,
+  familiarSpeed: 110,
+
+  // ── Guardrails (§4.5) ──
+  capBeams: 48,
+  capSwipes: 16,
+  capExplosionsLive: 48,
+  explosionWindow: 0.5,
+  explosionsPerTick: 6,
+  explosionQueue: 64,
+  capChainArcs: 32,
+  maxSplitDepth: 3,
+  maxVolley: 40,
+  /** Split children merge when the projectile pool has fewer than this many free slots. */
+  poolReserve: 8,
+} as const;

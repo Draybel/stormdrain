@@ -13,6 +13,7 @@ import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import { PK } from '../sim/pickupKinds';
 import { Tile } from '../sim/tiles';
 import type { World } from '../sim/world';
+import { AttackFx } from './attackFx';
 import { ROOM_X, ROOM_Y } from './layout';
 import { P_RING, P_SQUARE, type ParticleSystem } from './particles';
 import type { ScreenShake } from './shake';
@@ -120,20 +121,39 @@ function tileColors(t: number): readonly string[] {
 }
 
 export class WorldFx {
-  /** Full-screen white flash (0..1), drawn by the run scene; decays quickly. */
+  /** Full-screen flash (0..1), drawn by the run scene; decays at `flashDecay` per second. */
   flash = 0;
+  /** Flash colour and peak opacity (warm white for explosions, blue-white and blinding for the lance). */
+  flashColor = '#fff6e0';
+  flashMax = 0.45;
+  flashDecay = 7;
+  /** Attack-pipeline effects (lance, trails, chain arcs...). */
+  readonly attack: AttackFx;
   /** Reused colour list for champion sparkles (no per-event allocation). */
   private readonly champBits: string[] = ['#ffffff', '#ffffff'];
+  /** Reused colour list for style-coloured splashes. */
+  private readonly splashBits: string[] = [GLOW.core, GLOW.hot, GLOW.rim, GLOW.core];
 
   constructor(
     private readonly particles: ParticleSystem,
     private readonly shake: ScreenShake,
-  ) {}
+  ) {
+    this.attack = new AttackFx(particles, shake, this);
+  }
+
+  /** A warm explosion-style flash (resets the lance's colour). */
+  private warmFlash(amount: number): void {
+    this.flash = Math.max(this.flash, amount);
+    this.flashColor = '#fff6e0';
+    this.flashMax = 0.45;
+    this.flashDecay = 7;
+  }
 
   /** Per-tick ambient effects from world state (fuse sparks, embers). */
   tick(world: World, dt: number): void {
     const P = this.particles;
-    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 7);
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * this.flashDecay);
+    this.attack.tick(world, dt);
     const bombs = world.bombs;
     for (let i = 0; i < bombs.count; i++) {
       const b = bombs.items[i]!;
@@ -214,7 +234,7 @@ export class WorldFx {
     switch (e.type) {
       case 'shoot': {
         // Tiny muzzle sparkle along the shot direction.
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < (e.id === 'mini' ? 1 : 2); i++) {
           const sp = 30 + Math.random() * 30;
           const p = P.spawn(x, y, e.a * sp + (Math.random() - 0.5) * 20, e.b * sp + (Math.random() - 0.5) * 20, 0.12, GLOW.hot);
           if (p) p.drag = 8;
@@ -227,22 +247,28 @@ export class WorldFx {
           P.spawn(x, y, 0, 6, 0.2, GLOW.rim);
           break;
         }
-        // Burst where the marble visibly was (b = its height), droplets rain down to the floor.
+        // Burst where the shot visibly was (b = its height), droplets rain down to the floor - in the
+        // shot's own colour (id) when it has one.
         const wall = e.a === 1;
         const by = y - e.b;
+        const bits = e.id ? this.splashBits : MARBLE_BITS;
+        if (e.id) {
+          this.splashBits[0] = e.id;
+          this.splashBits[3] = e.id;
+        }
         const flash = P.spawn(x, by, 0, 0, wall ? 0.08 : 0.06, GLOW.hot, wall ? 4 : 3);
         if (flash) flash.endSize = 1;
         const n = wall ? 8 : 6;
         for (let i = 0; i < n; i++) {
           const ang = Math.random() * Math.PI * 2;
           const sp = 30 + Math.random() * 50;
-          const p = P.spawn(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 35, 0.3 + Math.random() * 0.18, MARBLE_BITS[i & 3]!, i < 2 ? 2 : 1);
+          const p = P.spawn(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 35, 0.3 + Math.random() * 0.18, bits[i & 3]!, i < 2 ? 2 : 1);
           if (!p) break;
           p.gravity = 300;
           p.drag = 2;
           p.floorY = y + 1 + Math.random() * 2;
         }
-        const ring = P.spawn(x, y, 0, 0, wall ? 0.22 : 0.28, wall ? GLOW.core : WATER_RING, 1, P_RING);
+        const ring = P.spawn(x, y, 0, 0, wall ? 0.22 : 0.28, wall ? e.id || GLOW.core : WATER_RING, 1, P_RING);
         if (ring) ring.endSize = wall ? 5 : 6;
         break;
       }
@@ -373,7 +399,7 @@ export class WorldFx {
         }
         const core = P.spawn(x, y, 0, 0, 0.12, '#ffffff', 6);
         if (core) core.endSize = 1;
-        this.flash = Math.max(this.flash, 0.35);
+        this.warmFlash(0.35);
         this.shake.add(0.35);
         break;
       }
@@ -383,7 +409,17 @@ export class WorldFx {
       }
       case 'explosion': {
         const radius = e.a;
-        this.flash = 1;
+        if (e.id === 'shot') {
+          // A player shot's blast: a smaller, snappier boom.
+          this.warmFlash(0.25);
+          this.shake.add(0.22);
+          P.burst(x, y - 3, 12, 30, 40 + radius * 2, 0.3, FIRE, 2, -10, 5);
+          P.burst(x, y - 3, 6, 10, 30, 0.6, SMOKE, 2, -20, 2);
+          const sr = P.spawn(x, y, 0, 0, 0.25, '#fff3b0', 1, P_RING);
+          if (sr) sr.endSize = Math.round(radius);
+          break;
+        }
+        this.warmFlash(1);
         this.shake.add(0.75);
         this.shake.kick((Math.random() - 0.5) * 4, -2);
         // Fireball core.
@@ -586,6 +622,7 @@ export class WorldFx {
         break;
       }
       default:
+        this.attack.onEvent(e);
         break;
     }
   }

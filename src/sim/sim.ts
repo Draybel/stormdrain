@@ -10,6 +10,7 @@ import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
 import { getEnemy } from '../content/registry';
 import { startWave, updateArena, type WaveOpts } from './arena';
+import { resetAttackRoom, updateAttack } from './attack/update';
 import { explode, placeBomb, updateBombs } from './bombs';
 import { hurtPlayer, killPlayer } from './combat';
 import { DT } from './constants';
@@ -28,11 +29,10 @@ import { spawnPedestal, updatePedestals } from './pedestals';
 import { pickupKindOf, pickupName } from './pickupKinds';
 import { spawnPickup, updatePickups } from './pickups';
 import { updatePlayer } from './player';
-import { updateProjectiles } from './projectiles';
 import { cellCenterX, cellCenterY, parseRoomLayout } from './room';
 import type { RoomSpawn } from './roomSpawns';
 import { updateHazards } from './tileFx';
-import type { CharacterDef, PickupName } from './types';
+import { CARRIER_IDS, type CharacterDef, type PickupName } from './types';
 import { World } from './world';
 
 export interface SimOptions {
@@ -68,6 +68,16 @@ export interface SimSummary {
   enemyShots: number;
   creep: number;
   arena: { active: boolean; wave: number; doors: number };
+  /** The attack pipeline: primary carrier, riders, held modifiers, charge, live beams / swipes / familiars. */
+  attack: {
+    primary: string;
+    riders: string[];
+    mods: string[];
+    charge: number;
+    beams: number;
+    swipes: number;
+    familiars: string[];
+  };
   inv: {
     coins: number;
     bombs: number;
@@ -166,6 +176,7 @@ export class Sim {
       }
     }
     if (!placed) w.player.placeAt(cellCenterX(6), cellCenterY(3));
+    resetAttackRoom(w);
     this.placeSpawns(spawns);
     this.allPopped = false;
   }
@@ -213,7 +224,7 @@ export class Sim {
     w.time += DT;
     updateEffects(w, DT);
     updatePlayer(w, input, DT);
-    updateProjectiles(w, DT);
+    updateAttack(w, DT);
     updateEnemies(w, DT);
     updateEnemyShots(w, DT);
     updateWaves(w, DT);
@@ -354,6 +365,15 @@ export class Sim {
       enemyShots: w.enemyShots.count,
       creep: w.creep.count,
       arena: { active: w.arena.active, wave: w.arena.wave, doors: w.arena.doors },
+      attack: {
+        primary: p.attack.primary,
+        riders: CARRIER_IDS.filter((c) => c !== p.attack.primary && p.attack.stacksOf(c) > 0),
+        mods: p.attack.held.map((m) => `${m.id}x${m.stacks}`),
+        charge: p.atk.charge,
+        beams: w.atk.beams.count,
+        swipes: w.atk.swipes.count,
+        familiars: w.atk.familiars.list.filter((f) => f.alive && f.def).map((f) => f.def!.id),
+      },
       inv: {
         coins: inv.coins,
         bombs: inv.bombs,

@@ -75,7 +75,7 @@ function boot(): void {
     return [
       `FPS ${loop.fps}  UPD ${loop.updateMs.toFixed(2)}MS  RND ${loop.renderMs.toFixed(2)}MS`,
       `SCENE ${scenes.names.join('>').toUpperCase()}  TICK ${loop.ticks}  DROP ${loop.droppedSteps}`,
-      `SHOTS ${sim?.world.projectiles.count ?? 0}/${CAP_PROJECTILES}  PARTS ${particles.count}/${PARTICLE_CAP}`,
+      `SHOTS ${sim?.world.projectiles.count ?? 0}/${CAP_PROJECTILES}  BEAMS ${sim?.world.atk.beams.count ?? 0}  PARTS ${particles.count}/${PARTICLE_CAP}`,
       `EVENTS DROPPED ${sim?.events.dropped ?? 0}  DUMMIES ${sim?.world.dummies.count ?? 0}  PICKUPS ${sim?.world.pickups.count ?? 0}  BOMBS ${sim?.world.bombs.count ?? 0}`,
       `ENEMIES ${sim?.world.enemies.count ?? 0}/${CAP_ENEMIES}  ESHOTS ${sim?.world.enemyShots.count ?? 0}/${CAP_ENEMY_SHOTS}  CREEP ${sim?.world.creep.count ?? 0}`,
       `VIEW ${v.scale.toFixed(2)}X  DPR ${display.dpr.toFixed(2)}  ${Math.round(display.cssW)}X${Math.round(display.cssH)}`,

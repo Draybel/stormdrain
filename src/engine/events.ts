@@ -8,10 +8,11 @@
  */
 
 export type GameEventType =
-  /** player fired: x,y = muzzle (room px), a,b = direction */
+  /** a projectile volley was fired: x,y = muzzle (room px), a,b = direction; id = '' player, 'mini' familiar /
+   *  orbit blade */
   | 'shoot'
-  /** marble ended: x,y = ground position; a = 1 hit a wall/rock/target, 0 landed on floor, 2 fell into a pit;
-   *  b = height above the ground (px) where it burst */
+  /** a shot ended / hit: x,y = ground position; a = 1 hit a wall/rock/target, 0 landed on floor, 2 fell into
+   *  a pit; b = height above the ground (px) where it burst; id = shot colour ('' = default gold) */
   | 'splash'
   /** something took damage: x,y = where; a = damage; b = remaining hp; id = target kind */
   | 'hit'
@@ -99,7 +100,42 @@ export type GameEventType =
   /** room doors: a = 1 slam shut, 0 open; b = wave number */
   | 'doors'
   /** every enemy of the wave is dead: x,y = where the reward drops; a = wave number */
-  | 'roomClear';
+  | 'roomClear'
+  // ── Attack pipeline (Phase 2B) — id on shot events = the style's body colour ('' = default gold) ──
+  /** a shot bounced off a wall/rock: x,y; a,b = the wall normal */
+  | 'shotBounce'
+  /** a shot split: x,y; a = children; b = their depth */
+  | 'shotSplit'
+  /** chain lightning arc: x,y = from; a,b = to (room px) */
+  | 'chainArc'
+  /** a boomerang / returning shot was caught: x,y; a = shot kind */
+  | 'bladeCatch'
+  /** an orbit blade appeared: x,y; a = index; b = count */
+  | 'bladeSpawn'
+  /** melee swipe: x,y = centre; a,b = facing (unit); id = '' player, 'mini' familiar / blade */
+  | 'swipe'
+  /** a swipe connected: x,y; a,b = push direction */
+  | 'swipeHit'
+  /** Storm Lance charge tick: x,y = player; a = charge level (0..2); b = max level */
+  | 'lanceCharge'
+  /** the lance is fully charged: a = 1 full, 2 overcharged */
+  | 'lanceReady'
+  /** Storm Lance released: x,y = owner; a = width (px); b = angle (rad); id = '' player / 'mini' */
+  | 'lanceFire'
+  /** released too early: a small fizzle at x,y; a = the charge reached */
+  | 'lanceFizzle'
+  /** a laser volley: x,y = muzzle; a = width; b = angle; id = '' / 'mini' */
+  | 'laserFire'
+  /** a lance damage tick landed (sparks): x,y; a = damage; b = beam kind */
+  | 'beamHit'
+  /** charge-rider meter tick / full / release: x,y; a = level (0..1) */
+  | 'chargeTick'
+  | 'chargeReady'
+  | 'chargeRelease'
+  /** Wren's keeper marble fired: x,y = muzzle; a,b = direction */
+  | 'keeper'
+  /** a familiar appeared: x,y; id = familiar id */
+  | 'familiar';
 
 export interface GameEvent {
   type: GameEventType;

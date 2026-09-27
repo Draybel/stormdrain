@@ -50,7 +50,7 @@ export interface SDHooks {
   run(): SimSummary | null;
   /** In-run HUD element rects (game px): hearts, counters, charge bar, trinkets, banner. */
   hud(): HudRect[];
-  readonly counts: { particles: number; projectiles: number; enemies: number; enemyShots: number };
+  readonly counts: { particles: number; projectiles: number; enemies: number; enemyShots: number; beams: number };
   readonly debug: {
     overlay(on?: boolean): boolean;
     hurt(): void;
@@ -151,6 +151,7 @@ export function installSdHooks(d: SdDeps): SDHooks {
         projectiles: w?.projectiles.count ?? 0,
         enemies: w?.enemies.count ?? 0,
         enemyShots: w?.enemyShots.count ?? 0,
+        beams: w?.atk.beams.count ?? 0,
       };
     },
     debug: {

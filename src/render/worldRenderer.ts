@@ -1,8 +1,9 @@
 /**
  * Draws the simulated world in layer order (ARCHITECTURE §8):
  * room background → doors → floor effects (creep, shockwaves, markers, mounds) → shadows → fires →
- * pedestals/items → pickups → bombs → dummies → enemies behind the player → player → enemies in
- * front / in the air → marbles (+ additive glow) → enemy shots. Positions are interpolated between
+ * pedestals/items → pickups → bombs → dummies → enemies behind the player → familiars → player (with
+ * costume layers and the charge meter) → enemies in front / in the air → swipes → player shots (+ additive
+ * glow) → beams (additive) → enemy shots. Positions are interpolated between
  * the last two sim ticks by `alpha` for smooth motion on displays faster than 60 Hz. Nothing here
  * allocates per frame.
  */
@@ -18,7 +19,7 @@ import { Tile } from '../sim/tiles';
 import { PLAYER_TUNING } from '../sim/tuning';
 import type { SpriteDef } from '../sim/types';
 import { WREN_FRAME } from '../content/sprites/wren';
-import { DUMMY_SPRITE, MARBLE_SPRITE } from '../content/sprites/props';
+import { DUMMY_SPRITE } from '../content/sprites/props';
 import { FIRE_BASE_SPRITE, FLAME_SPRITE } from '../content/sprites/obstacles';
 import {
   BOMB_SPRITE,
@@ -38,9 +39,10 @@ import {
 } from '../content/sprites/pickups';
 import { ICON_CONSUMABLE } from '../content/sprites/ui';
 import { drawDoors, prepareDoors } from './doors';
+import { AttackRenderer } from './attackRenderer';
 import { EnemyRenderer } from './enemyRenderer';
 import { ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
-import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from './pixel';
+import { drawShadow, glowSprite } from './pixel';
 import { RoomBackground } from './roomBg';
 import { drawSpriteAnchored, getFlash, getFrame } from './sprites';
 
@@ -62,8 +64,8 @@ export function itemIcon(id: string): SpriteDef {
 export class WorldRenderer {
   private readonly bg = new RoomBackground();
   private readonly enemies = new EnemyRenderer();
-  /** Warm halo drawn additively under each marble (strong enough to read warm on blue stone). */
-  private readonly marbleGlow = glowSprite(7, MARBLE_GLOW_RGB, 0.8);
+  /** Shots, beams, swipes, familiars, costumes and the charge meter (the attack pipeline). */
+  readonly attack = new AttackRenderer();
   private readonly fireGlow = glowSprite(15, '255,120,40', 0.55);
   private readonly itemGlow = glowSprite(11, '255,214,120', 0.45);
   private readonly sparkGlow = glowSprite(6, '120,210,255', 0.6);
@@ -72,7 +74,6 @@ export class WorldRenderer {
   /** Warm caches (room background, sprite frames) so the first frames don't hitch. */
   prepare(world: World): void {
     this.bg.get(world.room);
-    getFrame(MARBLE_SPRITE, 0);
     for (let f = 0; f < world.player.character.sprite.frames.length; f++) getFrame(world.player.character.sprite, f);
     getFrame(DUMMY_SPRITE, 0);
     getFrame(DUMMY_SPRITE, 1);
@@ -121,11 +122,7 @@ export class WorldRenderer {
     }
     drawShadow(ctx, px, py + 3, p.flags.flying ? 9 : 11);
     this.enemies.drawShadows(ctx, world, alpha, ox, oy);
-    const shots = world.projectiles;
-    for (let i = 0; i < shots.count; i++) {
-      const m = shots.items[i]!;
-      drawShadow(ctx, lerp(m.prevX, m.x, alpha) + ox, lerp(m.prevY, m.y, alpha) + oy + 1, 5);
-    }
+    this.attack.drawShadows(ctx, world, alpha, ox, oy);
 
     this.drawFires(ctx, world, ox, oy, time);
     this.drawPedestals(ctx, world, ox, oy, time);
@@ -134,10 +131,15 @@ export class WorldRenderer {
     this.drawDummies(ctx, world, ox, oy);
     const playerY = py - oy;
     this.enemies.drawEnemies(ctx, world, alpha, ox, oy, time, 0, playerY);
+    this.attack.begin();
+    this.attack.drawFamiliars(ctx, world, alpha, ox, oy, time);
     this.drawPlayer(ctx, p, px, py, time);
     this.enemies.drawEnemies(ctx, world, alpha, ox, oy, time, 1, playerY);
-    this.drawMarbles(ctx, world, alpha, ox, oy);
+    this.attack.drawSwipes(ctx, world, ox, oy);
+    this.attack.drawShots(ctx, world, alpha, ox, oy);
+    this.attack.drawBeams(ctx, world, ox, oy, time);
     this.enemies.drawShots(ctx, world, alpha, ox, oy, time);
+    this.attack.drawChargeMeter(ctx, p, px, py, time);
   }
 
   private drawFires(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
@@ -296,7 +298,11 @@ export class WorldRenderer {
       rx = -Math.round(p.aimX);
       ry = -Math.round(p.aimY);
     }
-    drawSpriteAnchored(ctx, sprite, frame, x + rx, y + 4 + bob + ry, flip, flash);
+    const cx = x + rx;
+    const cy = y + 4 + bob + ry;
+    this.attack.drawCostumes(ctx, p, cx, cy, true, flip, time);
+    drawSpriteAnchored(ctx, sprite, frame, cx, cy, flip, flash);
+    this.attack.drawCostumes(ctx, p, cx, cy, false, flip, time);
 
     if (holding) {
       const icon = itemIcon(p.holdItem);
@@ -308,28 +314,6 @@ export class WorldRenderer {
       ctx.drawImage(this.itemGlow, Math.round(x) - 11, iy + (img.height >> 1) - 11);
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(img, ix, iy);
-    }
-  }
-
-  private drawMarbles(ctx: CanvasRenderingContext2D, world: World, alpha: number, ox: number, oy: number): void {
-    const shots = world.projectiles;
-    if (shots.count === 0) return;
-    const glow = this.marbleGlow;
-    const gh = glow.width >> 1;
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < shots.count; i++) {
-      const m = shots.items[i]!;
-      const x = Math.round(lerp(m.prevX, m.x, alpha) + ox);
-      const y = Math.round(lerp(m.prevY, m.y, alpha) + oy - lerp(m.prevZ, m.z, alpha));
-      ctx.drawImage(glow, x - gh, y - gh);
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    for (let i = 0; i < shots.count; i++) {
-      const m = shots.items[i]!;
-      const z = lerp(m.prevZ, m.z, alpha);
-      if (m.falling) ctx.globalAlpha = Math.max(0.45, Math.min(1, z / PLAYER_TUNING.shotHeight));
-      drawSpriteAnchored(ctx, MARBLE_SPRITE, 0, lerp(m.prevX, m.x, alpha) + ox, lerp(m.prevY, m.y, alpha) + oy - z);
-      if (m.falling) ctx.globalAlpha = 1;
     }
   }
 }

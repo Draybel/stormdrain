@@ -6,7 +6,7 @@
 
 import { validateChampionDef, validateEnemyDef } from '../sim/enemies/validate';
 import { hasHook } from '../sim/hooks';
-import type { Effect, SpriteDef } from '../sim/types';
+import { costumeList, type Effect, type SpriteDef } from '../sim/types';
 import {
   ACHIEVEMENTS,
   BOSSES,
@@ -65,7 +65,7 @@ export function validateContent(): string[] {
     if (d.kind === 'consumable') need(!!d.use && d.use.length > 0, `${at}: consumable without 'use' effects`);
     sprite(d.sprite, at);
     if (typeof d.sprite !== 'string') need(d.sprite.w === 14 && d.sprite.h === 14, `${at}: icons are 14×14`);
-    if (d.costume) sprite(d.costume.sprite, `${at} costume`);
+    for (const c of costumeList(d.costume)) sprite(c.sprite, `${at} costume ${c.id}`);
     effects(d.effects, at);
     if (d.active) effects(d.active.use, `${at} use`);
     if (d.use) effects(d.use, `${at} use`);
@@ -122,7 +122,7 @@ export function validateContent(): string[] {
     need(s.need >= 1, `${at}: need must be >= 1`);
     need(members >= s.need, `${at}: only ${members} items belong to it (needs ${s.need})`);
     if (s.hook) need(hasHook(s.hook), `${at}: unregistered hook "${s.hook}"`);
-    if (s.costume) sprite(s.costume.sprite, `${at} costume`);
+    for (const c of costumeList(s.costume)) sprite(c.sprite, `${at} costume ${c.id}`);
     effects(s.effects, at);
   }
 
@@ -135,7 +135,13 @@ export function validateContent(): string[] {
     }
   }
 
-  for (const f of FAMILIARS.values()) sprite(f.sprite, `familiar ${f.id}`);
+  for (const f of FAMILIARS.values()) {
+    const at = `familiar ${f.id}`;
+    sprite(f.sprite, at);
+    need(f.radius > 0 && f.radius <= 12, `${at}: radius out of range`);
+    need(f.attackScale >= 0 && f.attackScale <= 1, `${at}: attackScale must be 0..1`);
+    need((f.fireRateMul ?? 1) > 0, `${at}: fireRateMul must be > 0`);
+  }
 
   for (const t of DROP_TABLES.values()) {
     const at = `drop table ${t.id}`;

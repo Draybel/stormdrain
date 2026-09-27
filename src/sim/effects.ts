@@ -94,7 +94,7 @@ function addPersistent(p: Player, e: Effect, source: string, triggers: ReturnTyp
       p.loadout.addMod(e.mod, e.stacks ?? 1, e.params, source);
       break;
     case 'carrier':
-      p.loadout.carriers.add(e.carrier);
+      p.loadout.addCarrier(e.carrier);
       break;
     case 'familiar':
       p.loadout.addFamiliar(e.familiar, e.count ?? 1);
@@ -106,6 +106,7 @@ function addPersistent(p: Player, e: Effect, source: string, triggers: ReturnTyp
 
 function addItemEffects(p: Player, def: ItemDef | undefined, triggers: ReturnType<typeof makeTriggerLists>): void {
   if (!def) return;
+  if (def.costume && !p.loadout.costumes.includes(def.id)) p.loadout.costumes.push(def.id);
   for (let i = 0; i < def.effects.length; i++) {
     const e = def.effects[i]!;
     if (isPersistent(e)) addPersistent(p, e, def.id, triggers);
@@ -163,6 +164,7 @@ export function recomputePlayer(w: World): void {
     });
     if (n < set.need) continue;
     p.sets.push(set.id);
+    if (set.costume) p.loadout.costumes.push(`set:${set.id}`);
     for (const e of set.effects) if (isPersistent(e)) addPersistent(p, e, set.id, triggers);
   }
 

@@ -200,10 +200,12 @@ export class RunScene implements Scene {
     const shake = this.app.shake;
     this.renderer.draw(ctx, this.sim.world, alpha, this.time, shake.x, shake.y);
     this.app.particles.draw(ctx, shake.x, shake.y);
+    this.fx.attack.drawArcs(ctx, shake.x, shake.y);
     if (this.fx.flash > 0) {
-      // Explosion / nova flash (softer when screen shake is turned down).
-      ctx.globalAlpha = Math.min(0.45, this.fx.flash * 0.45) * (0.4 + 0.6 * Math.min(1, this.app.settings.value.shake));
-      ctx.fillStyle = '#fff6e0';
+      // Explosion / nova / Storm Lance flash (softer when screen shake is turned down).
+      const max = this.fx.flashMax;
+      ctx.globalAlpha = Math.min(max, this.fx.flash * max) * (0.4 + 0.6 * Math.min(1, this.app.settings.value.shake));
+      ctx.fillStyle = this.fx.flashColor;
       ctx.fillRect(0, 0, GAME_W, GAME_H);
       ctx.globalAlpha = 1;
     }

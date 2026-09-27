@@ -10,7 +10,6 @@ import { fireTrigger } from './effects';
 import { ST_KNOCKBACK, StatusSet, addStatus, clearStatuses, statusIndex, tickStatuses } from './enemies/status';
 import { HIT_DUMMY, SRC_PLAYER, creditsPlayer, type Hittable } from './hittable';
 import { DUMMY_TUNING, STATUS_TUNING } from './tuning';
-import type { Projectile } from './projectiles';
 import type { StatusKind } from './types';
 import type { World } from './world';
 
@@ -89,28 +88,6 @@ export function spawnDummy(w: World, x: number, y: number): Dummy | null {
   d.age = 1;
   clearStatuses(d.status);
   return d;
-}
-
-/** Checks a marble against all dummies; applies damage and returns true if it hit one. */
-export function hitDummyWithShot(w: World, p: Projectile): boolean {
-  const pool = w.dummies;
-  for (let i = 0; i < pool.count; i++) {
-    const d = pool.items[i]!;
-    if (d.popped) continue;
-    const dx = p.x - d.x;
-    const dy = p.y - d.y;
-    const rr = p.r + d.r;
-    if (dx * dx + dy * dy >= rr * rr) continue;
-    const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-    const nx = sp > 1e-6 ? p.vx / sp : 0;
-    const ny = sp > 1e-6 ? p.vy / sp : 0;
-    d.lastHitX = nx;
-    d.lastHitY = ny;
-    damageDummy(w, d, p.damage, nx, ny, p.knockback);
-    w.events.emit('splash', p.x, p.y, 1, p.z);
-    return true;
-  }
-  return false;
 }
 
 export function damageDummy(

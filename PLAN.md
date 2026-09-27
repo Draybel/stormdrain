@@ -27,11 +27,15 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 ## Phase 2 — Combat & the attack pipeline
 - [x] Types for items/effects/stats; content registries via import.meta.glob with duplicate-id checks (2A)
 - [x] Stats computation (add → mul → clamps), health model (red, Tin, Ember, half hearts), i-frames (2A)
-- [ ] Attack pipeline: AttackProfile, carriers (marble, lance, laser, boomerang, melee, bomb, charge, orbit) with rider merges
-- [ ] All shot modifiers (spawn / motion / hit / expire stages), beam tracing via virtual projectile
-- [ ] ShotStyle composition (color/size/shape/trail), cached shot sprites, beam rendering with glow
-- [ ] Storm Lance full treatment (charge meter, flash, shake, boom, crackle)
-- [ ] Familiars inheriting the profile
+- [x] Attack pipeline: AttackProfile, carriers (marble, lance, laser, boomerang, melee, bomb, charge, orbit) with rider merges
+      (2B: `sim/attack/`, fireVolley as the single entry point, every carrier pair merges, carrier copies stack,
+      Wren's keeper marble, guardrails that merge instead of dropping)
+- [x] All shot modifiers (spawn / motion / hit / expire stages), beam tracing via virtual projectile
+      (2B: all 29, stacking table in ARCHITECTURE §4.5; beams fork, bounce, bend, ring, sweep; trace budget)
+- [x] ShotStyle composition (color/size/shape/trail), cached shot sprites, beam rendering with glow
+      (2B: accents, trails, costume layers — Storm Lance aura + eyes)
+- [x] Storm Lance full treatment (charge meter, flash, shake, boom, crackle)
+- [x] Familiars inheriting the profile (2B: follower chain, orbiters; Lamplet, Paper Boat, Bottlecap Beetle)
 - [x] Enemy behaviour library + ~6 enemies, enemy projectiles, contact damage, knockback, status effects (2C: 13
       movement kinds, 9 attack kinds, 3 death effects; 8 Gutterways enemies; enemy shots/creep/shockwaves; statuses on
       enemies + dummies; unified Hittable interface; 7 champion variants; training-yard arena with doors + room clear)
@@ -40,10 +44,12 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [x] Inventory (passives w/ duplicates, active + charge room/timed, trinket & consumable slots, counters), effect
       engine (stat/heal/hearts/pickups/flag/trigger/hook; mod/carrier/familiar recorded for the pipeline), HUD
       (hearts, counters, charge bar, item icons, banner), training yard with every prop/pickup kind (2A)
-- [ ] ~20 starter items covering every carrier & modifier; particles & screen shake & hit flash
-      (2A: 14 items — 6 stat items + one of each active/passive/trinket/consumable flavour; carrier/mod items → 2B)
-- [ ] Unit tests: stats, item effects, every carrier × modifier pair smoke test
-      (2A done: stats, health, inventory swaps, pickups, chests, bombs, drop tables, triggers; carrier × mod → 2B)
+- [x] ~20 starter items covering every carrier & modifier; particles & screen shake & hit flash
+      (2A: 14 items — 6 stat items + one of each active/passive/trinket/consumable flavour; 2B: 7 carriers,
+      3 familiars, 29 modifier items)
+- [x] Unit tests: stats, item effects, every carrier × modifier pair smoke test
+      (2A: stats, health, inventory swaps, pickups, chests, bombs, drop tables, triggers; 2B: tests/attack-pairs.test.ts —
+      every carrier × modifier, every carrier pair, 1 and 5 stacks, targeted behaviour, all modifiers ×5 perf/caps)
 
 ## Phase 3 — Floors, rooms & bosses
 - [ ] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
