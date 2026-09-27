@@ -44,6 +44,9 @@ const SHAPE_INDEX: Readonly<Record<ShapeHint, number>> = {
 /** Rotation frames per shape (spinners by age, crescents / shards by heading). */
 const ROT_FRAMES = [1, 8, 1, 8, 16, 8, 8, 16, 1] as const;
 const MAX_R = 12;
+/** Synergy tethers (ShotStyle.tether) drawn per frame at most, and the kinks in each line. */
+const MAX_TETHERS = 24;
+const TETHER_JAGS = 5;
 
 interface StyleCache {
   sprites: Map<number, (HTMLCanvasElement | undefined)[]>;
@@ -310,6 +313,7 @@ export class AttackRenderer {
   drawShots(ctx: CanvasRenderingContext2D, w: World, alpha: number, ox: number, oy: number): void {
     const shots = w.projectiles;
     if (shots.count === 0) return;
+    this.drawTethers(ctx, w, alpha, ox, oy);
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
@@ -352,6 +356,54 @@ export class AttackRenderer {
         ctx.fillStyle = (this.frame + i) % 2 === 0 ? '#fff27a' : '#ff9a40';
         ctx.fillRect(x + Math.round(r * 0.5) + 1, y - r - 3, 1, 1);
       }
+    }
+  }
+
+  /**
+   * Tethers (ShotStyle.tether, special synergies): a thin crackling line from each thrown shot back to
+   * whoever threw it (the player or a familiar), under the shots. Split children and orbit blades don't
+   * get one; at most MAX_TETHERS per frame. The jag is re-rolled every other frame, no allocation.
+   */
+  private drawTethers(ctx: CanvasRenderingContext2D, w: World, alpha: number, ox: number, oy: number): void {
+    const shots = w.projectiles;
+    const f = this.frame >> 1;
+    let drawn = 0;
+    for (let i = 0; i < shots.count && drawn < MAX_TETHERS; i++) {
+      const s = shots.items[i]!;
+      const style = s.style;
+      const a = s.anchor;
+      if (!style || style.tether === '' || a === null || !a.alive || s.kind === SK_ORBIT || (s.flags & F_CHILD) !== 0) continue;
+      drawn++;
+      const x1 = a.x + ox;
+      const y1 = a.y + oy - PLAYER_TUNING.shotHeight;
+      const x2 = lerp(s.prevX, s.x, alpha) + ox;
+      const y2 = lerp(s.prevY, s.y, alpha) + oy - lerp(s.prevZ, s.z, alpha);
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 3) continue;
+      const nx = -dy / len;
+      const ny = dx / len;
+      ctx.strokeStyle = style.tether;
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.globalCompositeOperation = pass === 0 ? 'lighter' : 'source-over';
+        ctx.globalAlpha = pass === 0 ? 0.3 : 0.85;
+        ctx.lineWidth = pass === 0 ? 3 : 1;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        for (let k = 1; k < TETHER_JAGS; k++) {
+          const t = k / TETHER_JAGS;
+          const j = ((Math.imul(f + i * 7 + k * 13, 0x9e3779b1) >>> 0) % 5) - 2;
+          ctx.lineTo(x1 + dx * t + nx * j, y1 + dy * t + ny * j);
+        }
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    }
+    if (drawn > 0) {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.lineWidth = 1;
     }
   }
 

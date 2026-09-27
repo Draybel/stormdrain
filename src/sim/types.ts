@@ -165,6 +165,12 @@ export interface StyleOverride {
   trail?: TrailKind;
   /** Extra glow radius (px). */
   glow?: number;
+  /**
+   * A crackling line (this colour) drawn from each projectile back to whoever threw it — a kite string on
+   * a boomerang (special synergies, render/attackRenderer.ts). Purely visual; the last override that sets
+   * it wins.
+   */
+  tether?: string;
 }
 
 // ── Pickups ──────────────────────────────────────────────────────────────────
