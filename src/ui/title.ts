@@ -10,6 +10,7 @@ import { P_RING, P_STREAK } from '../render/particles';
 import { MARBLE_GLOW_RGB, drawShadow, glowSprite } from '../render/pixel';
 import { drawSpriteAnchored } from '../render/sprites';
 import { TITLE_GROUND_Y, buildLogo, buildTitleBackdrop } from '../render/titleArt';
+import { MUSIC } from '../audio/music/ids';
 import type { App } from './app';
 import type { Scene } from './scene';
 import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
@@ -80,6 +81,7 @@ export class TitleScene implements Scene {
     subtitle ??= bakeText('FOLLOW THE GLOWING MARBLES', SUBTITLE);
     this.app.particles.clear();
     this.app.shake.reset();
+    this.app.audio.music.play(MUSIC.title, { fade: 1.2 });
     // Pre-fill the rain so the first frame is already stormy.
     for (let i = 0; i < 60; i++) this.spawnDrop(Math.random() * GAME_H);
   }

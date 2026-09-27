@@ -15,6 +15,8 @@ import type { Poolable } from '../engine/pool';
 import type { Rng } from '../engine/rng';
 import { findItem } from '../content/registry';
 import { collectItem } from './effects';
+import { addContainers, containers } from './health';
+import { addCounter } from './inventory';
 import { pickItem, type ItemFilter } from './itemPools';
 import { spawnItemPickup } from './pickups';
 import { ITEM_TUNING, YARD_TUNING } from './tuning';
@@ -43,6 +45,10 @@ export class Pedestal implements Poolable {
   rotate: ItemFilter | null = null;
   /** Rotation timer (s): counts up to the next change / refill. */
   rotateT = 0;
+  /** Magpie's Stall: coins to pay before the item can be taken (0 = free). */
+  price = 0;
+  /** Broker's Nook: heart containers to pay (0 = free). */
+  hearts = 0;
 }
 
 export function spawnPedestal(w: World, x: number, y: number, item: ItemId): Pedestal | null {
@@ -59,7 +65,38 @@ export function spawnPedestal(w: World, x: number, y: number, item: ItemId): Ped
   ped.bell = false;
   ped.rotate = null;
   ped.rotateT = 0;
+  ped.price = 0;
+  ped.hearts = 0;
   return ped;
+}
+
+/**
+ * Pays for a priced pedestal (coins in the shop, heart containers in the Broker's Nook). Returns
+ * false (with a 'denied' event) when the player can't afford it; a heart deal never takes the last
+ * heart (with no containers left the player needs a bonus heart to stay alive).
+ */
+export function buyFromPedestal(w: World, ped: Pedestal): boolean {
+  const p = w.player;
+  const inv = p.inv;
+  if (ped.price > 0 && inv.coins < ped.price) {
+    w.events.emit('denied', ped.x, ped.y - 16, ped.price, 0, 'poor');
+    return false;
+  }
+  if (ped.hearts > 0) {
+    const have = containers(p.health);
+    if (have < ped.hearts || (have === ped.hearts && p.health.bonusCount === 0)) {
+      w.events.emit('denied', ped.x, ped.y - 16, ped.hearts, 1, 'noHearts');
+      return false;
+    }
+    addContainers(p.health, -ped.hearts);
+  }
+  if (ped.price > 0) addCounter(inv, 'coins', -ped.price);
+  inv.version++;
+  w.events.emit('buy', ped.x, ped.y - 12, ped.price, ped.hearts, ped.item);
+  w.events.emit('sfx', ped.x, ped.y, 0, 0, 'shop_buy');
+  ped.price = 0;
+  ped.hearts = 0;
+  return true;
 }
 
 /** The training-yard bell (a pedestal slot without an item). */
@@ -127,6 +164,11 @@ export function updatePedestals(w: World, dt: number): void {
       w.bellRung = true;
       w.events.emit('bell', ped.x, ped.y - 12, w.arena.active ? 0 : 1, 0);
     } else if (ped.item !== '') {
+      // Priced (shop / nook): pay first; can't afford it → refused until the player steps away.
+      if ((ped.price > 0 || ped.hearts > 0) && !buyFromPedestal(w, ped)) {
+        ped.blocked = true;
+        continue;
+      }
       takeFromPedestal(w, ped);
     }
   }

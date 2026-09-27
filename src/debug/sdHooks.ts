@@ -13,6 +13,8 @@ import type { ButtonRegistry } from '../engine/buttons';
 import type { HudRect } from '../render/hud';
 import type { PickupName } from '../sim/types';
 import type { DebugActions } from './actions';
+import type { FloorCurse } from '../sim/floor/types';
+import type { RunOptions } from '../sim/run/types';
 
 export interface CssRect {
   x: number;
@@ -95,7 +97,25 @@ export interface SDHooks {
     newRun(): void;
     title(): void;
     pause(): void;
+    // ── Floor runs (Phase 3A) ──
+    /** The training yard (a new yard scene). */
+    yard(): void;
+    /** Walk through the door on side 0 N, 1 E, 2 S, 3 W (a locked one takes a key first). True if the room changed. */
+    door(side: number): boolean;
+    /** Jump to a room (default: the boss room). */
+    teleport(room?: number): boolean;
+    /** Drop to the next floor; returns the floor number. */
+    skipFloor(): number;
+    revealMap(): boolean;
+    /** Set / lift the floor curse. */
+    curse(c: FloorCurse | null): void;
+    /** Opens the big map overlay. */
+    map(): void;
+    /** Restarts the run scene on any floor / track (curse: undefined rolled, null none); returns false without a run scene. */
+    runAt(floor: number, track?: 'main' | 'alt', curse?: FloorCurse | null, seed?: number | string): boolean;
   };
+  /** Run-scene presentation: camera slide, iris phase (1 closing, 2 opening), floor card, ending. */
+  presentation(): { slide: boolean; iris: number; card: boolean; ending: string } | null;
 }
 
 declare global {
@@ -115,6 +135,10 @@ export interface SdDeps {
   getHudRects(): HudRect[];
   /** The debug actions (shared with the debug menu). */
   actions: DebugActions;
+  /** The run scene's transition state (null without a run scene). */
+  getPresentation(): { slide: boolean; iris: number; card: boolean; ending: string } | null;
+  /** Restarts the run scene's run (debug). */
+  restartRun(opts: RunOptions, seed?: number | string): boolean;
 }
 
 export function installSdHooks(d: SdDeps): SDHooks {
@@ -258,6 +282,33 @@ export function installSdHooks(d: SdDeps): SDHooks {
       pause() {
         app.nav.pause();
       },
+      yard() {
+        app.nav.yard();
+      },
+      door(side: number) {
+        return d.getSim()?.run?.goThroughDoor(side) ?? false;
+      },
+      teleport(room?: number) {
+        return d.actions.teleport(room);
+      },
+      skipFloor() {
+        return d.actions.skipFloor();
+      },
+      revealMap() {
+        return d.actions.revealMap();
+      },
+      curse(c: FloorCurse | null) {
+        d.actions.curse(c);
+      },
+      map() {
+        app.nav.map();
+      },
+      runAt(floor: number, track: 'main' | 'alt' = 'main', curse?: FloorCurse | null, seed?: number | string) {
+        return d.restartRun({ floor, track, curse }, seed);
+      },
+    },
+    presentation() {
+      return d.getPresentation();
     },
   };
   window.__SD = hooks;

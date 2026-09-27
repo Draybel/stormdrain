@@ -84,7 +84,7 @@ export class Familiars {
 }
 
 /** Matches live familiars to the loadout's familiar counts (keeps existing ones, spawns / removes the difference). */
-export function syncFamiliars(w: World): void {
+export function syncFamiliars(w: World, quiet = false): void {
   const fam = w.atk.familiars;
   const L = w.player.loadout;
   if (fam.synced === L.version) return;
@@ -106,7 +106,7 @@ export function syncFamiliars(w: World): void {
     for (let k = have; k < want; k++) {
       const f = list.find((x) => !x.alive);
       if (!f) break;
-      spawnFamiliar(w, f, def);
+      spawnFamiliar(w, f, def, quiet);
       claimed[f.index] = 1;
     }
   }
@@ -123,7 +123,7 @@ export function syncFamiliars(w: World): void {
 
 const claimedScratch = new Uint8Array(T.familiarMax);
 
-function spawnFamiliar(w: World, f: Familiar, def: FamiliarDef): void {
+function spawnFamiliar(w: World, f: Familiar, def: FamiliarDef, quiet = false): void {
   const p = w.player;
   f.alive = true;
   f.def = def;
@@ -134,7 +134,20 @@ function spawnFamiliar(w: World, f: Familiar, def: FamiliarDef): void {
   f.cooldown = 0.2;
   f.orbitA = f.index * 1.3;
   f.touchT = 0;
-  w.events.emit('familiar', f.x, f.y, 1, 0, def.id);
+  if (!quiet) w.events.emit('familiar', f.x, f.y, 1, 0, def.id);
+}
+
+/**
+ * Room entry in a floor run: every familiar is rebuilt in canonical slot order (quietly, no poof) and
+ * gathers at the player, so a run restored from a snapshot has exactly the same familiars as the
+ * original at that point (slot order, cooldowns, orbit angles).
+ */
+export function respawnFamiliars(w: World): void {
+  const fam = w.atk.familiars;
+  for (const f of fam.list) f.alive = false;
+  fam.synced = -1;
+  syncFamiliars(w, true);
+  familiarsToPlayer(w);
 }
 
 /** A room was (re)loaded: familiars gather around the player. */

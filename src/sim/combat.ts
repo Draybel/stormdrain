@@ -29,7 +29,7 @@ const result = makeDamageResult();
  */
 export function damagePlayer(w: World, halves: number, source = DMG_GENERIC): boolean {
   const p = w.player;
-  if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode) return false;
+  if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0) return false;
   damageHealth(p.health, halves, result);
   if (result.taken <= 0) return false;
   const emberBroken = result.emberBroken;

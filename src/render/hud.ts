@@ -137,6 +137,13 @@ export class Hud {
   private drawHearts(ctx: CanvasRenderingContext2D, world: World): void {
     const h = world.player.health;
     const flash = this.heartHit < 0.3 && Math.floor(this.heartHit * 20) % 2 === 0;
+    if (world.curse === 'unknown') {
+      // Curse of the Unknown: your own hearts are a mystery.
+      drawSprite(ctx, HEART_SPRITE, 2, HEARTS_X, HEARTS_Y, false, flash);
+      drawText(ctx, '?', HEARTS_X + 3, HEARTS_Y + 2, COUNT);
+      drawText(ctx, '???', HEARTS_X + HEART_STEP_X + 1, HEARTS_Y + 2, COUNT);
+      return;
+    }
     let slot = 0;
     const containers = h.redMax >> 1;
     for (let i = 0; i < containers; i++, slot++) {

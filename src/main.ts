@@ -14,7 +14,9 @@ import { ParticleSystem, PARTICLE_CAP } from './render/particles';
 import { RotateScreen } from './render/rotateScreen';
 import { ScreenShake } from './render/shake';
 import { CAP_ENEMIES, CAP_ENEMY_SHOTS, CAP_PROJECTILES } from './sim/constants';
+import type { RunOptions } from './sim/run/types';
 import type { App, Nav } from './ui/app';
+import { MapScene } from './ui/mapOverlay';
 import { PauseScene } from './ui/pause';
 import { RunScene } from './ui/run';
 import { SceneManager } from './ui/scene';
@@ -43,7 +45,13 @@ function boot(): void {
 
   const nav: Nav = {
     title: () => scenes.replace(new TitleScene(app)),
-    newRun: () => scenes.replace(new RunScene(app)),
+    newRun: () => scenes.replace(new RunScene(app, 'run')),
+    yard: () => scenes.replace(new RunScene(app, 'yard')),
+    map: () => {
+      const sim = getSim();
+      if (scenes.top?.name !== 'run' || !sim?.run || display.portrait) return;
+      scenes.push(new MapScene(app, sim));
+    },
     settings: () => scenes.push(new SettingsScene(app)),
     pause: () => {
       if (scenes.top?.name !== 'run') return;
@@ -81,6 +89,8 @@ function boot(): void {
   };
   const debugActions = new DebugActions({
     sim: getSim,
+    yard: () => nav.yard(),
+    newRun: () => nav.newRun(),
     perf: (on) => {
       if (on === undefined || on !== perf.visible) perf.toggle();
       return perf.visible;
@@ -152,7 +162,17 @@ function boot(): void {
     },
   });
 
-  installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions });
+  const getPresentation = () => {
+    const run = scenes.find('run');
+    return run instanceof RunScene ? run.presentation : null;
+  };
+  const restartRun = (opts: RunOptions, seed?: number | string): boolean => {
+    const run = scenes.find('run');
+    if (!(run instanceof RunScene)) return false;
+    run.restartRun(opts, seed);
+    return true;
+  };
+  installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions, getPresentation, restartRun });
   nav.title();
   loop.start();
 }

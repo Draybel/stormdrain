@@ -6,7 +6,7 @@
 
 import { validateChampionDef, validateEnemyDef } from '../sim/enemies/validate';
 import { hasHook } from '../sim/hooks';
-import { costumeList, type Effect, type SpriteDef } from '../sim/types';
+import { CHAPTER_PALETTE_KEYS, costumeList, type Effect, type SpriteDef } from '../sim/types';
 import {
   ACHIEVEMENTS,
   BOSSES,
@@ -20,6 +20,7 @@ import {
   SETS,
   SYNERGIES,
 } from './registry';
+import { FLOOR_PATTERNS, WALL_PATTERNS } from './sprites/tilesets';
 import { validateSpriteDef } from './sprites/validate';
 
 export function validateContent(): string[] {
@@ -106,6 +107,14 @@ export function validateContent(): string[] {
     for (const id of c.enemyPool) need(ENEMIES.has(id), `${at}: unknown enemy "${id}"`);
     for (const id of c.bossPool) need(BOSSES.has(id), `${at}: unknown boss "${id}"`);
     for (const id of c.minibossPool) need(BOSSES.has(id), `${at}: unknown miniboss "${id}"`);
+    for (const k of CHAPTER_PALETTE_KEYS) need(/^#[0-9a-f]{6}$/i.test(c.palette[k] ?? ''), `${at}: palette.${k} must be a #rrggbb colour`);
+    const [floor = '', wall = ''] = c.tileset.split('/');
+    need(!!FLOOR_PATTERNS[floor] && !!WALL_PATTERNS[wall], `${at}: unknown tileset "${c.tileset}" (floor/wall patterns in sprites/tilesets.ts)`);
+    for (const d of c.decor?.floor ?? []) sprite(d, `${at} decor`);
+    for (const d of c.decor?.wall ?? []) {
+      sprite(d, `${at} wall decor`);
+      need(d.w <= 16 && d.h <= 16, `${at}: wall decor ${d.id} is larger than 16×16`);
+    }
   }
 
   for (const s of SYNERGIES.values()) {

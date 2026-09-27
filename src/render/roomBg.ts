@@ -10,18 +10,9 @@ import { Rng, fmix32 } from '../engine/rng';
 import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import type { RoomGrid } from '../sim/room';
 import { Deco, Tile } from '../sim/tiles';
-import {
-  CORNER_SPRITE,
-  FLOOR_SPRITE,
-  FLOOR_VARIANT,
-  LEAF_SPRITE,
-  PIT_SPRITE,
-  PUDDLE_SPRITE,
-  ROCK_SPRITE,
-  WALL_SPRITE,
-} from '../content/sprites/gutterways';
+import { FLOOR_VARIANT } from '../content/sprites/gutterways';
 import { CRATE_SPRITE, METAL_SPRITE, SPIKES_SPRITE, TINTED_ROCK_SPRITE, URN_SPRITE } from '../content/sprites/obstacles';
-import { GUTTER } from '../content/sprites/palette';
+import { chapterArt, type ChapterArt } from './chapterArt';
 import { ctx2d, makeCanvas } from './canvas';
 import { ROOM_OUTER_H, ROOM_OUTER_W, WALL } from './layout';
 import { fillPixelEllipse } from './pixel';
@@ -31,12 +22,15 @@ export class RoomBackground {
   private canvas: HTMLCanvasElement | null = null;
   private version = -1;
   private seed = -1;
+  private chapter = '';
 
-  get(room: RoomGrid): HTMLCanvasElement {
-    if (!this.canvas || this.version !== room.version || this.seed !== room.styleSeed) {
-      this.canvas = buildRoomBackground(room, this.canvas);
+  /** The room's background in its chapter's look (rebuilt when the grid, seed or chapter changes). */
+  get(room: RoomGrid, chapter = 'gutterways'): HTMLCanvasElement {
+    if (!this.canvas || this.version !== room.version || this.seed !== room.styleSeed || this.chapter !== chapter) {
+      this.canvas = buildRoomBackground(room, chapterArt(chapter), this.canvas);
       this.version = room.version;
       this.seed = room.styleSeed;
+      this.chapter = chapter;
     }
     return this.canvas;
   }
@@ -62,7 +56,7 @@ function weightedPick(u: number, weights: readonly number[]): number {
   return weights.length - 1;
 }
 
-export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | null = null): HTMLCanvasElement {
+export function buildRoomBackground(room: RoomGrid, art: ChapterArt, reuse: HTMLCanvasElement | null = null): HTMLCanvasElement {
   const canvas = reuse ?? makeCanvas(ROOM_OUTER_W, ROOM_OUTER_H);
   const ctx = ctx2d(canvas);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -73,26 +67,37 @@ export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | n
   // ── Walls ────────────────────────────────────────────────────────────────
   for (let c = 0; c < ROOM_COLS; c++) {
     const x = WALL + c * TILE;
-    ctx.drawImage(getFrame(WALL_SPRITE, rng.chance(0.3) ? 1 : 0), x, 0);
-    ctx.drawImage(getRotated(WALL_SPRITE, rng.chance(0.3) ? 1 : 0, 2), x, ROOM_OUTER_H - WALL);
+    ctx.drawImage(getFrame(art.wall, rng.chance(0.3) ? 1 : 0), x, 0);
+    ctx.drawImage(getRotated(art.wall, rng.chance(0.3) ? 1 : 0, 2), x, ROOM_OUTER_H - WALL);
   }
   for (let r = 0; r < ROOM_ROWS; r++) {
     const y = WALL + r * TILE;
-    ctx.drawImage(getRotated(WALL_SPRITE, rng.chance(0.3) ? 1 : 0, 3), 0, y);
-    ctx.drawImage(getRotated(WALL_SPRITE, rng.chance(0.3) ? 1 : 0, 1), ROOM_OUTER_W - WALL, y);
+    ctx.drawImage(getRotated(art.wall, rng.chance(0.3) ? 1 : 0, 3), 0, y);
+    ctx.drawImage(getRotated(art.wall, rng.chance(0.3) ? 1 : 0, 1), ROOM_OUTER_W - WALL, y);
   }
-  const corner = getFrame(CORNER_SPRITE, 0);
+  const corner = getFrame(art.corner, 0);
   ctx.drawImage(corner, 0, 0);
   ctx.drawImage(corner, ROOM_OUTER_W - WALL, 0);
   ctx.drawImage(corner, 0, ROOM_OUTER_H - WALL);
   ctx.drawImage(corner, ROOM_OUTER_W - WALL, ROOM_OUTER_H - WALL);
 
-  // Rain streaks running down the top wall.
-  ctx.fillStyle = 'rgba(120,150,190,0.16)';
+  // Streaks running down the top wall (rain, wax, soot…), then the chapter's wall trims.
   for (let i = 0; i < 9; i++) {
     const x = WALL + rng.int(0, ROOM_COLS * TILE - 1);
     const len = rng.int(4, 11);
-    ctx.fillRect(x, rng.int(3, 5), 1, len);
+    const y = rng.int(3, 5);
+    if (art.streak) {
+      ctx.fillStyle = art.streak;
+      ctx.fillRect(x, y, 1, len);
+    }
+  }
+  const trims = art.trims.length ? rng.int(1, 3) : 0;
+  for (let i = 0; i < trims; i++) {
+    const t = art.trims[rng.int(0, art.trims.length - 1)]!;
+    // Anywhere along the top wall except over the door in the middle (cols 5-7).
+    let col = rng.int(0, ROOM_COLS - 3);
+    if (col >= 4) col += 3;
+    ctx.drawImage(getFrame(t, rng.int(0, t.frames.length - 1)), WALL + col * TILE + ((TILE - t.w) >> 1), 2);
   }
 
   // ── Floor ────────────────────────────────────────────────────────────────
@@ -105,7 +110,7 @@ export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | n
       const edge = r === 0 || c === 0 || r === ROOM_ROWS - 1 || c === ROOM_COLS - 1;
       const plainFloor = t === Tile.Floor && room.deco[r * ROOM_COLS + c] === Deco.None;
       const variant = weightedPick(cellRand(seed, c, r, 1), [45, 30, 12, edge ? 22 : 6, plainFloor ? 2.5 : 0]);
-      ctx.drawImage(getFrame(FLOOR_SPRITE, variant < 0 ? FLOOR_VARIANT.plain : variant), x, y);
+      ctx.drawImage(getFrame(art.floor, variant < 0 ? FLOOR_VARIANT.plain : variant), x, y);
     }
   }
 
@@ -115,15 +120,15 @@ export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | n
       if (!isPit(room, c, r)) continue;
       const x = WALL + c * TILE;
       const y = WALL + r * TILE;
-      ctx.drawImage(getFrame(PIT_SPRITE, 0), x, y);
-      if (!isPit(room, c, r - 1)) ctx.drawImage(getFrame(PIT_SPRITE, 1), x, y);
+      ctx.drawImage(getFrame(art.pit, 0), x, y);
+      if (!isPit(room, c, r - 1)) ctx.drawImage(getFrame(art.pit, 1), x, y);
       // Side rims: the broken floor edge catches a little light.
       const top = isPit(room, c, r - 1) ? 0 : 1;
-      ctx.fillStyle = '#323b52';
+      ctx.fillStyle = art.pitRim;
       if (!isPit(room, c - 1, r)) ctx.fillRect(x, y + top, 1, TILE - top);
       if (!isPit(room, c + 1, r)) ctx.fillRect(x + TILE - 1, y + top, 1, TILE - top);
       if (!isPit(room, c, r + 1)) {
-        ctx.fillStyle = GUTTER.floorLight;
+        ctx.fillStyle = art.pitEdge;
         ctx.fillRect(x, y + TILE - 1, TILE, 1);
       }
     }
@@ -147,23 +152,18 @@ export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | n
   }
   ctx.globalAlpha = 1;
 
-  // ── Decals: puddles and fallen leaves on plain floor (fixed rolls, drawn only where it's floor) ─
+  // ── Decals: the chapter's floor details (fixed rolls, drawn only where it's plain floor) ──────
   const floorAt = (px: number, py: number): boolean =>
     px >= WALL && py >= WALL && room.get(Math.floor((px - WALL) / TILE), Math.floor((py - WALL) / TILE)) === Tile.Floor;
-  const puddles = rng.int(1, 3);
-  for (let i = 0; i < puddles; i++) {
-    const px = WALL + rng.int(2, ROOM_COLS * TILE - 14);
-    const py = WALL + rng.int(4, ROOM_ROWS * TILE - 7);
-    if (floorAt(px, py) && floorAt(px + 11, py) && floorAt(px, py + 4) && floorAt(px + 11, py + 4)) {
-      ctx.drawImage(getFrame(PUDDLE_SPRITE, 0), px, py);
+  const decals = art.decals.length ? rng.int(art.decalCount[0], art.decalCount[1]) : 0;
+  for (let i = 0; i < decals; i++) {
+    const d = art.decals[rng.int(0, art.decals.length - 1)]!;
+    const frame = rng.int(0, d.frames.length - 1);
+    const px = WALL + rng.int(1, ROOM_COLS * TILE - d.w - 1);
+    const py = WALL + rng.int(2, ROOM_ROWS * TILE - d.h - 1);
+    if (floorAt(px, py) && floorAt(px + d.w - 1, py) && floorAt(px, py + d.h - 1) && floorAt(px + d.w - 1, py + d.h - 1)) {
+      ctx.drawImage(getFrame(d, frame), px, py);
     }
-  }
-  const leaves = rng.int(4, 8);
-  for (let i = 0; i < leaves; i++) {
-    const px = WALL + rng.int(1, ROOM_COLS * TILE - 7);
-    const py = WALL + rng.int(1, ROOM_ROWS * TILE - 5);
-    const frame = rng.int(0, 1);
-    if (floorAt(px, py) && floorAt(px + 5, py + 3)) ctx.drawImage(getFrame(LEAF_SPRITE, frame), px, py);
   }
 
   // ── Debris left by destroyed things ────────────────────────────────────────
@@ -184,7 +184,7 @@ export function buildRoomBackground(room: RoomGrid, reuse: HTMLCanvasElement | n
         case Tile.Rock:
         case Tile.SecretWall:
           contactShadow(ctx, x, y, 7);
-          ctx.drawImage(getFrame(ROCK_SPRITE, cellRand(seed, c, r, 2) < 0.5 ? 1 : 0), x, y);
+          ctx.drawImage(getFrame(art.rock, cellRand(seed, c, r, 2) < 0.5 ? 1 : 0), x, y);
           if (t === Tile.SecretWall) drawCracks(ctx, x, y);
           break;
         case Tile.RockTinted:

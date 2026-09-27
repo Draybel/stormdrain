@@ -82,6 +82,11 @@ export class PauseScene implements Scene {
 
   enter(): void {
     this.time = 0;
+    this.app.audio.music.muffle(true);
+  }
+
+  exit(): void {
+    this.app.audio.music.muffle(false);
   }
 
   onKey(code: string): boolean {

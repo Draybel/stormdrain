@@ -8,7 +8,7 @@ import type { InputState } from '../engine/inputState';
 import { Rng, seedToU32 } from '../engine/rng';
 import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
-import { getEnemy, getItem } from '../content/registry';
+import { CHARACTERS, getEnemy, getItem } from '../content/registry';
 import { nearestFreeSpot, startWave, updateArena, type WaveOpts } from './arena';
 import { resetAttackRoom, updateAttack } from './attack/update';
 import { explode, placeBomb, updateBombs } from './bombs';
@@ -30,13 +30,17 @@ import { setPedestalItem, spawnBell, spawnPedestal, updatePedestals, updateRotat
 import { pickupKindOf, pickupName } from './pickupKinds';
 import { spawnPickup, updatePickups } from './pickups';
 import { updatePlayer } from './player';
-import { cellCenterX, cellCenterY, parseRoomLayout } from './room';
+import { cellCenterX, cellCenterY, parseRoomLayout, type RoomMarker } from './room';
 import type { RoomSpawn } from './roomSpawns';
 import { updateHazards } from './tileFx';
 import { Tile } from './tiles';
 import { ITEM_TUNING, YARD_TUNING } from './tuning';
 import { CARRIER_IDS, type CharacterDef, type PickupName } from './types';
 import { World } from './world';
+import { chapterEnemies } from './run/chapters';
+import { Run, type RunSummary } from './run/run';
+import { restorePlayer, restoreWorld } from './run/snapshot';
+import { RUN_SNAPSHOT_VERSION, type RunOptions, type RunSnapshot } from './run/types';
 
 export interface SimOptions {
   seed?: number | string;
@@ -45,6 +49,13 @@ export interface SimOptions {
   room?: readonly string[];
   /** Entities to place (pickups, chests, pedestals). Defaults to the test room's when `room` is omitted. */
   spawns?: readonly RoomSpawn[];
+  /**
+   * A real run (floors, rooms, doors — sim/run): `true` or options (first floor, forced curse, locked
+   * items). Without `run` / `room` the Sim is the training yard.
+   */
+  run?: boolean | RunOptions;
+  /** Internal (Sim.fromSnapshot): resume this run snapshot. */
+  restore?: RunSnapshot;
 }
 
 export interface SimSummary {
@@ -72,6 +83,8 @@ export interface SimSummary {
   enemyShots: number;
   creep: number;
   arena: { active: boolean; wave: number; doors: number };
+  /** The floor run (null in the training yard / custom rooms). */
+  run: RunSummary | null;
   /** The attack pipeline: primary carrier, riders, held modifiers, charge, live beams / swipes / familiars. */
   attack: {
     primary: string;
@@ -128,22 +141,61 @@ export class Sim {
   /** Queue size / drop counter at the end of the last step (what consumers have drained). */
   private seenCount = 0;
   private seenDropped = 0;
+  /** The floor run (null in the training yard and in custom rooms). */
+  readonly run: Run | null = null;
 
   constructor(opts: SimOptions = {}) {
-    this.seed = seedToU32(opts.seed ?? 1);
+    const restore = opts.restore;
+    this.seed = restore ? restore.run.seed >>> 0 : seedToU32(opts.seed ?? 1);
     const root = new Rng(this.seed);
     this.roomRng = root.fork('room-items');
-    const character = opts.character ?? WREN;
+    const character = opts.character ?? (restore ? (CHARACTERS.get(restore.run.character) ?? WREN) : WREN);
     this.world = new World(character, root.fork('combat'), root.fork('loot'));
     this.world.room.styleSeed = root.fork('room-style').nextU32();
-    recomputePlayer(this.world);
-    for (const id of character.startItems) giveItem(this.world, id);
-    this.world.player.holdItem = '';
-    this.world.player.holdTime = 0;
-    this.trainingRoom = !opts.room;
-    this.loadRoom(opts.room ?? TEST_ROOM, opts.spawns ?? (opts.room ? [] : TEST_ROOM_SPAWNS));
+    this.trainingRoom = !opts.room && !opts.run && !restore;
+    if (restore) {
+      // Resume: world + player as they were when the player entered the room, then re-enter it.
+      restoreWorld(this.world, restore.world);
+      restorePlayer(this.world, restore.player);
+      this.run = Run.restore(this, restore);
+    } else {
+      recomputePlayer(this.world);
+      for (const id of character.startItems) giveItem(this.world, id);
+      this.world.player.holdItem = '';
+      this.world.player.holdTime = 0;
+      if (opts.run) {
+        this.run = Run.start(this, this.seed, character.id, opts.run === true ? {} : opts.run);
+      } else {
+        this.loadRoom(opts.room ?? TEST_ROOM, opts.spawns ?? (opts.room ? [] : TEST_ROOM_SPAWNS));
+      }
+    }
     // Setup noise (start-item banners etc.) is not news.
     this.world.events.clear();
+  }
+
+  /** A new real run (floor 1 of the main track unless `opts` says otherwise). */
+  static newRun(seed: number | string, opts: RunOptions = {}, character?: CharacterDef): Sim {
+    return new Sim({ seed, character, run: opts });
+  }
+
+  /**
+   * Resumes a run from `snapshot()` output (it may have been through JSON). Play continues exactly as
+   * it did after the snapshot was taken (same room, same rng streams, same future floors).
+   */
+  static fromSnapshot(snap: RunSnapshot): Sim {
+    if (!snap || snap.v !== RUN_SNAPSHOT_VERSION || !snap.run || !snap.world || !snap.player) {
+      throw new Error('Sim.fromSnapshot: not a run snapshot (or from another version)');
+    }
+    return new Sim({ restore: JSON.parse(JSON.stringify(snap)) as RunSnapshot });
+  }
+
+  /**
+   * JSON-safe snapshot of the whole run as it was when the player entered the current room (runs only;
+   * floors, rooms, inventory, health, rng streams, stats). Resume with Sim.fromSnapshot.
+   */
+  snapshot(): RunSnapshot {
+    if (!this.run) throw new Error('Sim.snapshot: only floor runs have snapshots');
+    return this.run.snapshot();
   }
 
   get events(): EventQueue {
@@ -154,8 +206,11 @@ export class Sim {
     return this.world.tick;
   }
 
-  /** Replaces the room layout and (re)places the player, dummies and spawns. */
-  loadRoom(layout: readonly string[], spawns: readonly RoomSpawn[] = []): void {
+  /**
+   * Replaces the room layout and (re)places the player, dummies and spawns. Returns the layout's
+   * non-tile markers (the floor run places its own entities on them).
+   */
+  loadRoom(layout: readonly string[], spawns: readonly RoomSpawn[] = []): RoomMarker[] {
     const w = this.world;
     const markers = parseRoomLayout(layout, w.room);
     w.projectiles.clear();
@@ -190,6 +245,7 @@ export class Sim {
     resetAttackRoom(w);
     this.placeSpawns(spawns);
     this.allPopped = false;
+    return markers;
   }
 
   private placeSpawns(spawns: readonly RoomSpawn[]): void {
@@ -243,6 +299,7 @@ export class Sim {
     q.discard(this.seenCount - (q.dropped - this.seenDropped));
     w.tick++;
     w.time += DT;
+    if (w.safeT > 0) w.safeT = Math.max(0, w.safeT - DT);
     updateEffects(w, DT);
     updatePlayer(w, input, DT);
     updateAttack(w, DT);
@@ -260,6 +317,7 @@ export class Sim {
     sweepEnemies(w);
     updateArena(w, DT);
     if (this.trainingRoom) this.trainingRoomRules();
+    if (this.run) this.run.update(input, DT);
     this.seenCount = q.count;
     this.seenDropped = q.dropped;
   }
@@ -301,6 +359,10 @@ export class Sim {
    * free spots) and shuts the doors until they are all dead. Returns how many spawned.
    */
   startWave(opts?: WaveOpts): number {
+    // In a run, the default pool is the current chapter's.
+    if (this.run && !opts?.pool && !opts?.spawns && !opts?.chapter) {
+      return startWave(this.world, { ...opts, pool: chapterEnemies(this.run.data.chapter).map((d) => d.id) });
+    }
     return startWave(this.world, opts);
   }
 
@@ -527,6 +589,7 @@ export class Sim {
       enemyShots: w.enemyShots.count,
       creep: w.creep.count,
       arena: { active: w.arena.active, wave: w.arena.wave, doors: w.arena.doors },
+      run: this.run ? this.run.summary() : null,
       attack: {
         primary: p.attack.primary,
         riders: CARRIER_IDS.filter((c) => c !== p.attack.primary && p.attack.stacksOf(c) > 0),

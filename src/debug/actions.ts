@@ -6,6 +6,7 @@
 
 import { allChampions, allItems, ENEMIES } from '../content/registry';
 import type { Sim } from '../sim/sim';
+import { FLOOR_CURSES, type FloorCurse } from '../sim/floor/types';
 import type { EnemyDef, ItemDef } from '../sim/types';
 
 export interface DebugHost {
@@ -15,6 +16,9 @@ export interface DebugHost {
   perf?(on?: boolean): boolean;
   /** Is the perf overlay showing? */
   perfVisible?(): boolean;
+  /** Go to the training yard / start a fresh real run (scene navigation). */
+  yard?(): void;
+  newRun?(): void;
 }
 
 /** List order in the menu: attack types, modifiers, weird items, familiars, other passives, actives, trinkets, consumables. */
@@ -157,6 +161,56 @@ export class DebugActions {
   /** Counts as clearing the room: +1 active charge, 'roomClear' triggers. */
   chargeActive(): void {
     this.sim?.roomCleared();
+  }
+
+  /** Leaves for the training yard (a new yard scene). */
+  yard(): void {
+    this.host.yard?.();
+  }
+
+  /** Starts a fresh real run. */
+  newRun(): void {
+    this.host.newRun?.();
+  }
+
+  /** Floor runs: drops to the next floor now. Returns the new floor (0 outside a run). */
+  skipFloor(): number {
+    const run = this.sim?.run;
+    if (!run) return 0;
+    run.skipFloor();
+    return run.data.floor;
+  }
+
+  /** Floor runs: reveals the whole map (secret rooms included). */
+  revealMap(): boolean {
+    const run = this.sim?.run;
+    if (!run) return false;
+    run.revealMap();
+    return true;
+  }
+
+  /** Floor runs: the current floor's curse → the next one (none → darkness → … → deluge → none). */
+  nextCurse(): FloorCurse | null {
+    const run = this.sim?.run;
+    if (!run) return null;
+    const cur = run.data.layout.curse;
+    const i = cur ? FLOOR_CURSES.indexOf(cur) : -1;
+    const next = i + 1 < FLOOR_CURSES.length ? FLOOR_CURSES[i + 1]! : null;
+    run.setCurse(next);
+    return next;
+  }
+
+  /** Floor runs: sets (or lifts) the curse. */
+  curse(c: FloorCurse | null): void {
+    this.sim?.run?.setCurse(c);
+  }
+
+  /** Floor runs: jumps to the boss room (or any room index). Returns false outside a run. */
+  teleport(room?: number): boolean {
+    const run = this.sim?.run;
+    if (!run) return false;
+    run.teleport(room ?? run.data.layout.boss);
+    return true;
   }
 
   /** Perf overlay: set, or toggle when omitted. Returns the new state (false without a host overlay). */

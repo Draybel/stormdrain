@@ -7,7 +7,8 @@
  *            put it on a pedestal next to Wren, or (mode toggle) to give it straight away.
  * - FOES   — every enemy; tap to spawn one across the room (toggle: force a champion).
  * - CHEATS — god mode, full heal, +10 coins / bombs / keys, clear room, start a wave, endless waves,
- *            perf overlay, +5 random items, drop all items, charge the active.
+ *            perf overlay, +5 random items, drop all items, charge the active; floor runs: skip floor,
+ *            reveal map, go to the boss, next curse; the training yard; a new run.
  * Keyboard: 1/2/3 or Tab switch tabs, arrows move the cursor, Enter picks, Esc / ` close.
  * Everything it does goes through DebugActions (also exposed as window.__SD.debug).
  */
@@ -43,6 +44,7 @@ const LIST_Y = PY + 34;
 const LIST_W = PW - 18;
 const LIST_H = PH - 50;
 const COLS = 2;
+const CHEAT_COLS = 4;
 const ROW_H = 24;
 const CELL_W = Math.floor((LIST_W - 4) / COLS);
 const QUALITY = ['Q0', 'Q1', 'Q2', 'Q3', 'Q4'] as const;
@@ -156,21 +158,38 @@ export class DebugMenu implements Scene {
       { label: () => '+10 BOMBS', run: () => (a.addBombs(10), '+10 BOMBS') },
       { label: () => '+10 KEYS', run: () => (a.addKeys(10), '+10 KEYS') },
       { label: () => 'START WAVE', run: () => (a.wave() > 0 ? 'WAVE CALLED' : 'A WAVE IS ALREADY ON') },
-      { label: () => `ENDLESS WAVES: ${onOff(a.isAutoWaves())}`, run: () => `ENDLESS WAVES ${onOff(a.autoWaves())}` },
-      { label: () => `PERF OVERLAY: ${onOff(a.isPerf())}`, run: () => `PERF OVERLAY ${onOff(a.perf())}` },
+      { label: () => `AUTO WAVES: ${onOff(a.isAutoWaves())}`, run: () => `ENDLESS WAVES ${onOff(a.autoWaves())}` },
+      { label: () => `PERF: ${onOff(a.isPerf())}`, run: () => `PERF OVERLAY ${onOff(a.perf())}` },
       { label: () => '+5 RANDOM ITEMS', run: () => `GAVE ${a.giveRandom(5).length} ITEMS` },
       { label: () => 'DROP ALL ITEMS', run: () => (a.resetItems(), 'ITEMS DROPPED') },
       { label: () => 'CHARGE ACTIVE', run: () => (a.chargeActive(), 'ROOM CLEAR COUNTED') },
+      // Floor runs (Phase 3A).
+      {
+        label: () => 'SKIP FLOOR',
+        run: () => {
+          const f = a.skipFloor();
+          return f ? `FLOOR ${f}` : 'NOT IN A RUN';
+        },
+      },
+      { label: () => 'REVEAL MAP', run: () => (a.revealMap() ? 'MAP REVEALED' : 'NOT IN A RUN') },
+      { label: () => 'GO TO BOSS', run: () => (a.teleport() ? 'BOSS ROOM' : 'NOT IN A RUN') },
+      {
+        label: () => 'NEXT CURSE',
+        run: () => (a.sim?.run ? `CURSE: ${(a.nextCurse() ?? 'none').toUpperCase()}` : 'NOT IN A RUN'),
+      },
+      { label: () => 'TRAINING YARD', run: () => (a.yard(), 'TO THE YARD') },
+      { label: () => 'NEW RUN', run: () => (a.newRun(), 'NEW RUN') },
     ];
-    const cw = Math.floor((LIST_W - 12) / 3);
+    // 4 columns × 5 rows of 24 px buttons fit the list area.
+    const cw = Math.floor((LIST_W - 6 * (CHEAT_COLS - 1) - 6) / CHEAT_COLS);
     this.cheatButtons = this.cheats.map((c, i) =>
       uiButton({
         id: `debug.cheat.${i}`,
         label: c.label(),
-        x: LIST_X + (i % 3) * (cw + 6),
-        y: LIST_Y + 2 + Math.floor(i / 3) * 34,
+        x: LIST_X + (i % CHEAT_COLS) * (cw + 6),
+        y: LIST_Y + 2 + Math.floor(i / CHEAT_COLS) * 26,
         w: cw,
-        h: 28,
+        h: 24,
         textScale: 1,
         onActivate: () => this.runCheat(i),
       }),
@@ -299,7 +318,7 @@ export class DebugMenu implements Scene {
       case 'ArrowRight':
       case 'ArrowUp':
       case 'ArrowDown': {
-        const cols = this.tab === 'cheats' ? 3 : COLS;
+        const cols = this.tab === 'cheats' ? CHEAT_COLS : COLS;
         const n = this.tab === 'cheats' ? this.cheats.length : this.rows().length;
         const step = code === 'ArrowLeft' ? -1 : code === 'ArrowRight' ? 1 : code === 'ArrowUp' ? -cols : cols;
         const next = Math.max(0, Math.min(n - 1, this.sel[this.tab] + step));

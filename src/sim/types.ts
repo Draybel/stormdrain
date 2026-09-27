@@ -654,7 +654,15 @@ export interface ChapterDef {
   /** The two floor numbers (1-12). */
   floors: readonly [number, number];
   track: Track;
+  /**
+   * Tile colours (hex). Every key of CHAPTER_PALETTE_KEYS is required (content validation checks it):
+   * the room renderer recolours the tileset with them.
+   */
   palette: Readonly<Record<string, string>>;
+  /**
+   * `'<floor pattern>/<wall pattern>'` from content/sprites/tilesets.ts, e.g. 'flagstone/brick',
+   * 'checker/panel', 'hex/paper'.
+   */
   tileset: string;
   enemyPool: readonly EnemyId[];
   bossPool: readonly BossId[];
@@ -662,6 +670,46 @@ export interface ChapterDef {
   /** Music track id (music registry). */
   music: string;
   curses?: readonly CurseId[];
+  /** Chapter-specific decoration (floor decals, wall trims, ambience). */
+  decor?: ChapterDecor;
+}
+
+/** Palette keys every ChapterDef.palette must define (the tileset recolour reads them). */
+export const CHAPTER_PALETTE_KEYS = [
+  'floor',
+  'floorLight',
+  'floorDark',
+  'mortar',
+  'deep',
+  'brick',
+  'brickShade',
+  'brickLight',
+  'moss',
+  'mossLight',
+  'stone',
+  'stoneLight',
+  'stoneShade',
+  'void',
+  'voidSpeck',
+  'water',
+  'waterLight',
+  'leaf',
+  'leafLight',
+] as const;
+
+/** Ambient particles a chapter's rooms show (render/worldFx). */
+export type ChapterAmbience = 'none' | 'drips' | 'spores' | 'embers' | 'snow' | 'motes' | 'wind';
+
+export interface ChapterDecor {
+  /** Small floor decals scattered on plain floor (any size up to 16×16). */
+  floor: readonly SpriteDef[];
+  /** Trims hung along the top wall (up to 16 px wide, drawn from the wall's bottom edge up). */
+  wall?: readonly SpriteDef[];
+  /** Decal count range per room (default [4, 8]). */
+  count?: readonly [number, number];
+  /** Streaks running down the top wall ('' = none), hex colour. */
+  streak?: string;
+  ambience?: ChapterAmbience;
 }
 
 // ── Synergies, sets, familiars, achievements ─────────────────────────────────

@@ -24,6 +24,46 @@ export const PLAYER_TUNING = {
   hurtInvuln: 1.0,
   /** Duration of the hurt pose (s). */
   hurtPose: 0.35,
+  /** Curse of the Deluge (slippery floors, unless flying): accel × this (≈ 0.23 s to top speed)… */
+  slipAccel: 0.35,
+  /** …and decel × this (a ≈ 0.5 s slide to a stop). */
+  slipDecel: 0.2,
+} as const;
+
+/** Floor runs (sim/run): room entry, doors, trapdoor, curses. */
+export const RUN_TUNING = {
+  /** Spawn protection after entering a room (s): no damage at all (enemies are still poofing in). */
+  entrySafe: 0.5,
+  /** Door transitions are ignored this long after entering a room (no instant ping-pong). */
+  doorCooldown: 0.35,
+  /** Half-width of the doorway trigger along the wall (px): the gap is 16 px, the feet 10. */
+  doorReach: 10,
+  /** Stick deflection toward the wall that counts as walking into a door. */
+  doorPush: 0.3,
+  /** "Needs a key" notice / denial cooldown (s). */
+  deniedCooldown: 0.8,
+  /** Feet within this distance of the trapdoor's centre fall in (px). */
+  trapdoorReach: 7,
+  /** Curse of the Maze: chance that a door leads to a random visited room instead. */
+  mazeChance: 0.2,
+  /** Broker's Nook after the boss: chance with / without damage taken on the floor. */
+  nookChanceHurt: 0.2,
+  nookChanceClean: 0.55,
+  /**
+   * Placeholder bosses (until the boss framework exists): HP = clamp(def.hp × mul, min, max) ×
+   * (1 + depth × (floor − 1)), size × scale.
+   */
+  bossHpMul: 6,
+  bossHpMin: 90,
+  bossHpMax: 160,
+  bossScale: 1.5,
+  minibossHpMul: 3.5,
+  minibossHpMin: 45,
+  minibossHpMax: 80,
+  minibossScale: 1.3,
+  bossHpPerFloor: 0.12,
+  /** Challenge rooms (Rain Barrel Arena) fight this many waves before the reward appears. */
+  challengeWaves: 2,
 } as const;
 
 export const MARBLE_TUNING = {

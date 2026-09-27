@@ -31,6 +31,9 @@ async function startRun(page: Page): Promise<void> {
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
   await waitScene(page, 'run');
+  // Phase 2 features live in the training yard (New Run starts a real floor run since Phase 3A).
+  await page.evaluate(() => window.__SD.debug.yard());
+  await page.waitForFunction(() => window.__SD.sim?.trainingRoom === true);
   await page.evaluate(() => {
     const canvas = document.getElementById('screen')!;
     (window as unknown as { __touch: unknown }).__touch = (type: string, id: number, gx: number, gy: number) => {

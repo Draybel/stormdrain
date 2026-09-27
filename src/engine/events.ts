@@ -39,7 +39,8 @@ export type GameEventType =
   | 'item'
   /** a chest opened: x,y; a = pickup kind (satchel / lockbox) */
   | 'chest'
-  /** an action was refused: x,y; id = reason ('noBombs' | 'noActive' | 'notCharged' | 'noConsumable' | 'locked') */
+  /** an action was refused: x,y; id = reason ('noBombs' | 'noActive' | 'notCharged' | 'noConsumable' | 'locked' |
+   *  'poor' (a = the price) | 'noHearts' (a = containers asked)) */
   | 'denied'
   /** red health restored: x,y; a = half hearts (b = 1 for heart containers / bonus hearts) */
   | 'heal'
@@ -142,7 +143,25 @@ export type GameEventType =
   /** a training-yard pedestal rolled a new item: x,y = pedestal; id = item id */
   | 'pedestalRoll'
   /** the training-yard bell was rung (starts a wave): x,y = bell; a = 1 started a wave, 0 already fighting */
-  | 'bell';
+  | 'bell'
+  // ── Floors (Phase 3A, sim/run) ──
+  /** the player entered a room: x,y = where she stands; a = room index; b = side she came in through
+   *  (0 N, 1 E, 2 S, 3 W; -1 = the floor's start / a trapdoor / debug); id = room type */
+  | 'roomEnter'
+  /** a new floor began (after 'roomEnter' for its start room): a = floor number; b = chapter number (1-6);
+   *  id = chapter id */
+  | 'floorStart'
+  /** a key opened a locked door: x,y = the door slot; a = side */
+  | 'doorUnlock'
+  /** a secret wall was blasted open: x,y = the wall slot; a = side; b = 0 secret room, 1 deep secret,
+   *  2 the Broker's Nook appeared */
+  | 'secretFound'
+  /** the trapdoor: x,y; a = 0 it appeared, 1 the player dropped through it */
+  | 'trapdoor'
+  /** the run ended: a = 1 won (the last floor's boss fell), 0 died */
+  | 'runEnd'
+  /** a shop / nook item was paid for: x,y; a = coins; b = heart containers; id = item id */
+  | 'buy';
 
 export interface GameEvent {
   type: GameEventType;

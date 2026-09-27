@@ -156,6 +156,22 @@ export function enemiesInChapter(chapter: string): EnemyDef[] {
   return out;
 }
 
+/**
+ * Bosses of a kind that can appear in a chapter: the union of the chapter's explicit `bossPool`
+ * (kind 'boss' / 'final') or `minibossPool` (kind 'miniboss') and every boss of that kind whose
+ * `chapters` lists the chapter — the same union rule as enemiesInChapter. Registry order.
+ */
+export function bossesInChapter(chapter: string, kind: BossDef['kind']): BossDef[] {
+  const ch = CHAPTERS.get(chapter);
+  const ids = ch ? (kind === 'miniboss' ? ch.minibossPool : ch.bossPool) : [];
+  const out: BossDef[] = [];
+  for (const d of BOSSES.values()) {
+    if (d.kind !== kind) continue;
+    if (ids.includes(d.id) || d.chapters.includes(chapter)) out.push(d);
+  }
+  return out;
+}
+
 const ALL_SYNERGIES: readonly SynergyDef[] = [...SYNERGIES.values()];
 const ALL_SETS: readonly ItemSetDef[] = [...SETS.values()];
 

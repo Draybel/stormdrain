@@ -39,6 +39,12 @@ import {
   TIN_HEART_SPRITE,
 } from '../content/sprites/pickups';
 import { ICON_CONSUMABLE } from '../content/sprites/ui';
+import { BLIND_ITEM_SPRITE, TRAPDOOR_SPRITE } from '../content/sprites/doors';
+import { HUD_COIN_ICON } from '../content/sprites/pickups';
+import { HEART_SPRITE } from '../content/sprites/ui';
+import { TRAPDOOR_OPEN_TIME } from '../sim/doors';
+import { drawText, measureText, type TextStyle } from './font';
+import { DarknessLayer } from './lighting';
 import { drawDoors, prepareDoors } from './doors';
 import { AttackRenderer } from './attackRenderer';
 import { EnemyRenderer } from './enemyRenderer';
@@ -71,10 +77,13 @@ export class WorldRenderer {
   private readonly itemGlow = glowSprite(11, '255,214,120', 0.45);
   private readonly sparkGlow = glowSprite(6, '120,210,255', 0.6);
   private readonly fuseGlow = glowSprite(4, '255,200,90', 0.9);
+  private readonly trapGlow = glowSprite(12, '120,150,255', 0.35);
+  /** Curse of Darkness. */
+  readonly darkness = new DarknessLayer();
 
   /** Warm caches (room background, sprite frames) so the first frames don't hitch. */
   prepare(world: World): void {
-    this.bg.get(world.room);
+    this.bg.get(world.room, world.chapter);
     for (let f = 0; f < world.player.character.sprite.frames.length; f++) getFrame(world.player.character.sprite, f);
     getFrame(DUMMY_SPRITE, 0);
     getFrame(DUMMY_SPRITE, 1);
@@ -92,13 +101,14 @@ export class WorldRenderer {
    * @param sx,sy screen-shake offset in px
    */
   draw(ctx: CanvasRenderingContext2D, world: World, alpha: number, time: number, sx: number, sy: number): void {
-    ctx.drawImage(this.bg.get(world.room), ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy);
-    drawDoors(ctx, world.arena.doors, sx, sy);
+    ctx.drawImage(this.bg.get(world.room, world.chapter), ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy);
+    drawDoors(ctx, world.doors, world.arena.doors, sx, sy, time);
     const ox = ROOM_X + sx;
     const oy = ROOM_Y + sy;
     const p = world.player;
     const px = lerp(p.prevX, p.x, alpha) + ox;
     const py = lerp(p.prevY, p.y, alpha) + oy;
+    this.drawTrapdoor(ctx, world, ox, oy, time);
     this.enemies.drawFloor(ctx, world, alpha, ox, oy, time);
 
     // Shadows first so everything stands on the ground.
@@ -141,6 +151,25 @@ export class WorldRenderer {
     this.attack.drawBeams(ctx, world, ox, oy, time);
     this.enemies.drawShots(ctx, world, alpha, ox, oy, time);
     this.attack.drawChargeMeter(ctx, p, px, py, time);
+    if (world.curse === 'darkness' && !p.flags.darkVision) this.darkness.draw(ctx, world, px, py, sx, sy, time);
+  }
+
+  /** The trapdoor to the next floor (swings open, then a dark hole with a faint blue glow). */
+  private drawTrapdoor(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
+    const t = world.trapdoor;
+    if (!t.active) return;
+    const open = t.t / TRAPDOOR_OPEN_TIME;
+    const frame = open < 0.35 ? 0 : open < 0.8 ? 1 : 2;
+    const x = Math.round(t.x + ox) - 8;
+    const y = Math.round(t.y + oy) - 8;
+    ctx.drawImage(getFrame(TRAPDOOR_SPRITE, frame), x, y);
+    if (frame === 2) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.45 + 0.2 * Math.sin(time * 3);
+      ctx.drawImage(this.trapGlow, x + 8 - 12, y + 8 - 12);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   private drawFires(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
@@ -184,7 +213,7 @@ export class WorldRenderer {
       drawSpriteAnchored(ctx, PEDESTAL_SPRITE, 0, x, y + 5);
       if (!ped.item) continue;
       const bob = Math.round(Math.sin(time * 2.6 + i * 1.3) * 1.5);
-      const icon = itemIcon(ped.item);
+      const icon = world.curse === 'blind' ? BLIND_ITEM_SPRITE : itemIcon(ped.item);
       const img = getFrame(icon, 0);
       const ix = Math.round(x - img.width / 2);
       const iy = Math.round(y - 8 - img.height + bob);
@@ -203,6 +232,8 @@ export class WorldRenderer {
         ctx.drawImage(getFlash(icon, 0), ix, iy);
         ctx.globalAlpha = 1;
       }
+      // Price tag (shop: coins, Broker's Nook: heart containers) on the plinth's front.
+      if (ped.price > 0 || ped.hearts > 0) drawPrice(ctx, ped.price > 0 ? ped.price : ped.hearts, ped.price <= 0, x, y + 7);
     }
   }
 
@@ -212,7 +243,7 @@ export class WorldRenderer {
       const k = pks.items[i]!;
       const x = Math.round(lerp(k.prevX, k.x, alpha) + ox);
       const y = Math.round(lerp(k.prevY, k.y, alpha) + oy - lerp(k.prevZ, k.z, alpha));
-      drawPickup(ctx, k, x, y, time, this.sparkGlow);
+      drawPickup(ctx, k, x, y, time, this.sparkGlow, world.curse === 'blind');
     }
   }
 
@@ -327,7 +358,7 @@ export class WorldRenderer {
 }
 
 /** Sprite + frame for a pickup kind (render side of sim/pickupKinds). */
-function drawPickup(ctx: CanvasRenderingContext2D, k: Pickup, x: number, y: number, time: number, sparkGlow: HTMLCanvasElement): void {
+function drawPickup(ctx: CanvasRenderingContext2D, k: Pickup, x: number, y: number, time: number, sparkGlow: HTMLCanvasElement, blind: boolean): void {
   // Coins spin to their edge now and then; everything else is a static frame.
   const spin = ((time + k.phase * 3) % 2.4) < 0.1 ? 1 : 0;
   switch (k.kind) {
@@ -388,7 +419,7 @@ function drawPickup(ctx: CanvasRenderingContext2D, k: Pickup, x: number, y: numb
       break;
     case PK.Trinket:
     case PK.Consumable: {
-      const img = getFrame(itemIcon(k.itemId), 0);
+      const img = getFrame(blind ? BLIND_ITEM_SPRITE : itemIcon(k.itemId), 0);
       const bob = k.z > 0 ? 0 : Math.round(Math.sin(time * 3 + k.phase * 6) * 1);
       ctx.drawImage(img, x - (img.width >> 1), y - img.height + 1 + bob - 2);
       break;
@@ -402,4 +433,21 @@ function drawPickup(ctx: CanvasRenderingContext2D, k: Pickup, x: number, y: numb
     ctx.fillRect(x + 1, y - 6, 1, 3);
     ctx.fillRect(x, y - 5, 3, 1);
   }
+}
+
+const PRICE: TextStyle = { color: '#ffe9a8', shadow: '#07080d' };
+const PRICE_HEART: TextStyle = { color: '#ffb0b8', shadow: '#07080d' };
+const priceText: string[] = [];
+
+/** A small price tag centred under (x, y): an icon and the number. */
+function drawPrice(ctx: CanvasRenderingContext2D, n: number, hearts: boolean, x: number, y: number): void {
+  const text = (priceText[n] ??= String(n));
+  const iconW = hearts ? 9 : HUD_COIN_ICON.w;
+  const w = iconW + 2 + measureText(text);
+  const left = Math.round(x - w / 2);
+  ctx.fillStyle = 'rgba(7,8,13,0.7)';
+  ctx.fillRect(left - 2, y - 1, w + 4, 8);
+  if (hearts) drawSpriteAnchored(ctx, HEART_SPRITE, 0, left + 4, y + 7);
+  else ctx.drawImage(getFrame(HUD_COIN_ICON, 0), left, y + 1);
+  drawText(ctx, text, left + iconW + 2, y + 1, hearts ? PRICE_HEART : PRICE);
 }

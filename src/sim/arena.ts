@@ -34,6 +34,11 @@ export class Arena {
   /** Enemy spawn points from the room layout ('e' markers, then 'E' elites): packed x, y pairs. */
   readonly points: number[] = [];
   readonly elitePoints: number[] = [];
+  /**
+   * Clearing the current wave counts as clearing the room (reward drop, 'roomClear' event, active
+   * charge, triggers). The floor run turns it off for the first waves of a challenge room.
+   */
+  reward = true;
 
   reset(): void {
     this.active = false;
@@ -42,7 +47,21 @@ export class Arena {
     this.sinceClear = 99;
     this.points.length = 0;
     this.elitePoints.length = 0;
+    this.reward = true;
   }
+}
+
+/** One enemy placed exactly (floor runs: pre-rolled room contents, placeholder bosses). */
+export interface FixedSpawn {
+  id: EnemyId;
+  x: number;
+  y: number;
+  /** true = roll (default), false = never, a champion id = force it. */
+  champion?: boolean | string;
+  /** Exact starting HP (bosses). */
+  hp?: number;
+  /** Size multiplier. */
+  scale?: number;
 }
 
 export interface WaveOpts {
@@ -52,6 +71,8 @@ export interface WaveOpts {
   pool?: readonly EnemyId[];
   /** Chapter whose enemy pool to use (default 'gutterways'). */
   chapter?: string;
+  /** Exactly these enemies (no random picks; count / pool / chapter are ignored). */
+  spawns?: readonly FixedSpawn[];
 }
 
 function weightedDefs(opts: WaveOpts): EnemyDef[] {
@@ -127,6 +148,7 @@ export function nearestFreeSpot(w: World, x: number, y: number, out: { x: number
 export function startWave(w: World, opts: WaveOpts = {}): number {
   const a = w.arena;
   if (a.active || w.player.dead) return 0;
+  if (opts.spawns) return startFixedWave(w, opts.spawns);
   const defs = weightedDefs(opts);
   if (defs.length === 0) return 0;
   const rng = w.combatRng;
@@ -153,12 +175,31 @@ export function startWave(w: World, opts: WaveOpts = {}): number {
     if (spawnEnemy(w, def, x, y)) spawned++;
   }
   if (spawned === 0) return 0;
+  beginWave(w);
+  return spawned;
+}
+
+/** A wave of exactly these enemies (unknown ids are skipped). */
+function startFixedWave(w: World, list: readonly FixedSpawn[]): number {
+  let spawned = 0;
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i]!;
+    const def = findEnemy(s.id);
+    if (!def) continue;
+    if (spawnEnemy(w, def, s.x, s.y, { champion: s.champion ?? true, hp: s.hp, scale: s.scale })) spawned++;
+  }
+  if (spawned === 0) return 0;
+  beginWave(w);
+  return spawned;
+}
+
+function beginWave(w: World): void {
+  const a = w.arena;
   a.active = true;
   a.wave++;
   // Wren's Lucky Marble: the first volley in an uncleared room is a keeper marble.
   w.player.atk.keeper = true;
   w.events.emit('doors', 0, 0, 1, a.wave);
-  return spawned;
 }
 
 /** Per tick: door animation, and the clear check. */
@@ -179,6 +220,8 @@ function finishWave(w: World): void {
   const a = w.arena;
   a.active = false;
   a.sinceClear = 0;
+  // A wave that isn't the last one (challenge rooms): the floor run starts the next at once.
+  if (!a.reward) return;
   w.events.emit('doors', 0, 0, 0, a.wave);
   // Reward in the middle of the room (the nearest open floor to the centre).
   const room = w.room;

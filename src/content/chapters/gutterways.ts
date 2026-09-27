@@ -6,6 +6,7 @@
 
 import type { ChapterDef } from '../../sim/types';
 import { GUTTER } from '../sprites/palette';
+import { GUTTER_DECOR_FLOOR, GUTTER_DRAIN_TRIM } from '../sprites/chapterDecor';
 
 const chapters: ChapterDef[] = [
   {
@@ -14,12 +15,14 @@ const chapters: ChapterDef[] = [
     floors: [1, 2],
     track: 'main',
     palette: GUTTER,
-    tileset: 'gutter',
+    tileset: 'flagstone/brick',
     enemyPool: ['drizzle-blob', 'scurrier', 'sogwing', 'mudleech', 'spitshell', 'grate-gazer', 'puddle-toad', 'grate-crab'],
     bossPool: [],
     minibossPool: [],
     music: 'ch_gutterways',
     curses: ['darkness', 'lostMap', 'blind'],
+    // Deep blue-grey flagstones and brick, moss, fallen leaves and puddles; rain runs down the walls.
+    decor: { floor: GUTTER_DECOR_FLOOR, wall: [GUTTER_DRAIN_TRIM], count: [5, 10], streak: '#7896be', ambience: 'drips' },
   },
 ];
 

@@ -29,6 +29,9 @@ async function startRun(page: Page): Promise<void> {
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
   await waitScene(page, 'run');
+  // Phase 2 features live in the training yard (New Run starts a real floor run since Phase 3A).
+  await page.evaluate(() => window.__SD.debug.yard());
+  await page.waitForFunction(() => window.__SD.sim?.trainingRoom === true);
 }
 
 /** Room interior in game px (walls excluded): x 88..296, y 64..176. */

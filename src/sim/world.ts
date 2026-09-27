@@ -20,7 +20,9 @@ import {
   ROOM_COLS,
   ROOM_ROWS,
 } from './constants';
+import { RoomDoors, Trapdoor } from './doors';
 import { Dummy } from './dummies';
+import type { FloorCurse } from './floor/types';
 import { Enemy } from './enemies/enemy';
 import { FlowField } from './enemies/pathfield';
 import { Creep, EnemyShot, Wave } from './enemies/shots';
@@ -108,6 +110,16 @@ export class World {
   onSecretWallBombed: ((x: number, y: number) => void) | null = null;
   /** Debug god mode: the player takes no damage. */
   godMode = false;
+  /**
+   * Current room presentation state set by the floor run (sim/run): door slots, the trapdoor, the
+   * chapter whose palette the room uses, and the floor curse (render + deluge movement).
+   */
+  readonly doors = new RoomDoors();
+  readonly trapdoor = new Trapdoor();
+  chapter = 'gutterways';
+  curse: FloorCurse | null = null;
+  /** Seconds of spawn protection after entering a room: damagePlayer refuses all damage meanwhile. */
+  safeT = 0;
   /** The training-yard bell was bumped this tick (the Sim starts a wave). */
   bellRung = false;
   /** Nesting depth of trigger execution (guards against trigger → effect → trigger loops). */

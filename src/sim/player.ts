@@ -165,12 +165,14 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   const tvy = iy * speed;
 
   // Constant-rate approach: quick to start, snappy reversals, short slide on release.
+  // Curse of the Deluge: slippery floors (lower accel and decel) unless flying.
+  const slip = w.curse === 'deluge' && !p.flags.flying;
   let rate: number;
   if (im > 0.05) {
-    rate = T.accel;
+    rate = T.accel * (slip ? T.slipAccel : 1);
     if (p.vx * tvx + p.vy * tvy < 0) rate *= T.turnBoost;
   } else {
-    rate = T.decel;
+    rate = T.decel * (slip ? T.slipDecel : 1);
   }
   let dvx = tvx - p.vx;
   let dvy = tvy - p.vy;

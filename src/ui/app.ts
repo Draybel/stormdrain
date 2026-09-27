@@ -11,7 +11,12 @@ import type { SceneManager } from './scene';
 /** Scene navigation, implemented in main.ts so scenes never import each other. */
 export interface Nav {
   title(): void;
+  /** A real run (floor 1). */
   newRun(): void;
+  /** The training yard (debug menu). */
+  yard(): void;
+  /** The expanded floor map over the run (tap the minimap / Tab). */
+  map(): void;
   settings(): void;
   pause(): void;
   resume(): void;

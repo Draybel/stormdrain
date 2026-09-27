@@ -20,6 +20,9 @@ async function startRun(page: Page): Promise<void> {
   const b = await page.evaluate(() => window.__SD.button('title.newRun'));
   await page.touchscreen.tap(b!.css.cx, b!.css.cy);
   await page.waitForFunction(() => window.__SD?.scene === 'run');
+  // Phase 2 features live in the training yard (New Run starts a real floor run since Phase 3A).
+  await page.evaluate(() => window.__SD.debug.yard());
+  await page.waitForFunction(() => window.__SD.sim?.trainingRoom === true);
 }
 
 test('Storm Lance: hold to charge, release to fire a beam to the far wall', async ({ page }) => {

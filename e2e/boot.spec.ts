@@ -63,7 +63,9 @@ test('boots to the title, taps into a run, pauses and resumes — no errors', as
   await waitScene(page, 'run');
   const run = await page.evaluate(() => window.__SD.run());
   expect(run).not.toBeNull();
-  expect(run!.dummies.length).toBeGreaterThanOrEqual(2);
+  // A real run: floor 1 of the Gutterways, in the start room.
+  expect(run!.run?.floor).toBe(1);
+  expect(run!.run?.roomType).toBe('start');
 
   // Every in-run HUD button sits inside the drawn game rect.
   const hud = await page.evaluate(() => window.__SD.buttons());
@@ -102,6 +104,9 @@ test('touch sticks move and shoot', async ({ page }) => {
   await waitScene(page, 'title');
   await tap(page, 'title.newRun');
   await waitScene(page, 'run');
+  // The training yard (no doors to walk through by accident).
+  await page.evaluate(() => window.__SD.debug.yard());
+  await page.waitForFunction(() => window.__SD.sim?.trainingRoom === true);
 
   // Drive the floating sticks with synthetic touch pointers (two fingers at once).
   const start = (await page.evaluate(() => window.__SD.run()))!;

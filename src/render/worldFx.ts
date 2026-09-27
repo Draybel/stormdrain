@@ -14,8 +14,10 @@ import { PK } from '../sim/pickupKinds';
 import { Tile } from '../sim/tiles';
 import type { World } from '../sim/world';
 import { AttackFx } from './attackFx';
-import { ROOM_X, ROOM_Y } from './layout';
-import { P_RING, P_SQUARE, type ParticleSystem } from './particles';
+import { chapterArt } from './chapterArt';
+import { DK, DS } from '../sim/doors';
+import { ROOM_OUTER_H, ROOM_OUTER_W, ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
+import { P_RING, P_SQUARE, P_STREAK, type ParticleSystem } from './particles';
 import type { ScreenShake } from './shake';
 
 const MARBLE_BITS = [GLOW.core, GLOW.hot, GLOW.rim, GLOW.core] as const;
@@ -47,6 +49,12 @@ const DIRT = ['#5a4636', '#7e664e', '#a08466', '#3a2e24'] as const;
 const ICE = ['#ffffff', '#c8f4ff', '#8fd8f8', '#6fb3e0'] as const;
 const STARS = ['#fff27a', '#ffffff', '#ffcf57'] as const;
 const BLINK = ['#c9a0ff', '#ffffff', '#8a6ad8'] as const;
+const RUBBLE = ['#5c6580', '#8691ad', '#3e455a', '#2a2e3c'] as const;
+const KEY_GOLD = ['#fff4a8', '#e0b040', '#ffffff'] as const;
+const RAIN = 'rgba(150,185,230,0.55)';
+/** Wall-slot centres (screen, before shake) per side, for door / secret-wall effects. */
+const SLOT_SX = [ROOM_X + TILE * 6.5, ROOM_X + TILE * 13 + 4, ROOM_X + TILE * 6.5, ROOM_X - 4];
+const SLOT_SY = [ROOM_Y - 4, ROOM_Y + TILE * 3.5, ROOM_Y + TILE * 7 + 4, ROOM_Y + TILE * 3.5];
 /** Particle colours per enemy shot style (ENEMY_SHOT_STYLES order). */
 const SHOT_BITS: readonly (readonly string[])[] = [
   ['#a8c050', '#e4f0a0', '#5e7426'],
@@ -154,6 +162,7 @@ export class WorldFx {
     const P = this.particles;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * this.flashDecay);
     this.attack.tick(world, dt);
+    this.ambience(world, dt);
     const bombs = world.bombs;
     for (let i = 0; i < bombs.count; i++) {
       const b = bombs.items[i]!;
@@ -201,6 +210,80 @@ export class WorldFx {
         );
         if (p) p.drag = 0.8;
       }
+    }
+  }
+
+  /**
+   * Floor-run room ambience: the chapter's particles (drips, spores, embers, snow, motes, wind), rain
+   * for the Curse of the Deluge, and a drip now and then from a hinted secret wall.
+   */
+  private ambience(world: World, dt: number): void {
+    if (!world.doors.enabled) return;
+    const P = this.particles;
+    const art = chapterArt(world.chapter);
+    const x0 = ROOM_X;
+    const y0 = ROOM_Y;
+    const w = TILE * ROOM_COLS;
+    const h = TILE * ROOM_ROWS;
+    switch (art.ambience) {
+      case 'drips':
+        if (Math.random() < dt * 3) {
+          const p = P.spawn(x0 + Math.random() * w, y0 - 2, 0, 40, 0.9, art.glow);
+          if (p) {
+            p.gravity = 260;
+            p.floorY = y0 + 6 + Math.random() * (h - 8);
+          }
+        }
+        break;
+      case 'spores':
+        if (Math.random() < dt * 5) {
+          const p = P.spawn(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 6, -4 - Math.random() * 6, 2.5, Math.random() < 0.5 ? art.accentLight : art.glow);
+          if (p) p.drag = 0.2;
+        }
+        break;
+      case 'embers':
+        if (Math.random() < dt * 6) {
+          const p = P.spawn(x0 + Math.random() * w, y0 + h - Math.random() * 12, (Math.random() - 0.5) * 10, -14 - Math.random() * 18, 1.6, Math.random() < 0.6 ? '#ffcf57' : '#ff7a2a');
+          if (p) p.drag = 0.4;
+        }
+        break;
+      case 'snow':
+        if (Math.random() < dt * 8) {
+          const p = P.spawn(x0 + Math.random() * w, y0 - 2, 4 + Math.random() * 6, 10 + Math.random() * 8, 5, Math.random() < 0.7 ? '#ffffff' : '#c8e6f5');
+          if (p) p.floorY = y0 + 4 + Math.random() * (h - 6);
+        }
+        break;
+      case 'motes':
+        if (Math.random() < dt * 3) {
+          const p = P.spawn(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 3, art.accentLight);
+          if (p) p.drag = 0.1;
+        }
+        break;
+      case 'wind':
+        if (Math.random() < dt * 4) {
+          const p = P.spawn(x0 - 2, y0 + Math.random() * h, 140 + Math.random() * 60, 6, 1.6, 'rgba(196,202,216,0.45)', 1);
+          if (p) p.endSize = 1;
+        }
+        break;
+      default:
+        break;
+    }
+    if (world.curse === 'deluge') {
+      // Curse of the Deluge: rain over the room.
+      for (let i = 0; i < 2; i++) {
+        if (Math.random() > dt * 70) continue;
+        const vy = 210 + Math.random() * 60;
+        const floor = ROOM_OUTER_Y + 10 + Math.random() * (ROOM_OUTER_H - 12);
+        const p = P.spawn(ROOM_OUTER_X + Math.random() * ROOM_OUTER_W, ROOM_OUTER_Y - 4, -vy * 0.12, vy, Math.max(0.05, (floor - ROOM_OUTER_Y) / vy), RAIN, 5, P_STREAK);
+        if (p) p.fade = false;
+      }
+    }
+    // Hinted secret walls drip.
+    for (let side = 0; side < 4; side++) {
+      const d = world.doors.slots[side]!;
+      if (d.kind !== DK.Secret || d.state !== DS.Hidden || !d.hint || Math.random() > dt * 0.8) continue;
+      const p = P.spawn(SLOT_SX[side]! + (Math.random() - 0.5) * 6, SLOT_SY[side]!, 0, 10, 0.8, '#8fb8dc');
+      if (p) p.gravity = 120;
     }
   }
 
@@ -643,6 +726,28 @@ export class WorldFx {
         }
         const r = P.spawn(x, y, 0, 0, 0.45, '#ffd76a', 1, P_RING);
         if (r) r.endSize = 22;
+        break;
+      }
+      case 'secretFound': {
+        // Rubble bursts out of the wall.
+        const sx = SLOT_SX[e.a] ?? x;
+        const sy = SLOT_SY[e.a] ?? y;
+        P.burst(sx, sy, 22, 20, 90, 0.7, e.b === 2 ? BLINK : RUBBLE, 2, 220, 1.5);
+        P.burst(sx, sy, 10, 10, 40, 0.9, SMOKE, 3, -10, 2);
+        this.shake.add(0.35);
+        break;
+      }
+      case 'doorUnlock': {
+        P.burst(SLOT_SX[e.a] ?? x, SLOT_SY[e.a] ?? y, 14, 20, 60, 0.5, KEY_GOLD, 1, 120, 2);
+        break;
+      }
+      case 'trapdoor': {
+        if (e.a === 0) {
+          P.burst(x, y, 16, 15, 50, 0.6, DUST, 2, -10, 3);
+          const r = P.spawn(x, y, 0, 0, 0.4, '#8691ad', 1, P_RING);
+          if (r) r.endSize = 12;
+          this.shake.add(0.2);
+        }
         break;
       }
       default:
