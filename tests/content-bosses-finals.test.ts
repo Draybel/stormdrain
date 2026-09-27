@@ -41,7 +41,7 @@ const LOOKS: Record<string, readonly SpriteDef[]> = {
 function arena(id: string, seed: number | string = 7, intro = false, px = 30, py = 56, bx = 160, by = 56): Sim {
   const sim = new Sim({ seed, room: OPEN });
   sim.world.player.placeAt(px, py);
-  const e = sim.startBossFight(id, bx, by, { intro });
+  const e = sim.startBossFight(id, bx, by, { intro, minPhase: 0 });
   expect(e).not.toBeNull();
   return sim;
 }
@@ -291,9 +291,11 @@ describe('final bosses: headless god-mode fights (real attack pipeline)', () => 
       sim.run!.teleport(sim.run!.data.layout.boss);
       stepN(sim, makeInput(), 150);
       const f = sim.world.boss;
-      for (let i = 0; i < 6 && !f.dying; i++) {
+      // Each phase must be fought for BOSS_TUNING.minPhaseFinal s before a blow can end it (polish batch 4).
+      const wait = Math.ceil((BOSS_TUNING.phaseInvuln + BOSS_TUNING.minPhaseFinal) * 60) + 3;
+      for (let i = 0; i < 8 && !f.dying; i++) {
         boss(sim).hurt(1e6, SRC_PLAYER, 0, 0);
-        stepN(sim, makeInput(), Math.ceil(BOSS_TUNING.phaseInvuln * 60) + 3);
+        for (let t = 0; t < wait && !f.dying; t++) sim.step(makeInput());
       }
       expect(f.dying).toBe(true);
       let end = -1;

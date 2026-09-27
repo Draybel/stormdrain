@@ -9,8 +9,22 @@
 
 import { registerBossHook, type BossHook } from '../../sim/bosses/hooks';
 import type { SpriteDef } from '../../sim/types';
-import { BELLOWBELLY_MELT_SPRITE, BELLOWBELLY_RED_SPRITE, BELLOWBELLY_SPRITE } from '../sprites/bossesBFoundry';
-import { HUSHWING_RING_SPRITE, HUSHWING_SHATTER_SPRITE, HUSHWING_SPRITE } from '../sprites/bossesBGrotto';
+import {
+  BELLOWBELLY_MELT_SPRITE,
+  BELLOWBELLY_RED_SPRITE,
+  BELLOWBELLY_SPRITE,
+  HAMMERJAW_HOT_SPRITE,
+  HAMMERJAW_SLAG_SPRITE,
+  HAMMERJAW_SPRITE,
+} from '../sprites/bossesBFoundry';
+import {
+  FACETTA_PRISM_SPRITE,
+  FACETTA_SING_SPRITE,
+  FACETTA_SPRITE,
+  HUSHWING_RING_SPRITE,
+  HUSHWING_SHATTER_SPRITE,
+  HUSHWING_SPRITE,
+} from '../sprites/bossesBGrotto';
 import {
   BRAMBLEHORN_SPRITE,
   BRAMBLEHORN_WING_SPRITE,
@@ -29,6 +43,9 @@ export const BOSS_B_LOOKS: Readonly<Record<string, readonly SpriteDef[]>> = {
   'grandmother-gill': [GRANDMOTHER_GILL_SPRITE, GRANDMOTHER_GILL_SPORE_SPRITE, GRANDMOTHER_GILL_RIPE_SPRITE],
   bramblehorn: [BRAMBLEHORN_SPRITE, BRAMBLEHORN_WING_SPRITE],
   hushwing: [HUSHWING_SPRITE, HUSHWING_RING_SPRITE, HUSHWING_SHATTER_SPRITE],
+  // Polish batch 4: the alt chapters' second bosses.
+  hammerjaw: [HAMMERJAW_SPRITE, HAMMERJAW_HOT_SPRITE, HAMMERJAW_SLAG_SPRITE],
+  facetta: [FACETTA_SPRITE, FACETTA_SING_SPRITE, FACETTA_PRISM_SPRITE],
   canshell: [CANSHELL_SPRITE, CANSHELL_ROLL_SPRITE],
   glowtail: [GLOWTAIL_SPRITE, GLOWTAIL_FLARE_SPRITE],
 };

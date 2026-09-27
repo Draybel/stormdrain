@@ -149,6 +149,12 @@ export class World {
   /** Floor objects and wall NPCs of special rooms (plate, grate, whirlpool, skylight, Magpie…). */
   readonly props = new RoomProps();
   chapter = 'gutterways';
+  /**
+   * The floor (1-13) and chapter number (1-7: floor 13 counts deepest) of the current room — set by the floor run at
+   * every room entry; 1 in the training yard. Enemy HP and hit damage scale with them (polish batch 4).
+   */
+  floor = 1;
+  chapterNo = 1;
   curse: FloorCurse | null = null;
   /** Seconds of spawn protection after entering a room: damagePlayer refuses all damage meanwhile. */
   safeT = 0;

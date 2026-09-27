@@ -22,7 +22,8 @@ Files:
 
 HP follows chapter depth, since Wren deals about 10 damage a second at base:
 
-- Chapter 1 alt: 280-300 HP and 2 phases, like the Gutterways pair.
+- Chapter 1 alt: 280-300 HP and 2 phases, like the Gutterways pair. *(Polish batch 4: ×0.8 — Pirouetta 225, Sir Sopsalot
+  240, his second phase at pace 1.0 with double (not triple) charges; the Gutterways pair 210 / 240.)*
 - Chapter 2: 400-450 HP and 3 phases, with faster later phases (pace up to 1.3), denser rings and more adds.
 - Minibosses: 150 HP and 2 phases. Their home chapter is the Gutterways, so on floors 3-4 `bossHpFor`
   adds 14 % per floor.
@@ -32,8 +33,8 @@ minibosses drop `champion`, a small extra on top of the run's `minibossReward`.
 
 | Boss | Chapter | HP | Phases (threshold): signature |
 |---|---|---|---|
-| Pirouetta | drowned_nursery | 280 | Curtain Up: circles you, a two-arm note spiral, a lap of the room, sheet-music walls, a curtsy teleport. Overwound (50 %): a double ring as the spring snaps, a reversing 3-arm spiral, laps firing inward, double curtsies, balloons. |
-| Sir Sopsalot | drowned_nursery | 300 | Soggy: squelch slams, bathwater puddles, button bursts, bath ducks. Unstitched (50 %): a stuffing puff, triple tumble charges, double slams, toy blocks raining, slowing stuffing rings. |
+| Pirouetta | drowned_nursery | 225 | Curtain Up: circles you, a two-arm note spiral, a lap of the room, sheet-music walls, a curtsy teleport. Overwound (50 %): a double ring as the spring snaps, a reversing 3-arm spiral, laps firing inward, double curtsies, balloons. |
+| Sir Sopsalot | drowned_nursery | 240 | Soggy: squelch slams, bathwater puddles, button bursts, bath ducks. Unstitched (50 %): a stuffing puff, double tumble charges, double slams, toy blocks raining, slowing stuffing rings. |
 | Grandmother Brine | rootcellar | 420 | Steeping: brine puddles, onions that burst where they land, stepped rings, gherklings. Fermenting (60 %): a brine spill, a brine-jet sweep, double onion volleys, a vinegar spiral, crock hops. Sour (25 %): a brine jar, twin jets, onions that leave puddles, triple rings, jars dropping. |
 | Old Knotroot | rootcellar | 440 | Buried: three root lines at you, tunnel and erupt, wailing rings, taproots. Uprooted (60 %): a clod shower, then charges, double root volleys, double tunnels, a 4-arm spiral. Wailing (30 %): a scream of rings, roots in all six directions, a reversing spiral, lunges, a grumblemole. |
 | Vesperwing | candlewick_crypt | 400 | Drawn to the Flame: laps, slowing dust rings, swoops, dusk moths. Singed (55 %): an ember flare, spirals, fanned laps, dripping cinders, bursting swoops, gust walls. Guttering (20 %): more moths, a 4-arm reversing spiral, burning scales that pool, converging laps, triple rings. |

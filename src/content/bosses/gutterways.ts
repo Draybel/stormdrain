@@ -1,6 +1,7 @@
 /**
  * Chapter 1 bosses — The Gutterways (original designs). Numbers: Wren deals ≈ 10 damage per second
- * at base, so a 260-300 HP boss is a 25-30 s fight before items.
+ * at base, so a 210-240 HP boss is a ≈ 20-24 s fight before items (polish batch 4: ×0.8 — at 260-300 HP the
+ * floor-1 bosses were the run's deadliest fights, fought at base damage).
  *
  *   Sodden Snarl  (boss)      a wad of drain hair and leaves. Phase 1 rolls at you (debris falls when
  *                             it bonks a wall), rings of muck, muck puddles. At half health it
@@ -23,7 +24,7 @@ const bosses: BossDef[] = [
     name: 'Sodden Snarl',
     kind: 'boss',
     chapters: CH,
-    hp: 260,
+    hp: 210,
     size: 14,
     speed: 24,
     mass: 7,
@@ -69,7 +70,7 @@ const bosses: BossDef[] = [
     name: 'Brimwell',
     kind: 'boss',
     chapters: CH,
-    hp: 300,
+    hp: 240,
     size: 12,
     speed: 20,
     mass: 9,

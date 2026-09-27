@@ -3,7 +3,7 @@
  * Mechanic BONE TOSS (`marrow.boneToss`): the boomerang carrier is innate (Marrow throws a bone that comes
  * back), and there are no red hearts at all — three Tin hearts to start; red heart pickups, heals and new
  * heart containers all turn into Tin (the `noRedHearts` flag: sim/effects.ts, sim/pickups.ts).
- * Unlock: die 10 times.
+ * Unlock: die 3 times (polish batch 4: 10 — she arrived last, 20-30 runs in).
  */
 
 import type { CharacterDef } from '../../sim/types';

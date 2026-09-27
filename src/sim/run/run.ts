@@ -433,6 +433,8 @@ export class Run {
     const st = this.state;
     const first = !st.visited;
     w.chapter = d.chapter;
+    w.floor = d.floor;
+    w.chapterNo = Math.ceil(d.floor / 2);
     w.curse = d.layout.curse;
     w.room.styleSeed = hashString(`${d.seed}:${d.floor}:${idx}`);
     const tpl = templateById(room.templateId);

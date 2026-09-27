@@ -114,6 +114,25 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | **Tin Can Knight** | Sardine Tin + Tin Ribcage + Pot Lid (active) | A Tin heart at the start of every floor; getting hit rattles eight tin shards out of your armour (0.8 × damage each). Tin-grey gears. |
 | **Hearthside** | Hot Water Bottle + Warming Pan | +1 burn; half an Ember heart at the start of every floor. Hearth-red embers. |
 
+## Which synergies a new player can make (polish batch 4)
+
+Locked items never roll until their achievement is earned (docs/characters.md "Gating items"). The balance pass ungated
+every carrier and a passive for every modifier — the Firecracker Pouch and the Neon Tube (they waited on wins with Pip and
+Bolt), Twin Straws, Geode, Ice Cube Tray, Party Popper, Paper Valentine, Crumbly Biscuit, Static Cling, Lantern Moth and
+the Cast-Iron Kettle — and moved the gates to plain boosts and oddities (Chipped Piggy Bank, Dizzy Top, Tin Cuckoo, Spare
+Spoon, Spine Rattle, Toddlecap, Crow's Jawbone, Pocket Metronome, Snail Mail Stamp). From a brand-new save **41 of the 63**
+synergies can now be made (34 before), among them Thunder Furrow, Lasso Laser, Cluster Crackers and Ball Lightning. The 22
+that wait on an achievement: Kite and Key, Slow Dance, Mushroom Circle, Mirror Ball, Orrery, Fireworks Night, Butterfingers,
+Lantern Parade, Continental Drift, Heart Mail, Tea Party, Under the Weather, Paper Snowflake, Haunted House, Hearthside,
+Crown of Storms, Cyclone Sweep, Lightning Rod, Frozen Moment, Ember Harvest, Crow Call and Overcharge
+(tests/item-gating.test.ts keeps at least 40 makeable).
+
+Values the pass changed under the synergies (ARCHITECTURE §4): the melee swipe hits for 1.4 × damage (was 2.2) with a
+0.6 × crescent (was 1) and swats one hostile shot a swing near the blade; the boomerang 1 × (was 1.25); the bomb rider
+≥ 1.3 × (was 1.8); damage above 12 is soft-capped (`12 + 10·ln(1 + (x − 12)/10)`), like the fire rate above 5; the
+Wind-Up Crank gives +0.45 fire rate (was +0.75); Brick Chip and Snail Mail Stamp are quality 3 and the Paperweight
+quality 2. Every "× damage" above follows your (soft-capped) damage stat.
+
 ## How the flourishes work (for content authors)
 
 Synergy effects are plain `Effect`s. The unusual parts are hooks run from the synergy's triggers

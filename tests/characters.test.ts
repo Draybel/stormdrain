@@ -26,6 +26,7 @@ import { MECHANIC_TUNING } from '../src/sim/tuning';
 import type { CharacterDef } from '../src/sim/types';
 import type { World } from '../src/sim/world';
 import { Explorer } from './helpers/explorer';
+import { testEnemy } from './helpers/enemies';
 import { makeInput, stepN } from './helpers/sim';
 
 const IDS = ['wren', 'pip', 'marrow', 'juniper', 'bolt', 'sable', 'mosswick', 'drizzle'];
@@ -39,6 +40,11 @@ function yard(c: CharacterDef | string): Sim {
 
 function familiars(w: World, id = 'firefly'): number {
   return w.atk.familiars.list.filter((f) => f.alive && f.def?.id === id).length;
+}
+
+/** A foe that never moves, attacks or touches anyone (keeps a fight on). */
+function harmless(): string {
+  return testEnemy('t-harmless-foe', { hp: 1e6, radius: 6, speed: 0, contact: 0, move: { kind: 'idle' }, attacks: [] }).id;
 }
 
 function tin(w: World): number {
@@ -110,7 +116,8 @@ describe('the roster', () => {
     // (The boomerang carrier brings its implicit boomerang motion stack.)
     expect(got.marrow).toBe('boomerang||boomerangx1||R0/0 T2 T2 T2|');
     expect(got.juniper).toBe('marble|||firefly,firefly|R6/6|');
-    expect(got.bolt).toBe('marble|charge|||R4/4 T2|jar-of-lightning');
+    // Polish batch 4: Bolt got a third red heart (he died on floor 1 in a third of the harness's runs).
+    expect(got.bolt).toBe('marble|charge|||R6/6 T2|jar-of-lightning');
     expect(got.sable).toBe('melee||||R6/6|');
     expect(got.mosswick).toBe('marble||puddlex1||R4/4 T2|');
     expect(got.drizzle).toBe('marble||||R4/4 T2|');
@@ -386,10 +393,13 @@ describe('Sable: pickpocket', () => {
 });
 
 describe('Mosswick: bog blood', () => {
-  it('shots leave puddles; standing in them soaks up half a Tin heart every 2.5 s, up to three Tin hearts', () => {
+  it('shots leave puddles; in a fight, standing in them soaks up half a Tin heart every 2.5 s, up to two Tin hearts', () => {
     const sim = yard('mosswick');
     const w = sim.world;
     const p = w.player;
+    // A fight is on (polish batch 4: no soaking in a cleared room) — a harmless foe far away.
+    const foe = sim.spawnEnemy(harmless(), 190, 20, { champion: false })!;
+    foe.pinned = true;
     expect(p.attack.held.map((m) => m.id)).toContain('puddle');
     expect(tin(w)).toBe(2);
     // Her own shots leave puddles where they land.
@@ -409,6 +419,22 @@ describe('Mosswick: bog blood', () => {
     expect(tin(w)).toBe(3);
     stepN(sim, makeInput(), Math.round(S.every * 60 * 6));
     expect(tin(w)).toBe(S.cap);
+  });
+
+  it('in a cleared room (no fight on) her puddles soak nothing (polish batch 4)', () => {
+    const sim = yard('mosswick');
+    const w = sim.world;
+    expect(w.arena.active).toBe(false);
+    expect(w.enemies.count).toBe(0);
+    // Shoot the floor and stand in it: the old refill after every room.
+    spawnPlayerPuddle(w, w.player.x, w.player.y, 12, 60, 0);
+    stepN(sim, makeInput(), Math.round(MECHANIC_TUNING.soak.every * 60 * 4));
+    expect(tin(w)).toBe(2);
+    // A foe shows up: now it soaks.
+    sim.spawnEnemy(harmless(), 190, 20, { champion: false })!.pinned = true;
+    spawnPlayerPuddle(w, w.player.x, w.player.y, 12, 60, 0);
+    stepN(sim, makeInput(), Math.round(MECHANIC_TUNING.soak.every * 60) + 2);
+    expect(tin(w)).toBe(3);
   });
 
   it('flying over a puddle soaks nothing, and other characters never soak', () => {

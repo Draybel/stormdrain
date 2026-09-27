@@ -114,10 +114,10 @@ describe('meta tracking', () => {
     expect(m.bestiary[boss]).toMatchObject({ seen: 1, killed: 1 });
     expect('drain-cleaner' in m.achievements).toBe(true);
     // Its reward: an item that only rolls once unlocked.
-    expect(m.unlocks.items.has('party-popper')).toBe(true);
-    expect(save.unlockedForRun()).toContain('party-popper');
+    expect(m.unlocks.items.has('chipped-piggy-bank')).toBe(true);
+    expect(save.unlockedForRun()).toContain('chipped-piggy-bank');
     const earned = save.achievements.earned.find((a) => a.id === 'drain-cleaner')!;
-    expect(earned.rewards).toContain('NEW ITEM: PARTY POPPER');
+    expect(earned.rewards).toContain('NEW ITEM: CHIPPED PIGGY BANK');
   });
 
   it('a Continue is not a new run; a finished floor without damage counts as clean', () => {
@@ -171,11 +171,12 @@ describe('meta tracking', () => {
     const sim = Sim.newRun('meta-5', { curse: null });
     save.tracker.startRun(sim, { date: '2026-09-26', seed: 'meta-5' });
     sim.addPickups(55, 0, 0);
-    for (const id of ['lamplet', 'paper-boat', 'dustwing']) sim.giveItem(id);
+    // Five familiars at once: LITTLE PARADE (polish batch 4: 3).
+    for (const id of ['lamplet', 'paper-boat', 'dustwing', 'gloamwing', 'blinkbug']) sim.giveItem(id);
     play(save, sim, 3);
     const m = save.meta.state;
     expect(m.stats.counters.maxCoinsHeld).toBeGreaterThanOrEqual(55);
-    expect(m.stats.counters.maxFamiliars).toBe(3);
+    expect(m.stats.counters.maxFamiliars).toBe(5);
     expect(Object.keys(m.achievements)).toEqual(expect.arrayContaining(['magpies-envy', 'little-parade']));
     expect(m.unlocks.items.has('wick-wisp')).toBe(true);
     sim.killPlayer();

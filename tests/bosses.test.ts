@@ -32,7 +32,7 @@ const OPEN = ['.............', '.............', '.............', '.............'
 function arena(id: string, seed: number | string = 7, intro = false): Sim {
   const sim = new Sim({ seed, room: OPEN });
   sim.world.player.placeAt(30, 56);
-  const e = sim.startBossFight(id, 160, 56, { intro });
+  const e = sim.startBossFight(id, 160, 56, { intro, minPhase: 0 });
   expect(e).not.toBeNull();
   return sim;
 }
@@ -403,11 +403,14 @@ describe('selection per chapter', () => {
     expect(differ).toBe(20);
   });
 
-  it('deeper than their home chapter, borrowed bosses get tougher', () => {
+  it('every boss gets tougher with depth (polish batch 4: not only borrowed ones)', () => {
     const snarl = BOSSES.get('sodden-snarl')!;
     expect(bossHpFor(snarl, 1)).toBe(snarl.hp);
-    expect(bossHpFor(snarl, 2)).toBe(snarl.hp);
+    expect(bossHpFor(snarl, 2)).toBe(Math.round(snarl.hp * (1 + BOSS_TUNING.hpPerFloor)));
     expect(bossHpFor(snarl, 7)).toBeGreaterThan(snarl.hp * 1.5);
+    for (const d of BOSSES.values()) {
+      for (let f = 1; f <= 12; f++) expect(bossHpFor(d, f), `${d.id} floor ${f}`).toBe(Math.round(d.hp * (1 + BOSS_TUNING.hpPerFloor * (f - 1))));
+    }
   });
 });
 

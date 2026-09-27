@@ -26,7 +26,10 @@ const items: ItemDef[] = [
     desc: 'HOLD TO CHARGE · RELEASE THE STORM',
     kind: 'passive',
     quality: 4,
-    pools: ['treasure', 'boss'],
+    // Polish batch 4: a fixed roll weight (a quality-4 item would roll at 0.35) and the Rain Barrel Arena's pool too, so
+    // the signature item turns up in about one run in six by floor 4 however many items are unlocked.
+    weight: 0.5,
+    pools: ['treasure', 'boss', 'challenge'],
     tags: ['starter-attack', 'stormcaller', 'lightning'],
     effects: [{ type: 'carrier', carrier: 'lance' }],
     sprite: ICON_STORM_LANCE,
@@ -47,7 +50,6 @@ const items: ItemDef[] = [
   },
   {
     id: 'neon-tube',
-    unlock: 'still-ticking',
     name: 'Neon Tube',
     desc: 'FIRES THIN ZAPPING LASERS',
     kind: 'passive',
@@ -82,7 +84,6 @@ const items: ItemDef[] = [
   },
   {
     id: 'firecracker-pouch',
-    unlock: 'mole-in-one',
     name: 'Firecracker Pouch',
     desc: 'YOUR SHOTS ARE TINY BOMBS',
     kind: 'passive',

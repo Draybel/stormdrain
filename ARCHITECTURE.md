@@ -34,6 +34,8 @@ src/
   pwa/               service-worker registration + pure precache / worker-source builders (§7)
   debug/             hidden debug menu, perf overlay
 tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, play-bot; guide docs/testing.md)
+  balance/           the balance harness (polish batch 4): `npm run balance` (vitest.balance.config.ts), NOT part of `npm test` —
+                     the play-bot in human mode over whole runs, per-character shards, a report; career.balance.ts (opt-in)
 e2e/                 playwright webkit tests
 .github/workflows/   deploy.yml: typecheck + tests + build → GitHub Pages on every push to main (+ a non-blocking e2e job; tests/ci-workflow.test.ts)
 scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plugin.mjs → dist/sw.js)
@@ -160,7 +162,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   previous step, so after a step the queue holds that tick's events (preceded by any emitted between ticks, e.g. by
   debug hooks like `sim.hurtPlayer()`); consumers must drain it after every step (the run scene does, per tick).
   Event types and their field meanings are documented in `src/engine/events.ts`. Purely cosmetic, high-volume
-  events (shot splashes, bounce sparks, split shards, swipe hits, swatted-shot pops) go through `emitFx`, which skips
+  events (shot splashes, bounce sparks, split shards, swipe hits, swatted-shot pops; polish batch 4: 'enemyHit' and
+  'status' too — a freeze + burn build flip-flopping statuses on long-lived foes overflowed the queue) go through `emitFx`, which skips
   them once the queue already holds `fxCap` events (256 of the 1024), so an absurd build's sparks can never crowd out
   kills / hurts / items or flood render and audio.
 - Feel constants (acceleration, marble drop, dummy spring...) live in `src/sim/tuning.ts`, not in logic files.
@@ -243,19 +246,22 @@ the soak timer, the dash cooldown). Hot paths stay allocation-free.
 - **Marrow — Bone Toss** (`marrow.boneToss`, data): the boomerang carrier innate, no red containers (Tin hearts), the
   `noRedHearts` flag — red pickups, heals (a whole Tin heart at most per heal) and new containers (2 Tin halves each) all
   become Tin (`effects.ts` `healPlayer` / `applyHearts`, `pickups.ts`).
-- **Juniper — Firefly Jar** (`juniper.fireflyJar`): two innate 'firefly' familiars (orbit, shooters at 0.3, don't block);
+- **Juniper — Firefly Jar** (`juniper.fireflyJar`): two innate 'firefly' familiars (orbit, shooters at 0.5 — polish batch 4, was
+  0.3: two ≈ Wren's damage, a full jar ≈ 1.5×; don't block);
   every room clear adds a temporary one (up to 6 in all), a hit that lands scares one of the extras off, a floor start
   empties the jar back to the innate two ('mechanic' a = 0 / 1).
 - **Bolt — Wind-Up** (`bolt.windUp`): the charge rider innate; the held active winds up over time — a room of charge every
   12 s (fractional `ActiveSlot.charge`; the HUD fills a segment part-way), timed actives 1.5 × faster ('mechanic' a = 2
   per whole charge). Starts with the Jar of Lightning.
 - **Sable — Pickpocket** (`sable.pickpocket`): the melee carrier + `haggler` innate; a landed SRC_PLAYER hit
-  (`damageEnemy` → `mechanicEnemyHit`) knocks a coin loose at 14 % + 3 % per luck (≤ 40 %), one per enemy (three from
+  (`damageEnemy` → `mechanicEnemyHit`) knocks a coin loose at 7 % (her `mechanicParams`; the tuning default is 14 %) + 3 %
+  per luck (≤ 40 %), one per enemy (three from
   bosses / big ones, counted per enemy uid in a 64-slot open-addressed table whose slots are reused only once their enemy
   is gone — verification pass: two live enemies 64 uids apart used to share a count, so a boss could pay out again and
   again), 8 % of them silver ('mechanic' a = 3).
 - **Mosswick — Bog Blood** (`mosswick.bogBlood`): the puddle modifier innate; standing in an allied puddle (not flying)
-  soaks up half a Tin heart every 2.5 s, up to 6 Tin halves ('mechanic' a = 4).
+  WHILE A FIGHT IS ON (the arena is active or a foe not on her side is alive — polish batch 4: she used to refill after every
+  room by shooting the floor) soaks up half a Tin heart every 2.5 s, up to 4 Tin halves ('mechanic' a = 4).
 - **Drizzle (secret) — Rainmaker** (`drizzle.rainmaker`, data): `flying` innate + a 'hurt' trigger bursting a room-wide
   slow ('itemsB.statusBurst'). Unlocked by the hidden WHAT THE RAIN KEPT.
 
@@ -272,14 +278,17 @@ all through ONE channel (`Player.pushX/Y`, decaying like the contact shove, resp
 CONTACT damage shoves her apart (`ENEMY_TUNING.playerPush`, ≈8 px, decays in ~0.15 s) so Wren isn't left standing
 inside what hit her, and the final bosses' wind / whirlpool pull (the `gust` / `vortex` patterns, the Undertow's hook)
 add `v × playerPushDecay × dt` per tick, which settles at exactly v px/s and adds up with contact shoves. Shots,
-explosions and hazards never push her.
+explosions and hazards never push her. Deeper hits (polish batch 4): from chapter `ENEMY_TUNING.dmgFromChapter` (4) on, and
+in a final boss fight, every DMG_ENEMY hit (shots, contact, creep, shockwaves, beams, lobs) costs at least a whole heart
+(`enemyHitMin(w)`, from `World.chapterNo`); the Leaky Roof still adds one on top.
 
 ### Stats (`sim/stats.ts`)
 `damage, fireRate (shots/sec), shotSpeed, range (px), moveSpeed, luck` + hidden `shotSize, knockback`.
 Computed from character base + all item effects: sum of `add`, then product of `mul`, then clamps
 (fireRate soft-capped with diminishing returns, moveSpeed ≤ 2.0×base). Recompute only when items change.
 Fire-rate soft cap: linear up to 5 shots/s, then `5 + 4·ln(1 + (x−5)/4)` (slope 1 at the knee, unbounded but
-slowing). Hard clamps per stat live in `STAT_RULES`. `computeStats` writes into the player's existing `stats`
+slowing). Damage soft cap (polish batch 4, `DAMAGE_SOFTCAP`): linear up to 12, then `12 + 10·ln(1 + (x−12)/10)` (20 → 17.9,
+40 → 25.4, 100 → 34.8), applied before the clamp like the fire rate's. Hard clamps per stat live in `STAT_RULES`. `computeStats` writes into the player's existing `stats`
 object (its identity never changes).
 
 ### Items, effects, inventory (`sim/effects.ts`, `sim/inventory.ts`, `sim/loadout.ts`)
@@ -322,7 +331,9 @@ object (its identity never changes).
 - Kinds are numeric (`sim/pickupKinds.ts` `PK`, same order as `PICKUP_NAMES`). Loot pops out with an arc (can't be
   taken for 0.3 s), slides with friction, bounces off walls/props, separates softly, is shoved when the player
   walks into something they can't take, and is blown around by explosions. Phase 5 (bot findings): loot never spawns
-  inside a block or a pit (`spawnPickup` moves it to the nearest open floor cell, `openSpotNear`); `moveBody` resolves
+  inside a block or a pit (`spawnPickup` moves it to the nearest open floor cell, `openSpotNear`), and never comes to rest
+  on spikes (polish batch 4: a grounded pickup on a spike cell slower than `PICKUP_TUNING.spikeShove` is pushed at that speed
+  toward the nearest spike-free floor, `spikeExitStep` — a 4-way search over floor and spikes); `moveBody` resolves
   props before the grid so walls win, and a body squeezed between a prop and a wall slides round the prop to the nearest
   spot that fits (`unsqueeze`) — loot can't end up wedged half inside a rock out of reach. Red hearts are only taken when they
   heal, bonus hearts when there's room, spark cells with a chargeable active, counters below 99. Satchels open on
@@ -348,6 +359,8 @@ own attacks (source `SRC_PLAYER`: explode, the bomb rider) spare charmed enemies
 placed bombs and novas hurt everything in reach.
 
 ### Enemies (`sim/enemies/`)
+- Depth (polish batch 4): `spawnEnemy` gives a regular enemy HP × `depthHpMul(world.floor)` = 1 + 0.25 × (floor − 1) + 1.0 ×
+  floors past 6 (`ENEMY_TUNING.hpPerFloor` / `hpLateFrom` / `hpPerLateFloor`); split copies keep the HP they are handed.
 - `Enemy` (pooled): everything comes from its `EnemyDef` = ONE movement behaviour + up to 4 attacks + on-death effects
   from the shared library (`behaviors/movement.ts`, `attacks.ts`, `death.ts`). Each behaviour declares its numeric params
   as `name: [default, min, max]`; `compileEnemy(def)` resolves them once per def (defaults filled, values clamped) and
@@ -387,7 +400,8 @@ placed bombs and novas hurt everything in reach.
 - Bosses are Enemies too (§6c): `enemy.boss` (a BossState) replaces the movement + attack step; `enemy.dying` (a boss's
   death sequence: untouchable, harmless, still alive for the room clear); tethered enemies (`anchor` = the uid they
   orbit, `anchorR/A/W`: boss shield orbs) ride their orbit, hide when it hides and die with it. `damageEnemy` runs a
-  boss hit through `bossDamage` (nothing gets through during a phase change, one blow never skips a threshold) and
+  boss hit through `bossDamage` (nothing gets through during a phase change, one blow never skips a threshold, a young phase
+  can't be left — the minimum phase time, §6c) and
   a boss's killing blow through `bossLethal` (the last part plays the death sequence; the brain kills it after).
 - Kills: `damageEnemy` / `killEnemy` only flag `dead` (released by `sweepEnemies` after the enemy update and at the end
   of the step) so killing inside any loop is safe. A kill emits 'enemyKilled' (flags: frozen / champion / big), runs
@@ -480,10 +494,12 @@ Numbers (defaults, `ATTACK_TUNING`):
   ×1.6 width, ×1.5 life).
 - **Laser**: 3 px, 0.12 s, 1 × damage once per target; pierces enemies but stops at rocks / props (cracking
   breakable ones) unless phasing. Charge rider = a burst of 1–6 lasers 0.06 s apart.
-- **Boomerang**: blade × 1.25 damage, 0.55 × range out, turns back and is caught (catch radius 8 px + size),
+- **Boomerang**: blade × 1.0 damage (polish batch 4: 1.25 — it hits out and back), 0.55 × range out, turns back and is caught (catch radius 8 px + size),
   pierces everything both ways (re-hits after 14 ticks), phases through rocks on the way back, 1.35 × fire period.
-- **Melee**: swipe ±55° (~110°), reach 26 px, 0.16 s, 2.2 × damage, 2.5 × knockback, each target once, swats hostile
-  enemy shots, cracks props; plus a crescent (1 × damage, 1.1 × speed, 0.55 × range, pierces 1). One swipe per
+- **Melee**: swipe ±55° (~110°), reach 26 px, 0.16 s, 1.4 × damage (polish batch 4: 2.2), 2.5 × knockback, each target once,
+  swats hostile enemy shots near the blade's root (the inner 70 % of the reach, at most 1 a swipe — `meleeSwatReach` /
+  `meleeSwatMax`; it used to delete every shot in reach), cracks props; plus a crescent (0.6 × damage — was 1 —, 1.1 × speed,
+  0.55 × range, pierces 1; drawn as an open C moon with a bright inner edge). One swipe per
   distinct direction (≥ 60° apart, max 4 per volley). 1.1 × fire period. As a rider on beams (polish batch 2): the rider
   swipe (1.4 × damage) and a crescent at the muzzle every lance release / laser volley, and a slash of ±0.96 rad over
   `beamSweepTime` (0.3) × the beam's life added IN FRONT of it (`beam.ts addSlash`) — it used to sweep across the whole
@@ -491,7 +507,7 @@ Numbers (defaults, `ATTACK_TUNING`):
 - **Charge rider**: `0.9 s × 3 / fireRate`; release multiplies damage 0.5 → 2.5 (+0.5 per extra copy) and size
   0.8 → 1.8 by charge — marble and melee primaries (bomb shots too) 0.5 → 3.6 (`chargeMaxMulShot`, polish batch 2: a
   perfectly timed full charge beats holding the trigger by ~10-20 %; it used to lose 20-30 %). **Orbit rider**: 1 + copies blades (max 8), radius 22 px, 0.9 × damage, re-hit every 12
-  ticks, mini volleys at scale 0.4. **Bomb rider**: blasts 24 px (+6 per extra copy), ≥ 1.8 × shot damage, break rocks.
+  ticks, mini volleys at scale 0.4. **Bomb rider**: blasts 24 px (+6 per extra copy), ≥ 1.3 × shot damage (polish batch 4: 1.8), break rocks.
 
 ### 4.3 Shots: one abstraction for everything
 All damage delivery is built from two primitives that share the same modifier hooks:
@@ -702,7 +718,7 @@ Toybox set's toy soldiers —, Threadbare Bear, Tadpole, Gutter Ferret: a chase 
 - `ItemDef { id, name, desc, kind: 'passive'|'active'|'trinket'|'consumable', quality 0-4, pools: PoolId[],
   tags: string[], set?: SetId, effects: Effect[], active?: { charge: number, chargeType: 'room'|'timed', use: Effect[] },
   use?: Effect[] (consumables), consumable?: 'tonic' | 'sticker', sprite: SpriteDef (14×14) | string, costume?: CostumeSpec,
-  unlock?: AchievementId }`.
+  unlock?: AchievementId, weight? }` — `weight` (polish batch 4): a fixed pool roll weight in place of the quality's.
 - **Mystery Tonics** (content merge; `sim/tonics.ts`, content `items/consumables-tonics.ts`, guide docs/content-items-c.md):
   ten bottle items (`consumable: 'tonic'`, fixed colours; their own `use` is only the shared "glug") and ten `TonicDef {
   id, name, desc, good, use }` effects. Which colour holds which effect is dealt per run (`initTonics(world, runSeed)` at
@@ -861,17 +877,21 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   `RUN_TUNING.challengeWaves` = 3 waves), pickup names per 'p', satchel / lockbox per 'c', pedestal items per 'i'
   (pools by room type: treasure; secret → treasure; deepSecret → secret → treasure, quality ≥ 3 — or, half the time,
   a lockbox + 5-8 rich pickups (`bonus`); cursed → its pool → treasure, 45 % a lockbox instead (`alts`); challenge →
-  its pool → treasure; nook → broker, quality ≥ 2, the first two markers only, a choice), shop stock per 'S' (≤ 5
+  its pool → treasure; nook → broker, quality ≥ 3 (polish batch 4: 2), the first two markers only, a choice), shop stock per 'S' (≤ 5
   slots: 2-3 items at `itemPrice` + pickups for sale at `GOODS_PRICE`), the boss (§6c `bossFor`: a final by the
   layout's key, else a seeded pick of the chapter pool) and its HP, the boss reward (boss pool), a Gumball Gambler in
   12 % of normal rooms and Old Pell (15 % of floors, one normal room, his trader-pool item), and the hidden-route
   grate (`layout.hiddenRoute`). Items never repeat within a floor and never offer anything SEEN earlier in the run
   (`data.seen`: shown on a pedestal / in a shop / by a trader at a room's first visit, or taken); pools fall back to
-  repeats rather than leaving a pedestal empty; locked items never roll (`rollItem`, quality weights 1/1/1/0.7/0.35).
+  repeats rather than leaving a pedestal empty; locked items never roll (`rollItem`, quality weights 1/1/1/0.7/0.35 — or an
+  item's own `ItemDef.weight` when it sets one: polish batch 4, the Storm Lance rolls at 0.5 whatever the pools hold).
+  Polish batch 4: an 'E' marker holds its pre-rolled champion only `ELITE_CHANCE` (40 %) of the time (a coin flip on a fork of
+  the room's stream, so the room's other rolls keep their place).
   So a seed replays exactly for the same route; which items a later floor offers depends on what was seen before.
   Only drops (lootRng) and in-room randomness (combatRng: champion rolls, AI, the maze, boss patterns) depend on play.
 - **Room entry** (`enterCurrent`, the ONE code path for doors, the trapdoor, the grate, the whirlpool, debug teleports
-  and restores): chapter + curse onto the World, `loadRoom(templateGrid(tpl, flip))` (which also resets
+  and restores): chapter, floor, chapter number (polish batch 4: `World.floor` / `chapterNo` — enemy HP and hit
+  damage scale with them) + curse onto the World, `loadRoom(templateGrid(tpl, flip))` (which also resets
   `world.boss` / `world.props`), the saved grid (`encodeGrid`: tiles / hits / debris as 3 × 91 chars) if the room was
   visited, the player at the door front of the entry side (centre for a floor start), familiars rebuilt canonically
   (`respawnFamiliars`, quiet), 'roomEnter' (first, so presentation resets before the room's own spawn events), a
@@ -974,7 +994,13 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   `enter` pattern) → otherwise the running pattern, or the baseline (the phase's movement + attacks) for a rest of
   `rest` s ÷ pace, then the next pattern (in order, or a seeded weighted pick that never repeats the last one).
   Fear makes a boss back off (no new patterns); dazes are ignored. `bossDamage` stops any single blow just past the
-  next threshold, so every phase change is seen.
+  next threshold, so every phase change is seen. **Minimum phase time** (polish batch 4): `BossState.live` counts the seconds a
+  phase has been fought (after the intro and the roar); while it is under `BossState.minPhase` (BOSS_TUNING.minPhase 3 s,
+  finals `minPhaseFinal` 5 s; `BossSpawnOpts.minPhase` overrides — phase tests pass 0) a blow stops just SHORT of the next
+  threshold and the last phase's killing blow leaves 1 HP; the hits still land (flash, sparks, knockback). A fight lasts at
+  least phases × minPhase + the roars: from floor 6 on bosses used to fall inside their intro. The core `burrow` pattern
+  never waits underground forever: half a second overdue under a spot too tight to surface in, it tunnels for the nearest
+  cell it fits and is put there after 3 s (the longer fights found a boss stuck under a crate barricade).
 - **Patterns** (`patterns.ts`, `BOSS_PATTERN_KINDS`), each a small state machine on the BossState scratch slots that
   starts with a telegraph ('bossTell', flash + squash, a pose) — timers ÷ pace, shot speeds × √pace: `charge` (aim
   line, dash, bonk: shake, ring, debris), `jumpSlam` (crouch, leap to a marked spot, slam: shockwave rings + ring),
@@ -1018,10 +1044,12 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   chapter); a chapter with none borrows every boss of the kind (since the boss packs every chapter has a boss and a
   miniboss of its own — tests/content-integration-bosses.test.ts); `pickBoss(seed, floor, track, chapter, kind, avoid)`
   = a weighted pick on `floorRng(...).fork(kind)`, avoiding the previous floor's boss of the same chapter;
-  `finalBossDef(key)`; `bossHpFor(def, floor)` = hp × (1 + 0.14 × floors past its home chapter — the first in its
-  `chapters`). Only when no BossDef of a kind exists at all does a room fall back to the Phase 3A placeholder.
-- Content (`src/content/bosses`, one file per chapter + the minibosses per pack; 20 bosses, 8 minibosses, 3 finals; HP
-  and phases rise with depth — chapter 1 ≈ 280-300 HP / 2 phases, chapter 2 400-450 / 3, chapter 3 480-540, chapter 4
+  `finalBossDef(key)`; `bossHpFor(def, floor)` = hp × (1 + `BOSS_TUNING.hpPerFloor` (0.3) × (floor − 1)) for every boss and
+  miniboss (polish batch 4: it used to scale only bosses met deeper than their home chapter; the finals keep their own HP).
+  Only when no BossDef of a kind exists at all does a room fall back to the Phase 3A placeholder. Every chapter that
+  spans two floors has two bosses of its own, so its floors never repeat one (polish batch 4).
+- Content (`src/content/bosses`, one file per chapter + the minibosses per pack; 22 bosses, 8 minibosses, 3 finals; HP
+  and phases rise with depth — chapter 1 ≈ 210-240 HP / 2 phases (polish batch 4: ×0.8), chapter 2 400-450 / 3, chapter 3 480-540, chapter 4
   580-600, chapter 5 500-560 with denser patterns, the floor-11 bosses 640-660 / 3; minibosses 150-240, scaled deeper
   by `bossHpFor`): Gutterways — Sodden Snarl (charge + debris, stepped rings, muck puddles; splits in two at half),
   Brimwell (jump-slams, stepped spirals, rain walls; overflowing: water jet sweep, double slams, ceiling debris), Pipewhip
@@ -1029,7 +1057,8 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   Sopsalot (Drowned Nursery), Grandmother Brine, Old Knotroot (Rootcellar), Vesperwing, Wickwarden (Candlewick Crypt),
   minibosses Bumbershoot, Puddlestomp (chapters 1-2, both tracks; Puddlestomp splits into two boots); pack B
   (docs/content-bosses-b.md) — Old Governor, Gnawgear (Grinding Works), Bellowbelly (Rust Foundry), Grandmother Gill,
-  Bramblehorn (Mushroom Hollow), Hushwing (Glimmer Grotto), minibosses Canshell, Glowtail (chapters 3-4); pack C
+  Bramblehorn (Mushroom Hollow), Hushwing (Glimmer Grotto), minibosses Canshell, Glowtail (chapters 3-4) — plus, polish
+  batch 4, Hammerjaw (the Rust Foundry: an anvil golem) and Facetta (the Glimmer Grotto: a crystal tortoise); pack C
   (docs/content-bosses-c.md) — Marrowbough, The Gloamkeeper (Bone Orchard), Hoarquill, The Vaultwarden (Frostbitten
   Vault), Squallvane (Eye of the Storm, floor 11), Ambergut (Hollow Nest, floor 11: grub → cocoon → a hatched wasp that
   flies), minibosses Tatterjack (Bone Orchard, Eye of the Storm), Shiverwing (Glimmer Grotto, Frostbitten Vault),
@@ -1055,21 +1084,23 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   the slot's `broken`); a wrecked jar or Gumball Gambler emits 'robbed' (id 'jar' | 'slots'), which the tracker counts as
   `shopsDestroyed` (SMASH AND GRAB unlocks Sable).
 - **Magpie's Stall**: Magpie on the wall (greets on the first visit, flaps at a sale, shakes her head at an empty
-  purse), ≤ 5 slots: 2-3 items (10 / 12 / 15 / 20 / 25 coins by quality, trinkets 10, consumables 5 + quality) and
+  purse), ≤ 5 slots: 2-3 items (15 / 18 / 22 / 30 / 40 coins by quality — polish batch 4, was 10-25 —, trinkets 12,
+  consumables 5 + quality) and
   pickups for sale (heart 3, key / bomb / Tin heart 5, spark 6, double bomb / Ember heart 7); buying = walking onto a
   slot with enough coins; tags drawn in the pixel font (red when unaffordable); `haggler` −25 %; the DONATION JAR
   (leaning on it drops a coin every 0.28 s; `counters.donated` — at 5 / 15 / 30 / 50 / 75 / 99 coins luck +0.5
   ('donate' b = 1); counted for unlocks later).
 - **Gumball Gambler** (12 % of normal rooms): 1 coin per spin (0.9 s), a seeded outcome on the loot stream (nothing
-  46 %, 2-3 coins, a heart, a bomb, a key, a spark, a gold coin, rarely a trinket); a blast breaks it open for 3-6
-  coins (`world.onExplosion`).
+  ≈ 75 %, 2-3 coins, a heart, a bomb, a key, a spark, a gold coin, rarely a trinket — polish batch 4: a spin is worth ≈ 0.9
+  coins, not ≈ 2; `SLOT_OUTCOMES`); a blast breaks it open for 3-6 coins (`world.onExplosion`).
 - **Old Pell** (15 % of floors, one normal room): a snail trader offering one trader-pool item for 3 keys (haggler 2).
 - **Hidey-Hole / Forgotten Pocket**: secret-pool loot; the Pocket holds a quality 3+ item or a big pile of loot.
 - **Rain Barrel Arena**: calm on entry with a pressure plate in the middle; stepping on it ('plate') locks the doors
   (`arena.locked`) and starts 3 pre-rolled waves 1 s apart ('npcSay' WAVE N OF 3); the reward appears after the last.
 - **Thorn Room**: its 'i' holds a curse-pool item or a lockbox; the doors bite (§6b).
 - **Broker's Nook**: after a boss (25 % + 35 % without damage), a door on the boss room's reserved cell; the Moth
-  Broker on the wall; two broker-pool deals (quality ≥ 2) priced 1 heart container (2 for quality 4) — 3 Tin hearts
+  Broker on the wall; two broker-pool deals (quality ≥ 3; polish batch 4: 10 ungated quality-3 items in the pool)
+  priced 1 heart container (2 for quality 4) — 3 Tin hearts
   per container when she has none; taking one makes the other vanish (a choice group).
 - **Hidden routes**: `altRouteAllowed(floor, track, unlocked)` = main track, floor < 12, and floors 10-11 (whose next
   floor is chapter 6) only with 'ending1'. The generator's `hiddenRoute` room holds a cracked drain grate (drip hint;
@@ -1209,11 +1240,11 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Content (characters pass, 53 achievements: core 15 + heroes 11 + milestones 27): `core.ts` (the first 15, now with icons / rewards), `heroes.ts` (Pip, Bolt
   and Sable's unlocks, SMASH AND GRAB, a win with each character — the secret one's hidden) and `milestones.ts` (chapters,
   the hidden route, bosses, clean floors, transformations, synergies, the collection, the daily run, Rain Barrel Arenas,
-  secrets, shops, the gambler, tonics, bombs, a win streak). 45 items carry `unlock` (the strong and weird ones: 6 starters
-  + 39 more; the Storm Lance stays unlocked); a fresh player still has ≥ 40 treasure, ≥ 20 shop and ≥ 10 boss-pool items
-  (tests/achievements-content.test.ts). Characters: Pip ← UNDER THE ROOTS (chapter 2's boss), Marrow ← SOAKED THROUGH (10
-  deaths), Juniper ← LITTLE PARADE (3 familiars), Bolt ← WOUND UP (50 actives), Sable ← DEEP POCKETS (60 coins) or SMASH AND
-  GRAB, Mosswick ← CLEAR SKIES (Old Thunderhead), Drizzle ← WHAT THE RAIN KEPT (hidden).
+  secrets, shops, the gambler, tonics, bombs, a win streak). 43 items carry `unlock` (polish batch 4: 45 → 43 — every
+  carrier and every modifier has an ungated item, the gates moved to plain boosts and oddities; the Storm Lance stays unlocked); a fresh player still has ≥ 40 treasure, ≥ 20 shop and ≥ 10 boss-pool items
+  (tests/achievements-content.test.ts). Characters: Pip ← UNDER THE ROOTS (chapter 2's boss), Marrow ← SOAKED THROUGH (3
+  deaths), Juniper ← LITTLE PARADE (5 familiars), Bolt ← WOUND UP (150 actives), Sable ← DEEP POCKETS (75 coins) or SMASH AND
+  GRAB (polish batch 4 thresholds; they were 10 / 3 / 50 / 60), Mosswick ← CLEAR SKIES (Old Thunderhead), Drizzle ← WHAT THE RAIN KEPT (hidden).
 - Content (Phase 4A): `src/content/achievements/core.ts` (15: first kill, first chest, first boss, 10 items held, 50 coins, 3
   familiars, a clean floor, chapter 3, 5 secrets, a transformation, 10 deaths, Endings 1-3, a win with Wren). Six starter
   items are locked behind them (Party Popper, Ice-Cube Tray, Paper Valentine, Geode, Wick Wisp, Rooftop Rod).

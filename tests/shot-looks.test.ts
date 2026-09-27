@@ -112,3 +112,29 @@ describe('player shot looks', () => {
     }
   });
 });
+
+describe('the thrown crescent (polish batch 4, B4-8)', () => {
+  it('is an open C with sharp horns and a bright inner edge — never a ring, never a dark-cored disc', () => {
+    const sim = makeSim('crescent-look');
+    const st = sim.world.player.attack.style;
+    for (const r of [2, 3, 4, 6, 9]) {
+      for (const rot of [0, 1.1, 2.6]) {
+        const p = playerShotPixels(st, 4, r, rot);
+        const c = (p.size - 1) / 2;
+        // Open: the middle (inside the bite) is empty, and so is the point behind it along the heading.
+        expect(px(p, c, c)[3], `r${r} rot${rot} middle`).toBe(0);
+        const bx = Math.round(c - Math.cos(rot) * r * 0.9);
+        const by = Math.round(c - Math.sin(rot) * r * 0.9);
+        expect(px(p, bx, by)[3], `r${r} rot${rot} bite`).toBe(0);
+        // The blade bulges along the heading.
+        const fx = Math.round(c + Math.cos(rot) * r * 0.95);
+        const fy = Math.round(c + Math.sin(rot) * r * 0.95);
+        expect(px(p, fx, fy)[3], `r${r} rot${rot} front`).toBe(255);
+        // A bright inner edge.
+        let bright = 0;
+        for (let y = 0; y < p.size; y++) for (let x = 0; x < p.size; x++) if (px(p, x, y)[3] === 255 && lumaAt(p, x, y) > 235) bright++;
+        expect(bright, `r${r} rot${rot}`).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+});

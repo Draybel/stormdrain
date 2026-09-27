@@ -474,6 +474,12 @@ export interface ItemDef {
   sprite: SpriteDef | string;
   costume?: CostumeSpec;
   unlock?: AchievementId;
+  /**
+   * Pool roll weight (polish batch 4): replaces the quality weight (sim/run/pools.ts QUALITY_WEIGHT) when set, so a
+   * signature item can stay as findable as a common one — the Storm Lance (quality 4) rolls at 1.0, not 0.35, and
+   * doesn't get rarer as unlocks fill the pools.
+   */
+  weight?: number;
 }
 
 // ── Enemies & bosses ───────────────────────────────────────────────────────────

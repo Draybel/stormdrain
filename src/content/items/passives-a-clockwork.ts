@@ -26,6 +26,7 @@ const RATCHET_HOLD = 4;
 const items: ItemDef[] = [
   {
     id: 'pocket-metronome',
+    unlock: 'still-ticking',
     name: 'Pocket Metronome',
     desc: 'TICK-TOCK · FIRE RATE X1.2, SHOT SPEED X1.1',
     kind: 'passive',
@@ -57,6 +58,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'tin-cuckoo',
+    unlock: 'deeper-still',
     name: 'Tin Cuckoo',
     desc: 'A WIND-UP BIRD THAT CUCKOOS OUT SHOTS',
     kind: 'passive',

@@ -7,7 +7,8 @@
  * explosions. Overlapping pickups gently separate.
  * Rules: red hearts are only taken when they can heal (bonus hearts when there's room), spark cells
  * only with a chargeable active, counters stop at 99; chests open on touch (lockbox needs a key) and
- * burst into seeded loot.
+ * burst into seeded loot. Loot never comes to rest on spikes: it slides off to the nearest spike-free floor
+ * (polish batch 4), so picking it up never costs a heart.
  */
 
 import { TAU, vec2 } from '../engine/math';
@@ -423,6 +424,7 @@ export function updatePickups(w: World, dt: number): void {
     pk.vy *= k;
     if (!airborne && pk.vx * pk.vx + pk.vy * pk.vy < 0.25) pk.vx = pk.vy = 0;
     moveBody(w, pk, pk.r, dt, T.wallBounce);
+    if (!airborne) keepOffSpikes(w, pk);
 
     // The player: take / open, else get shoved out of the way.
     if (!alive || pk.z > 6) continue;
@@ -444,6 +446,79 @@ export function updatePickups(w: World, dt: number): void {
     shove(w, pk, dx, dy, d2, rr);
   }
   separate(w, dt);
+}
+
+const bfsFrom = new Int16Array(ROOM_COLS * ROOM_ROWS);
+const bfsQueue = new Int16Array(ROOM_COLS * ROOM_ROWS);
+const STEP_C = [0, 1, 0, -1] as const;
+const STEP_R = [-1, 0, 1, 0] as const;
+
+/**
+ * The first step from spike cell `start` toward the nearest spike-free floor cell, walking (4-way) over floor and spikes
+ * only (never through blocks or pits, so it is somewhere the loot can slide): a neighbour cell index, or -1 when no
+ * such floor exists. Breadth-first in N / E / S / W order (deterministic).
+ */
+export function spikeExitStep(w: World, start: number): number {
+  const room = w.room;
+  const n = ROOM_COLS * ROOM_ROWS;
+  bfsFrom.fill(-1);
+  bfsFrom[start] = start;
+  let head = 0;
+  let tail = 0;
+  bfsQueue[tail++] = start;
+  while (head < tail) {
+    const cur = bfsQueue[head++]!;
+    const c0 = cur % ROOM_COLS;
+    const r0 = (cur - c0) / ROOM_COLS;
+    for (let k = 0; k < 4; k++) {
+      const c = c0 + STEP_C[k]!;
+      const r = r0 + STEP_R[k]!;
+      if (c < 0 || r < 0 || c >= ROOM_COLS || r >= ROOM_ROWS) continue;
+      const cell = r * ROOM_COLS + c;
+      if (bfsFrom[cell]! >= 0) continue;
+      const t = room.get(c, r);
+      if (t !== Tile.Floor && t !== Tile.Spikes) continue;
+      bfsFrom[cell] = cur;
+      if (t === Tile.Floor) {
+        // Walk back to the step right after the start.
+        let step = cell;
+        while (bfsFrom[step] !== start) step = bfsFrom[step]!;
+        return step;
+      }
+      if (tail < n) bfsQueue[tail++] = cell;
+    }
+  }
+  return -1;
+}
+
+/**
+ * A grounded pickup settling on a spike cell slides on toward the nearest spike-free floor (like loot on an open
+ * trapdoor): while it is on the spikes and slower than `spikeShove`, it gets that speed toward the next cell on the
+ * way out. Deterministic (a pure function of the room and its position).
+ */
+function keepOffSpikes(w: World, pk: Pickup): void {
+  const col = Math.floor(pk.x / TILE);
+  const row = Math.floor(pk.y / TILE);
+  if (col < 0 || row < 0 || col >= ROOM_COLS || row >= ROOM_ROWS || w.room.get(col, row) !== Tile.Spikes) return;
+  const push = PICKUP_TUNING.spikeShove;
+  if (pk.vx * pk.vx + pk.vy * pk.vy >= push * push) return;
+  const step = spikeExitStep(w, row * ROOM_COLS + col);
+  if (step < 0) return;
+  const sc = step % ROOM_COLS;
+  const sr = (step - sc) / ROOM_COLS;
+  // Toward the neighbour: straight across the shared edge (the other axis eases toward the cell's middle).
+  let dx = sc * TILE + TILE / 2 - pk.x;
+  let dy = sr * TILE + TILE / 2 - pk.y;
+  if (sc !== col) dy *= 0.35;
+  else dx *= 0.35;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1e-4) return;
+  const nx = dx / d;
+  const ny = dy / d;
+  const out = pk.vx * nx + pk.vy * ny;
+  if (out >= push) return;
+  pk.vx += (push - out) * nx;
+  pk.vy += (push - out) * ny;
 }
 
 /** Moves a refused pickup out of the player and gives it some of the player's momentum. */

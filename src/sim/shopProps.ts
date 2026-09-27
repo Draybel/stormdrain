@@ -26,17 +26,22 @@ export const PROP_SLOTS = 2;
 /** Old Pell, the wandering trader (offers `item` for `keys`). */
 export const PROP_TRADER = 3;
 
-/** Gumball Gambler outcomes: [pickup ('' = nothing), count, weight]. */
-const SLOT_OUTCOMES: readonly (readonly [PickupName | '', number, number])[] = [
-  ['', 0, 46],
-  ['coin', 2, 16],
-  ['coin', 3, 7],
-  ['heart', 1, 8],
-  ['bomb', 1, 7],
-  ['key', 1, 7],
-  ['goldCoin', 1, 2],
-  ['trinket', 1, 3],
-  ['sparkSmall', 1, 4],
+/**
+ * Gumball Gambler outcomes: [pickup ('' = nothing), count, weight]. Polish batch 4: it paid back ~0.73 coins per coin
+ * plus prizes — about 2 coins of value per coin at Magpie's prices, a mint rather than a gamble. Now a quarter of the
+ * spins win something and a spin is worth ≈ 0.9 coins (coins at face value, a heart 3, a bomb or key 5, a small spark
+ * 3, a trinket 12 — tests/economy.test.ts): fun to play, a coin sink on average.
+ */
+export const SLOT_OUTCOMES: readonly (readonly [PickupName | '', number, number])[] = [
+  ['', 0, 76],
+  ['coin', 2, 9],
+  ['coin', 3, 3],
+  ['heart', 1, 5],
+  ['bomb', 1, 2],
+  ['key', 1, 2],
+  ['goldCoin', 1, 1],
+  ['trinket', 1, 1],
+  ['sparkSmall', 1, 3],
 ];
 const SLOT_KINDS: readonly (PickupKind | -1)[] = SLOT_OUTCOMES.map(([n]) => (n ? pickupKindOf(n) : -1));
 let slotTotal = 0;

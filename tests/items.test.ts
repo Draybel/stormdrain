@@ -47,7 +47,8 @@ describe('item pickup flow', () => {
     sim.giveItem('wind-up-crank');
     const p = sim.world.player;
     expect(countItem(p.inv, 'wind-up-crank')).toBe(2);
-    expect(p.stats.fireRate).toBeCloseTo(WREN.stats.fireRate + 1.5, 6);
+    // +0.45 each (polish batch 4: was +0.75).
+    expect(p.stats.fireRate).toBeCloseTo(WREN.stats.fireRate + 0.9, 6);
   });
 
   it('health up adds a filled container (and heals), once per fresh copy', () => {

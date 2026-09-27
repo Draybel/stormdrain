@@ -76,6 +76,12 @@ export class BossState {
   markY = 0;
   /** Seconds since the last phase change (flash / colour ramp). */
   phaseT = 9;
+  /**
+   * Seconds the current phase has been fought — after the intro and after its roar — and the least it must be fought
+   * before the boss can leave it (polish batch 4; BOSS_TUNING.minPhase / minPhaseFinal, set at spawn; sim/bosses/damage.ts).
+   */
+  live = 0;
+  minPhase = 0;
   readonly beams: readonly BossBeam[] = [new BossBeam(), new BossBeam()];
 
   constructor(def: BossDef, c: CompiledBoss) {

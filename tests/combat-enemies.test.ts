@@ -277,7 +277,8 @@ describe('champions', () => {
     const gold = sim.spawnEnemy('grate-gazer', 180, 90, { champion: 'golden' })!;
     gold.spawnT = 0;
     gold.hurt(999, SRC_PLAYER, 0, 0);
-    expect(sim.world.pickups.count - pk0).toBeGreaterThanOrEqual(3);
+    // 1-3 coins (polish batch 4: was 3-5) plus the champion table's roll.
+    expect(sim.world.pickups.count - pk0).toBeGreaterThanOrEqual(1);
 
     const reg = sim.spawnEnemy('grate-gazer', 40, 90, { champion: 'regrowing' })!;
     reg.spawnT = 0;

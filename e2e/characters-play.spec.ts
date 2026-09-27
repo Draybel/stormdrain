@@ -43,6 +43,18 @@ function tinOf(health: string): number {
   return n;
 }
 
+/** A close-up of the room around the player (device pixels: ≈ 4-5 per game pixel on the home-screen profile). */
+async function closeUp(page: Page, name: string): Promise<void> {
+  const project = test.info().project.name;
+  const box = await page.evaluate(() => {
+    const p = window.__SD.sim!.world.player;
+    const v = window.__SD.view;
+    // The room interior starts at (88, 64) in the 384 × 192 image (72, 48 and a 16 px wall); her sprite stands above her feet.
+    return { x: v.x + (88 + p.x - 26) * v.scale, y: v.y + (64 + p.y - 26) * v.scale, w: 52 * v.scale, h: 36 * v.scale };
+  });
+  await page.screenshot({ path: `e2e/__screens__/closeup-${name}-${project}.png`, clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.w, height: box.h } });
+}
+
 async function shot(page: Page, name: string): Promise<void> {
   const project = test.info().project.name;
   await page.screenshot({ path: `e2e/__screens__/play-${name}-${project}.png` });
@@ -429,12 +441,36 @@ for (const id of IDS) {
       }
       case 'sable': {
         expect(after.attack.primary).toBe('melee');
+        // Polish batch 4 (B4-8): close-ups of a swing (a thin tapered slash with a smear) and a thrown crescent (an open C).
+        await startFight(page);
+        const aim = holdAim(page, 1, 0, 900);
+        await page.waitForFunction(() => window.__SD.sim!.world.atk.swipes.count > 0, undefined, { timeout: 3000 });
+        await closeUp(page, `${id}-swing`);
+        await page
+          .waitForFunction(
+            () => {
+              const w = window.__SD.sim!.world;
+              for (let i = 0; i < w.projectiles.count; i++) if (w.projectiles.items[i]!.kind === 2) return true; // SK_CRESCENT
+              return false;
+            },
+            undefined,
+            { timeout: 3000 },
+          )
+          .catch(() => undefined);
+        await closeUp(page, `${id}-crescent`);
+        await aim;
+        await page.evaluate(() => window.__SD.debug.clearRoom());
         expect(await page.evaluate(() => window.__SD.sim!.world.player.flags.haggler)).toBe(true);
         break;
       }
       case 'mosswick': {
-        // Against a wall, firing into it: the puddles land at her feet and she soaks up Tin.
-        await page.evaluate(() => window.__SD.sim!.world.player.placeAt(198, 56));
+        // Against a wall, firing into it: the puddles land at her feet and she soaks up Tin — while a fight is on (polish
+        // batch 4: no soaking in a cleared room), so a foe waits pinned in the far corner.
+        await page.evaluate(() => {
+          const e = window.__SD.sim!.spawnEnemy('grate-gazer', 24, 20, { champion: false });
+          if (e) e.pinned = true;
+          window.__SD.sim!.world.player.placeAt(198, 56);
+        });
         const tin0 = await page.evaluate(() => window.__SD.run()!.health);
         const aiming = holdAim(page, 1, 0, 6000);
         await page.waitForFunction(
@@ -452,6 +488,7 @@ for (const id of IDS) {
         const tin1 = await page.evaluate(() => window.__SD.run()!.health);
         expect(tinOf(tin1), `${tin0} → ${tin1}: soaked up Tin`).toBeGreaterThan(tinOf(tin0));
         expect(tin1.startsWith(tin0.split(' ')[0]!), `${tin0} → ${tin1}: red untouched`).toBe(true);
+        await page.evaluate(() => window.__SD.debug.clearRoom());
         break;
       }
       default:

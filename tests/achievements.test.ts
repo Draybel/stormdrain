@@ -102,6 +102,9 @@ describe('conditions', () => {
     expect(meta.hasAchievement('t-hoard')).toBe(false);
     engine.event('itemsHeld', '', 12);
     expect(meta.hasAchievement('t-hoard')).toBe(true);
+    // PACK RAT: 25 items at once (polish batch 4: 10).
+    expect(meta.hasAchievement('pack-rat')).toBe(false);
+    engine.event('itemsHeld', '', 25);
     expect(meta.hasAchievement('pack-rat')).toBe(true);
 
     engine.event('chapterReached', 'grinding_works', 3);
@@ -151,7 +154,7 @@ describe('item pool gating', () => {
   it("an item flagged `unlock` is locked until its achievement is earned (or it's in the unlock set)", () => {
     const { meta, engine } = fresh();
     expect(itemUnlocked(meta.state, GATED)).toBe(false);
-    expect(lockedItems(meta.state)).toEqual(expect.arrayContaining(['t-gated', 't-gated-trinket', 'party-popper']));
+    expect(lockedItems(meta.state)).toEqual(expect.arrayContaining(['t-gated', 't-gated-trinket', 'chipped-piggy-bank']));
     expect(runUnlocks(meta.state)).not.toContain('t-gated');
     // Earning the achievement unlocks it — even content added later that names an earned achievement.
     meta.state.achievements['t-gate'] = 1;
@@ -162,7 +165,7 @@ describe('item pool gating', () => {
 
   it('locked items never roll on pedestals; unlocked ones do', () => {
     const run = Sim.newRun('gate-1', { curse: null }).run!;
-    expect(run.data.locked).toEqual(expect.arrayContaining(['t-gated', 'party-popper']));
+    expect(run.data.locked).toEqual(expect.arrayContaining(['t-gated', 'chipped-piggy-bank']));
     const unlockedRun = Sim.newRun('gate-1', { curse: null, unlocked: ['t-gated'] }).run!;
     expect(unlockedRun.data.locked).not.toContain('t-gated');
     // Every other treasure item "seen": the gated one is the only fresh candidate left.

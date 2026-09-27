@@ -55,7 +55,7 @@ function def(id: string): BossDef {
 function arena(id: string, seed: number | string = 7, intro = false): Sim {
   const sim = new Sim({ seed, room: OPEN });
   sim.world.player.placeAt(30, 56);
-  expect(sim.startBossFight(id, 160, 56, { intro })).not.toBeNull();
+  expect(sim.startBossFight(id, 160, 56, { intro, minPhase: 0 })).not.toBeNull();
   return sim;
 }
 
@@ -146,7 +146,12 @@ describe('boss pack A content', () => {
     for (const id of ALL) {
       const d = def(id);
       for (const ph of d.phases) expect((ph.patterns ?? []).length, `${id} ${ph.name ?? ''}`).toBeGreaterThanOrEqual(3);
-      for (let i = 1; i < d.phases.length; i++) expect(d.phases[i]!.pace ?? 1, id).toBeGreaterThan(d.phases[i - 1]!.pace ?? 1);
+      // Sir Sopsalot's second phase keeps pace 1.0 (polish batch 4): it escalates by speed (×1.3), charges and slams.
+      const flat = id === 'sir-sopsalot';
+      for (let i = 1; i < d.phases.length; i++) {
+        if (flat) expect(d.phases[i]!.pace ?? 1, id).toBeGreaterThanOrEqual(d.phases[i - 1]!.pace ?? 1);
+        else expect(d.phases[i]!.pace ?? 1, id).toBeGreaterThan(d.phases[i - 1]!.pace ?? 1);
+      }
     }
     const maxHp1 = Math.max(...NURSERY.map((id) => def(id).hp));
     for (const id of [...ROOT, ...CRYPT]) {
@@ -156,6 +161,12 @@ describe('boss pack A content', () => {
       expect(d.phases[2]!.pace).toBeGreaterThanOrEqual(1.3);
     }
     for (const id of NURSERY) expect(def(id).phases.length).toBe(2);
+    // Polish batch 4 (B4-1): the chapter-1 bosses at ×0.8 HP — the floor-1 fights were the run's deadliest.
+    expect(NURSERY.map((id) => def(id).hp)).toEqual([225, 240]);
+    expect(['sodden-snarl', 'brimwell'].map((id) => def(id).hp)).toEqual([210, 240]);
+    const unstitched = def('sir-sopsalot').phases[1]!;
+    expect(unstitched.pace).toBe(1);
+    expect(unstitched.patterns!.find((p) => p.kind === 'charge')!.params!.count).toBe(2);
     for (const id of MINIS) expect(def(id).hp).toBeLessThan(Math.min(...NURSERY.map((n) => def(n).hp)));
   });
 
@@ -341,7 +352,7 @@ describe('boss pack A patterns', () => {
     });
     const sim = new Sim({ seed: 4, room: OPEN });
     sim.world.player.placeAt(40, 56);
-    sim.startBossFight(id, 150, 56, { intro: false });
+    sim.startBossFight(id, 150, 56, { intro: false, minPhase: 0 });
     return sim;
   }
 
@@ -489,9 +500,10 @@ describe('boss pack A in real runs', () => {
       for (let seed = 1; seed <= 60; seed++) seen.add(pickBoss(seed, 3, 'main', ch, 'miniboss')!.id);
       for (const id of MINIS) expect(seen.has(id), `${id} in ${ch}`).toBe(true);
     }
-    // Home is floor 1-2 (nursery) / 3-4 (cellar, crypt): no extra HP at home, more when borrowed deeper.
-    expect(bossHpFor(def('pirouetta'), 2)).toBe(def('pirouetta').hp);
-    expect(bossHpFor(def('wickwarden'), 4)).toBe(def('wickwarden').hp);
+    // Every boss grows with depth (polish batch 4): floor 1 is its own HP, each floor after adds hpPerFloor.
+    expect(bossHpFor(def('pirouetta'), 1)).toBe(def('pirouetta').hp);
+    expect(bossHpFor(def('pirouetta'), 2)).toBe(Math.round(def('pirouetta').hp * (1 + BOSS_TUNING.hpPerFloor)));
+    expect(bossHpFor(def('wickwarden'), 4)).toBe(Math.round(def('wickwarden').hp * (1 + 3 * BOSS_TUNING.hpPerFloor)));
     expect(bossHpFor(def('puddlestomp'), 4)).toBeGreaterThan(def('puddlestomp').hp);
   });
 

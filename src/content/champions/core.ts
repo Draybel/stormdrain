@@ -1,6 +1,8 @@
 /**
- * Champion variants (rare: ~4 % of championable spawns, luck raises it — see ENEMY_TUNING). Each one
- * changes a few numbers and/or adds a behaviour flag, glows in its colour and drops extra loot.
+ * Champion variants (rare: ~4 % of championable spawns, luck raises it — see ENEMY_TUNING — plus the rooms' 'E' elite
+ * markers, which hold one 40 % of the time, pre-rolled with the room: sim/run/contents.ts ELITE_CHANCE; together ≈ 6-25 %
+ * of spawns, more on the deeper floors). Golden champions spill 1-3 coins (polish batch 4: 3-5). Each one changes a
+ * few numbers and/or adds a behaviour flag, glows in its colour and often drops extra loot (the 'champion' table).
  * Order matters for seeded rolls: append new champions at the end.
  */
 
@@ -69,7 +71,7 @@ const champions: ChampionDef[] = [
     color: '#ffd23a',
     weight: 10,
     hpMul: 1.2,
-    coins: [3, 5],
+    coins: [1, 3],
   },
 ];
 

@@ -10,7 +10,8 @@ import { damageHealth, makeDamageResult } from './health';
 import { ST_CHARM, hasStatus } from './enemies/status';
 import { mechanicHurt } from './mechanics';
 import { SRC_BOMB, SRC_PLAYER } from './hittable';
-import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
+import { FIGHT_FINAL } from './bosses/state';
+import { BOSS_TUNING, ENEMY_TUNING, ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { World } from './world';
 
 /** Damage sources (GameEvent 'hurt' field b). */
@@ -33,11 +34,14 @@ const result = makeDamageResult();
  * costs half a heart more; a price she chooses to pay (DMG_TOLL, and DMG_GENERIC: tonics, debug) does not.
  * `fromX, fromY` (room px, optional): where the hit came from — a cosmetic 'hurtFrom' event follows the 'hurt' (the
  * screen kicks away from it); nothing in the sim reads it.
+ * Deeper hits (polish batch 4): from chapter ENEMY_TUNING.dmgFromChapter on, and in a final boss fight, anything a foe
+ * does (DMG_ENEMY: shots, contact, creep, shockwaves, beams) costs at least a whole heart (`enemyHitMin`).
  * Returns true if any damage was taken.
  */
 export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0, fromX = NaN, fromY = NaN): boolean {
   const p = w.player;
   if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0 || p.underground) return false;
+  if (source === DMG_ENEMY) halves = Math.max(halves, enemyHitMin(w));
   const leak = w.curse === 'leak' && source !== DMG_GENERIC && source !== DMG_TOLL ? 1 : 0;
   damageHealth(p.health, halves + leak, result);
   if (result.taken <= 0) return false;
@@ -61,6 +65,13 @@ export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by 
   if (mechanicHurt(w)) recomputePlayer(w);
   fireTrigger(w, 'hurt', p.x, p.y);
   return true;
+}
+
+/** The least a foe's hit costs here (half hearts): 1, or more on the deep floors and against a final boss. */
+export function enemyHitMin(w: World): number {
+  let min = w.chapterNo >= ENEMY_TUNING.dmgFromChapter ? ENEMY_TUNING.deepHit : 1;
+  if (w.boss.active && w.boss.kind === FIGHT_FINAL) min = Math.max(min, BOSS_TUNING.finalHit);
+  return min;
 }
 
 export function killPlayer(w: World): void {

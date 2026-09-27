@@ -50,8 +50,8 @@ const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'pack-rat',
     name: 'PACK RAT',
-    desc: 'Carry 10 items at once in a single run.',
-    condition: { kind: 'event', event: 'itemsHeld', atLeast: 10 },
+    desc: 'Carry 25 items at once in a single run.',
+    condition: { kind: 'event', event: 'itemsHeld', atLeast: 25 },
     unlocks: [],
     icon: 'bag',
   },
@@ -66,8 +66,8 @@ const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'little-parade',
     name: 'LITTLE PARADE',
-    desc: 'Have 3 familiars following you at once.',
-    condition: { kind: 'event', event: 'familiars', atLeast: 3 },
+    desc: 'Have 5 familiars following you at once.',
+    condition: { kind: 'event', event: 'familiars', atLeast: 5 },
     unlocks: [],
     icon: 'char:juniper',
   },
@@ -90,8 +90,8 @@ const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'hidey-ho',
     name: 'HIDEY-HO',
-    desc: 'Blast your way into 5 secret rooms.',
-    condition: { counter: 'secretsFound', atLeast: 5 },
+    desc: 'Blast your way into 8 secret rooms.',
+    condition: { counter: 'secretsFound', atLeast: 8 },
     unlocks: [],
     icon: 'eye',
   },
@@ -106,8 +106,8 @@ const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'soaked-through',
     name: 'SOAKED THROUGH',
-    desc: 'Let the rain take you 10 times.',
-    condition: { counter: 'deaths', atLeast: 10 },
+    desc: 'Let the rain take you 3 times.',
+    condition: { counter: 'deaths', atLeast: 3 },
     unlocks: [],
     icon: 'char:marrow',
   },

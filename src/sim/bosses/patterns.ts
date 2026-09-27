@@ -651,6 +651,8 @@ const burrow: PatternBehavior = {
   },
   start(w, e, b, cp) {
     b.n = 0;
+    b.k = 0;
+    b.a0 = 0;
     tell(w, e, b, cp, cp.p.dig!);
   },
   update(w, e, b, cp, dt) {
@@ -662,11 +664,40 @@ const burrow: PatternBehavior = {
         if (b.t > 0) return false;
         b.mode = 1;
         b.t = p.under! / b.pace;
+        b.k = 0;
+        b.a0 = 0;
         e.burrowed = true;
         w.events.emit('burrow', e.x, e.y, 0, e.r, e.def.id);
         return false;
       case 1: {
         let d = Infinity;
+        if (b.k > 0) {
+          // Overdue under a spot too tight to come up in (the target stands in a nook between blocks): it tunnels to
+          // the nearest spot it fits, and after BURROW_OVERDUE s more is put there (polish batch 4 — the longer fights
+          // let a boss end up waiting under a crate barricade forever, like the stuck burrowers of polish batch 1).
+          b.a0 += dt;
+          const dx = b.ax - e.x;
+          const dy = b.ay - e.y;
+          const dd = Math.sqrt(dx * dx + dy * dy);
+          const v = sp(b, p.speed!);
+          if (dd > 2 && b.a0 < BURROW_OVERDUE) {
+            e.tvx = (dx / dd) * v;
+            e.tvy = (dy / dd) * v;
+          } else {
+            stop(e);
+            e.x = e.prevX = b.ax;
+            e.y = e.prevY = b.ay;
+          }
+          if (walkableAt(w, e.x, e.y, e.r * 0.8) || b.a0 >= BURROW_OVERDUE) {
+            stop(e);
+            e.vx = e.vy = 0;
+            b.mode = 2;
+            b.t = p.rise! / b.pace;
+            telegraph(e, b.t);
+            w.events.emit('burrow', e.x, e.y, 1, e.r, e.def.id);
+          }
+          return false;
+        }
         if (e.hasTgt) {
           const dx = e.tgtX - e.x;
           const dy = e.tgtY - e.y;
@@ -684,6 +715,10 @@ const burrow: PatternBehavior = {
           b.t = p.rise! / b.pace;
           telegraph(e, b.t);
           w.events.emit('burrow', e.x, e.y, 1, e.r, e.def.id);
+        } else if (b.t <= -0.5) {
+          // Half a second overdue and still no room to come up: head for the nearest spot that has it.
+          surfaceSpot(w, e, b);
+          b.k = 1;
         }
         return false;
       }
@@ -709,6 +744,36 @@ const burrow: PatternBehavior = {
     }
   },
 };
+
+/** Seconds a burrowed boss may spend heading for a spot it fits before it is put there. */
+const BURROW_OVERDUE = 3;
+
+/**
+ * The nearest cell centre where a boss this big can surface (b.ax, b.ay), trying a smaller fit when the room has none
+ * (a boss-room barricade); the room's middle as a last resort. Row-major within equal distances (deterministic).
+ */
+function surfaceSpot(w: World, e: Enemy, b: BossState): void {
+  const room = w.room;
+  for (const k of [0.8, 0.6, 0.4]) {
+    let best = Infinity;
+    for (let row = 0; row < room.rows; row++) {
+      for (let col = 0; col < room.cols; col++) {
+        const x = col * TILE + TILE / 2;
+        const y = row * TILE + TILE / 2;
+        if (!walkableAt(w, x, y, e.r * k)) continue;
+        const d = (x - e.x) * (x - e.x) + (y - e.y) * (y - e.y);
+        if (d < best) {
+          best = d;
+          b.ax = x;
+          b.ay = y;
+        }
+      }
+    }
+    if (best < Infinity) return;
+  }
+  b.ax = ROOM_W / 2;
+  b.ay = ROOM_H / 2;
+}
 
 // ── teleport: fade out (marker at the destination) → blink → reappear + attack ─
 const teleport: PatternBehavior = {

@@ -3,7 +3,7 @@
  * Mechanic PICKPOCKET (`sable.pickpocket`, sim/mechanics.ts): the melee carrier is innate (swipes up close), her
  * hits may knock coins loose (luck helps; a coin per enemy, three from big ones), and the `haggler` flag takes
  * 25 % off Magpie's and Old Pell's prices.
- * Unlock: hold 60 coins at once — or rob a shop (blast a Gumball Gambler or Magpie's donation jar open).
+ * Unlock: hold 75 coins at once — or rob a shop (blast a Gumball Gambler or Magpie's donation jar open).
  */
 
 import type { CharacterDef } from '../../sim/types';
@@ -30,6 +30,9 @@ export const SABLE: CharacterDef = {
   shotColor: '#c9a0ff',
   mechanic: 'sable.pickpocket',
   mechanicDesc: 'PICKPOCKET: SWIPES UP CLOSE. HITS MAY KNOCK COINS LOOSE, AND MAGPIE LETS YOU HAGGLE 25% OFF.',
+  // Polish batch 4: a hit knocks a coin loose 7 % of the time (+3 % per luck), not 14 %: she took ~48 coins a floor to
+  // everyone else's ~33 and bought an item more every floor.
+  mechanicParams: { chance: 0.07 },
   innate: [
     { type: 'carrier', carrier: 'melee' },
     { type: 'flag', flag: 'haggler' },

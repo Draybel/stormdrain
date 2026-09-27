@@ -1,15 +1,15 @@
 # Boss pack B — chapters 3-4
 
 Six bosses and two minibosses for the Grinding Works, the Rust Foundry, the Mushroom Hollow and the Glimmer
-Grotto, three new boss pattern kinds and a per-phase LOOK for every one of them. Built on the boss framework
+Grotto (eight bosses since polish batch 4 added Hammerjaw and Facetta, so the alt chapters have two each), three new boss pattern kinds and a per-phase LOOK for every one of them. Built on the boss framework
 (ARCHITECTURE §6c); everything is data except the three pattern kinds and one small hook.
 
 | File | What |
 |---|---|
 | `src/content/bosses/grinding_works.ts` | Old Governor, Gnawgear |
-| `src/content/bosses/rust_foundry.ts` | Bellowbelly |
+| `src/content/bosses/rust_foundry.ts` | Bellowbelly, Hammerjaw (polish batch 4) |
 | `src/content/bosses/mushroom_hollow.ts` | Grandmother Gill, Bramblehorn |
-| `src/content/bosses/glimmer_grotto.ts` | Hushwing |
+| `src/content/bosses/glimmer_grotto.ts` | Hushwing, Facetta (polish batch 4) |
 | `src/content/bosses/minibosses-b.ts` | Canshell, Glowtail (all four chapters) |
 | `src/content/sprites/bossesB{Kit,Works,Foundry,Hollow,Grotto,Mini}.ts` | the art (one SpriteDef per phase look) |
 | `src/content/hooks/bosses-b.ts` | `bossesB.<id>`: swaps the sprite to the phase's look |
@@ -22,9 +22,9 @@ spreads `...PATTERNS_B` last (plus its import). Existing kind indices (carried b
 
 ## The roster
 
-HP is tuned by depth: a Gutterways boss borrowed on floor 5 would have ≈ 370-430 HP (`bossHpFor`), so chapter 3's
-own bosses have 480-540 and chapter 4's 580-600; the minibosses (home = chapter 3) 220-240, +14 % per floor on
-chapter 4's floors. Base Wren (3.5 × 3 shots/s, god-mode bot, open room) needs ≈ 60-75 s for chapter 3, ≈ 65-100 s
+HP is tuned by depth: chapter 3's own bosses have 480-540 base HP and chapter 4's 580-600, the minibosses 220-240.
+Since polish batch 4 every boss and miniboss is scaled by the floor it is met on (`bossHpFor`: × (1 + 0.3 × (floor − 1)),
+so ×2.2-2.5 on floors 5-6 and ×2.8-3.1 on floors 7-8) and a phase can't be left before it has been fought 3 s. Base Wren (3.5 × 3 shots/s, god-mode bot, open room) needs ≈ 60-75 s for chapter 3, ≈ 65-100 s
 for chapter 4, ≈ 25-45 s for the minibosses (the Gutterways bosses: ≈ 30 s) — a floor 5-8 build is much faster.
 Every boss uses the 'boss_pressure' theme (chapters 3-4), minibosses 'miniboss'. Contact 1 heart for the heavies
 (Gnawgear, Bellowbelly, Bramblehorn), ½ heart otherwise.
@@ -36,12 +36,14 @@ Every boss uses the 'boss_pressure' theme (chapters 3-4), minibosses 'miniboss'.
 | Bellowbelly | rust_foundry | 540 | Stoked (1) · Red Hot (0.65) · Meltdown (0.3) | podBurst slag bombs (fire puddles), red flame beamSweep, ember rings, lobbed cinders between · (enter: slag puddles round itself) belly flop with double shockwave, 5-bomb podBurst, spark spiral, twin flame breath · (enter: 2 Slag Blobs) 7 bombs anywhere, closingRing of fire, reversing 4-arm spiral, molten debrisRain (puddles), double flops |
 | Grandmother Gill | mushroom_hollow | 580 | Dozing (1) · Sporulating (0.66) · Overripe (0.3) | spore rings that drift to a stop (accel −40), spore podBurst (sticky puddles), summon Puffcaps, sneeze fans · (enter: 4 Puffcap SHIELDS — each bursts into spores when popped) spore spiral, closingRing, podBurst 5, walls of spores · (enter: 2 Puffcaps) 5-arm reversing spiral, 7 pods anywhere, stepped rings 20 ×4, sticky puddles round her, fresh shields |
 | Bramblehorn | mushroom_hollow | 600 | Rooting (1) · Taking Wing (0.5) | double charge + mushroom debris, burrow + erupt (ring + shockwave), spore aimedBurst, wing-hop jumpSlam · (enter: 2 Mossback Beetles) triple charge with rings, triple flying slams, mushroom rain, double burrow, leading fans |
+| Hammerjaw | rust_foundry | 520 | Cold Iron (1) · White Heat (0.62) · Slag Heap (0.28) | an anvil golem: jumpSlam with a shockwave and ember ring, gearSpokes 4×3, ember aimedBurst, 3 slag podBurst (fire puddles) · (enter: 2 rings of 18) double charge with debris, double slams with two waves, 3-arm spiral, red beamSweep · (enter: 2 Slag Blobs) molten debrisRain (puddles, slams), 6-arm gearSpokes, closingRing of 18, triple slams |
 | Hushwing (flying) | glimmer_grotto | 600 | Listening (1) · Resonating (0.66) · Shattering (0.3) | screech rings, ECHO (an outward call, then a closingRing from the walls onto the bat), teleport + fan, crystal debrisRain · (enter: 2 Echo Bats) crystal cage closingRing ×2, 4-arm spiral, double teleport with rings, twin light beams · (enter: a 24-shot burst) 6-arm crystal gearSpokes, double echo, dense crystal rain, stepped rings, teleports with wide fans |
+| Facetta | glimmer_grotto | 580 | Dormant (1) · Singing (0.64) · Prism Heart (0.3) | a crystal tortoise that wanders: spinning double rings, 3 crystal podBurst, 5-arm gearSpokes, crystal debrisRain · (enter: 3 Glint Mites) twin light beamSweep, closingRing of 18, 4-arm spiral, 5-pod podBurst, a 3-shot aimed fan every 2.6 s · (enter: a 24-shot burst) she chases — 7-arm gearSpokes, a 200° twin beam, dense crystal rain, double charge with rings |
 | Canshell (mini) | chapters 3-4 | 220 | Scuttling (1) · Tucked In (0.5) | circles you (orbitPlayer), rush charge, claw-snap fans, podBurst bottle caps · (enter: ring of 12) triple rolling charge with rings, spinning gearSpokes, leading fans |
 | Glowtail (mini) | chapters 3-4 | 240 | Glowing (1) · Flare (0.5) | burrow + erupt ring, twin light spiral, sticky goo hazard · (enter: goo round itself) double dives with a shockwave, closingRing of light, triple reversing ember spiral |
 
 Adds come from the chapters' own rosters (Tick-Tock Mouse, Runaway Cog, Slag Blob, Puffcap, Mossback Beetle,
-Echo Bat) — the pack adds no enemies. Puffcaps used as `shields` keep their death ring, so popping a shield
+Echo Bat, Glint Mite) — the pack adds no enemies. Puffcaps used as `shields` keep their death ring, so popping a shield
 costs a burst of spores.
 
 ## Phase looks
@@ -53,7 +55,9 @@ The renderer draws `enemy.sprite` as it always did, and the phase's `tint` wash 
 change more than colour: the Governor goes red-hot with glowing cracks, leaking steam and flung-out flyballs;
 Gnawgear loses teeth and its shoulder gear cracks; Bellowbelly's door hangs open, then its iron splits and drips
 slag; Gill wakes (glowing gills / spots, spores), then rots (torn cap, sprouts, a cracked lens); Bramblehorn flings
-its shell open over buzzing wings; Hushwing's crystals grow into a mane, then shatter; Canshell hides in its can
+its shell open over buzzing wings; Hushwing's crystals grow into a mane, then shatter; Hammerjaw's iron glows at every edge and its eyes burn white,
+then white-hot cracks split it, its horn snaps and slag drips; Facetta's spires grow tall and glow as she hums, then
+her shell cracks open on a prism heart; Canshell hides in its can
 and rolls; Glowtail's lantern flares coral. The bestiary, the intro card and the game-over screen show the first
 look (the def's sprite).
 
@@ -81,7 +85,7 @@ pace, shot speeds × √pace, everything through the enemy shot pools (caps, cha
 ## Tests
 
 `tests/content-bosses-b.test.ts`: content validation, unique names, ≥ 3 patterns per phase, rising pace / tints,
-HP by depth; the 19 sprites (8 frames, anims, outline, same size / anchor per boss, a different first frame per
+HP by depth; the 25 sprites (Hammerjaw and Facetta: 3 looks each) (8 frames, anims, outline, same size / anchor per boss, a different first frame per
 look); each new kind in a test arena (pods land and burst and leave puddles; the ring forms round the target with
 its gap, heads inward and speeds up; the echo flies out then re-forms at the walls; spokes = arms × len shots at
 rising speeds); chapter pools (union rule, both minibosses in all four chapters, two different Works bosses on

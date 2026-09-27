@@ -30,6 +30,7 @@
 import type { InputState } from '../engine/inputState';
 import { BONUS_TIN, addBonus, bonusHalvesOf } from './health';
 import { SRC_PLAYER } from './hittable';
+import { ST_CHARM, hasStatus } from './enemies/status';
 import { addCharge, isCharged } from './inventory';
 import { PK } from './pickupKinds';
 import { spawnLoot } from './pickups';
@@ -262,9 +263,12 @@ function windUp(w: World, p: Player, m: MechanicState, dt: number): void {
   }
 }
 
-/** Mosswick: standing in an own (allied) puddle soaks up Tin hearts, slowly. */
+/**
+ * Mosswick: standing in an own (allied) puddle soaks up Tin hearts, slowly — only in a fight (polish batch 4: in a
+ * cleared room she could shoot the floor and stand in it until her Tin was full, after every room).
+ */
 function soak(w: World, p: Player, m: MechanicState, dt: number): void {
-  if (p.dead || p.flags.flying || bonusHalvesOf(p.health, BONUS_TIN) >= m.soakCap) return;
+  if (p.dead || p.flags.flying || bonusHalvesOf(p.health, BONUS_TIN) >= m.soakCap || !fightOn(w)) return;
   const pool = w.creep;
   let wet = false;
   for (let i = 0; i < pool.count; i++) {
@@ -289,6 +293,17 @@ function soak(w: World, p: Player, m: MechanicState, dt: number): void {
     w.events.emit('heal', p.x, p.y - 12, 1, 1);
     w.events.emit('mechanic', p.x, p.y - 8, ME_SOAK, 0, p.character.id);
   }
+}
+
+/** A fight is on: the arena's doors are shut, or a foe that isn't on her side is still alive. */
+function fightOn(w: World): boolean {
+  if (w.arena.active) return true;
+  const pool = w.enemies;
+  for (let i = 0; i < pool.count; i++) {
+    const e = pool.items[i]!;
+    if (!e.dead && e.alive && !hasStatus(e.status, ST_CHARM)) return true;
+  }
+  return false;
 }
 
 // ── Moments (called by effects / combat / enemies) ────────────────────────────

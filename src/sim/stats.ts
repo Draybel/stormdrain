@@ -1,7 +1,7 @@
 /**
  * Stat computation (ARCHITECTURE §3 Stats): character base + every stat effect held.
  *   value = (base + Σ add) × Π mul, then clamped per stat.
- * Fire rate has diminishing returns past a knee (soft cap) so it keeps growing, just slower.
+ * Fire rate and damage have diminishing returns past a knee (soft caps) so they keep growing, just slower.
  * Move speed may never exceed 2× the character's base.
  * Pure functions: recomputed only when items change, never per tick.
  */
@@ -40,6 +40,19 @@ export const FIRE_RATE_SOFTCAP = { knee: 5, scale: 4 } as const;
 
 export function softCapFireRate(raw: number): number {
   const { knee, scale } = FIRE_RATE_SOFTCAP;
+  if (raw <= knee) return raw;
+  return knee + scale * Math.log1p((raw - knee) / scale);
+}
+
+/**
+ * Damage soft cap (polish batch 4): linear up to `knee`, logarithmic after it (slope 1 at the knee, like the fire
+ * rate's). Stacking damage keeps paying, just less: 20 → 17.9, 40 → 25.4, 100 → 34.8. Without it a late build's
+ * single-target damage grew ~70× by floor 8 and ~425× by floor 12 and every fight ended inside the spawn poof.
+ */
+export const DAMAGE_SOFTCAP = { knee: 12, scale: 10 } as const;
+
+export function softCapDamage(raw: number): number {
+  const { knee, scale } = DAMAGE_SOFTCAP;
   if (raw <= knee) return raw;
   return knee + scale * Math.log1p((raw - knee) / scale);
 }
@@ -89,6 +102,7 @@ export function computeStats(base: Readonly<Stats>, mods: readonly StatMod[], ou
     const k = STAT_IDS[i]!;
     let v = (base[k] + adds[k]) * muls[k];
     if (k === 'fireRate') v = softCapFireRate(v);
+    else if (k === 'damage') v = softCapDamage(v);
     const rule = STAT_RULES[k];
     let max = rule.max;
     if (k === 'moveSpeed') max = Math.min(max, base.moveSpeed * MOVE_SPEED_MAX_MULT);

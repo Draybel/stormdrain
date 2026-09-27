@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WREN } from '../src/content/characters/wren';
-import { FIRE_RATE_SOFTCAP, STAT_RULES, computeStats, makeStats, softCapFireRate } from '../src/sim/stats';
+import { DAMAGE_SOFTCAP, FIRE_RATE_SOFTCAP, STAT_RULES, computeStats, makeStats, softCapDamage, softCapFireRate } from '../src/sim/stats';
 import {
   BONUS_EMBER,
   BONUS_TIN,
@@ -41,7 +41,10 @@ describe('stats: add → mul → clamp', () => {
       ],
       makeStats(),
     );
-    expect(out.damage).toBeCloseTo((3.5 + 1.5) * 3, 6);
+    // 15 is past the damage soft cap's knee (polish batch 4).
+    expect(out.damage).toBeCloseTo(softCapDamage((3.5 + 1.5) * 3), 6);
+    expect(out.damage).toBeLessThan(15);
+    expect(out.damage).toBeGreaterThan(DAMAGE_SOFTCAP.knee);
     expect(out.range).toBe(195);
     expect(out.fireRate).toBe(BASE.fireRate);
   });

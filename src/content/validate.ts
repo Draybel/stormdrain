@@ -62,6 +62,7 @@ export function validateContent(): string[] {
     const at = `item ${d.id}`;
     need(d.name.length > 0 && d.desc.length > 0, `${at}: needs a name and a description`);
     need(d.quality >= 0 && d.quality <= 4, `${at}: quality out of range`);
+    need(d.weight === undefined || (Number.isFinite(d.weight) && d.weight > 0 && d.weight <= 5), `${at}: weight must be > 0 and ≤ 5`);
     if (d.set) need(SETS.has(d.set), `${at}: unknown set "${d.set}"`);
     if (d.unlock) need(ACHIEVEMENTS.has(d.unlock), `${at}: unknown achievement "${d.unlock}"`);
     if (d.kind === 'active') need(!!d.active, `${at}: active item without an 'active' spec`);

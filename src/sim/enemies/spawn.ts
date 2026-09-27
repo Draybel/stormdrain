@@ -65,7 +65,8 @@ export function spawnEnemy(w: World, def: EnemyDef, x: number, y: number, opts: 
   const scale = (opts.scale ?? 1) * (ch?.sizeMul ?? 1);
   e.scale = scale;
   e.r = def.radius * scale;
-  e.maxHp = e.hp = opts.hp ?? def.hp * (ch?.hpMul ?? 1);
+  // Depth scaling (polish batch 4): deeper floors breed tougher foes; split copies get their HP handed to them.
+  e.maxHp = e.hp = opts.hp ?? def.hp * (ch?.hpMul ?? 1) * depthHpMul(w.floor);
   // Small split copies scurry a little faster.
   e.speed = def.speed * (ch?.speedMul ?? 1) * (scale < 1 ? 1 + (1 - scale) * 0.4 : 1);
   e.cdMul = ch?.cooldownMul ?? 1;
@@ -141,6 +142,12 @@ export function spawnEnemy(w: World, def: EnemyDef, x: number, y: number, opts: 
   }
   if (opts.seen !== false) w.events.emit('enemySpawn', e.x, e.y, e.r, ch ? allChampions().indexOf(ch) + 1 : 0, def.id);
   return e;
+}
+
+/** A regular enemy's HP multiplier on a floor (ENEMY_TUNING.hpPerFloor, steeper past hpLateFrom). */
+export function depthHpMul(floor: number): number {
+  const T = ENEMY_TUNING;
+  return 1 + T.hpPerFloor * Math.max(0, floor - 1) + T.hpPerLateFloor * Math.max(0, floor - T.hpLateFrom);
 }
 
 /** Enemies alive (not yet killed) in the room. */

@@ -127,18 +127,20 @@ export function emptyRoomState(): RoomState {
 
 type Weighted<T> = readonly (readonly [T, number])[];
 
+/** 'p' markers (polish batch 4: coins 45 → 22, keys 14 → 5, bombs 15 → 7 — they piled up at 99 by the last floors). */
 const LOOT_COMMON: Weighted<PickupName> = [
-  ['coin', 45],
+  ['coin', 22],
   ['silverCoin', 3],
-  ['bomb', 15],
-  ['key', 14],
+  ['bomb', 7],
+  ['key', 5],
   ['halfHeart', 12],
   ['heart', 6],
   ['sparkSmall', 4],
 ];
+/** Secret rooms' 'p' markers and a Forgotten Pocket's pile (polish batch 4: coins 28 → 24, silver 14 → 10). */
 const LOOT_SECRET: Weighted<PickupName> = [
-  ['coin', 28],
-  ['silverCoin', 14],
+  ['coin', 24],
+  ['silverCoin', 10],
   ['goldCoin', 2],
   ['bomb', 18],
   ['doubleBomb', 4],
@@ -192,6 +194,11 @@ const TRADER_POOLS: readonly PoolId[] = ['trader', 'treasure'];
 
 /** Magpie's Stall uses at most this many 'S' slots. */
 export const SHOP_SLOTS_MAX = 5;
+/**
+ * An 'E' (elite) marker holds a champion this often (polish batch 4: always, before — champions were 8 % of spawns on
+ * floor 1 and 42 % on floor 12, though documented as rare). Pre-rolled with the room like everything else.
+ */
+export const ELITE_CHANCE = 0.4;
 /** Chance per normal room of a Gumball Gambler; chance per floor of Old Pell. */
 export const SLOTS_CHANCE = 0.12;
 export const TRADER_CHANCE = 0.15;
@@ -278,15 +285,21 @@ export function rollFloorContents(layout: FloorLayout, chapterId: string, ctx: C
   const rollRoom = (rng: Rng, type: RoomType, templateId: string | null, flip: number): RoomState => {
     const st = emptyRoomState();
     const plan = markerPlan(templateById(templateId), flip);
-    // Enemies (one list per wave; E markers get a forced champion).
+    // Enemies (one list per wave; E markers get a champion ELITE_CHANCE of the time).
     const waves = type === 'challenge' ? Math.max(1, ctx.challengeWaves) : 1;
     for (let wv = 0; wv < waves && plan.enemies > 0; wv++) {
       const ids: string[] = [];
       const ch: string[] = [];
       for (let i = 0; i < plan.enemies; i++) {
         ids.push(pool.length ? rng.weightedPick(pool, (d) => d.weight).id : '');
-        const elite = plan.elite[i] === 1 && champs.length > 0;
-        ch.push(elite ? rng.weightedPick(champs, (c) => c.weight).id : '');
+        let champ = '';
+        if (plan.elite[i] === 1 && champs.length > 0) {
+          // The champion is always picked (the room's other pre-rolls keep their place in the stream); whether the
+          // marker gets it is a coin flip on a fork of its own.
+          const pick = rng.weightedPick(champs, (c) => c.weight).id;
+          if (rng.fork(`E${wv}.${i}`).next() < ELITE_CHANCE) champ = pick;
+        }
+        ch.push(champ);
       }
       st.waves.push(ids);
       st.champs.push(ch);
@@ -311,7 +324,8 @@ export function rollFloorContents(layout: FloorLayout, chapterId: string, ctx: C
       } else if (type === 'cursed' && rng.next() >= CURSED_ITEM_CHANCE) {
         alt = 'lockbox';
       } else {
-        const minQ = type === 'nook' ? 2 : type === 'deepSecret' ? 3 : 0;
+        // The Moth Broker only deals in quality 3-4 (polish batch 4: 2 let ordinary items cost a heart container).
+        const minQ = type === 'nook' || type === 'deepSecret' ? 3 : 0;
         id = rollItem(rng, pools, used, locked, false, minQ);
       }
       st.items.push(id);

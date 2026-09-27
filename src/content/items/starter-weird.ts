@@ -36,7 +36,7 @@ const items: ItemDef[] = [
     name: 'Paperweight',
     desc: 'HUGE, SLOW SHOTS THAT JUST... SIT THERE',
     kind: 'passive',
-    quality: 1,
+    quality: 2,
     pools: ['treasure'],
     tags: ['weird', 'glimmer'],
     effects: [
@@ -51,6 +51,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'dizzy-top',
+    unlock: 'it-clicks',
     name: 'Dizzy Top',
     desc: 'SHOTS TAKE A LAP AROUND YOU FIRST. WHEE!',
     kind: 'passive',
@@ -62,7 +63,6 @@ const items: ItemDef[] = [
   },
   {
     id: 'crumbly-biscuit',
-    unlock: 'taste-tester',
     name: 'Crumbly Biscuit',
     desc: 'SHOTS SHRINK AWAY, THEN CRUMBLE APART',
     kind: 'passive',

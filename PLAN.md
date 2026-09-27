@@ -279,7 +279,17 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       updates (never mid-run), and two tabs that merge their meta progress instead of wiping it (three-way merge on
       every write + 'storage' events) (docs/saving.md, DECISIONS "Polish batch 3"; tests/mobile-ux, input, save-continue,
       save-meta; e2e touch / hud / save / menus / pwa)
-- [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
+- [x] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
+      (polish batch 4: an opt-in balance harness — `npm run balance`, the play-bot in human mode (no god mode, sidesteps
+      shots it has seen for 0.15 s over a 0.5 s look-ahead, buys only what it can pay) × 8 characters × 20 seeds, fresh or
+      unlocked save, main or alt track, plus a career simulation through the real meta layer; chapter-1 bosses × 0.8 HP;
+      prices 15-40, a third to a half of the coins / keys / bombs / Tin, champions on 40 % of the E markers, a gambler worth
+      ≈ 0.9 a coin, a Storm Lance with a fixed roll weight in the arena pool too, quality-3 Nook deals; a damage soft cap
+      above 12, enemy and boss HP by floor, whole-heart hits from chapter 4, a minimum phase time for bosses (and a burrow
+      fix it exposed); every carrier and modifier ungated, re-rated outliers, slower unlock milestones (Marrow by ~run 10);
+      Sable / Marrow / Juniper / Bolt / Mosswick tuned; Hammerjaw (Rust Foundry) and Facetta (Glimmer Grotto) so no
+      two-floor chapter repeats its boss; loot slides off spikes; a real slash and crescent for melee (DECISIONS "Polish
+      batch 4" has the before / after numbers; tests/economy, depth-scaling, item-gating, character-balance, loot-spikes)
 
 ## Phase 8 — Polish
 - [x] Juice pass (hit-stop, shake, flashes, floor transition), Storm Lance showcase, costume layers

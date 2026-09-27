@@ -15,7 +15,7 @@ const familiars: FamiliarDef[] = [
     sprite: FIREFLY_SPRITE,
     behavior: 'orbit',
     radius: 3,
-    attackScale: 0.3,
+    attackScale: 0.5,
     fireRateMul: 0.9,
     speed: 130,
     blocks: false,

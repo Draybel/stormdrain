@@ -1,6 +1,7 @@
 /**
  * The Drowned Nursery bosses (chapter 1, alt track — floors 1-2), boss pack A. Tuned like the
- * Gutterways pair (Wren deals ≈ 10 damage a second at base): 280-300 HP, two phases, half-heart hits.
+ * Gutterways pair (Wren deals ≈ 10 damage a second at base): 225-240 HP (polish batch 4: ×0.8), two phases,
+ * half-heart hits.
  *
  *   Pirouetta     a porcelain music-box dancer. Curtain Up: circles you, a two-armed spiral of notes, a
  *                 grand lap of the room (orbitDash), walls of sheet music with a gap, a curtsy that
@@ -9,8 +10,9 @@
  *                 curtsies, birthday balloons drifting in.
  *   Sir Sopsalot  a waterlogged teddy knight. Soggy: squelching jump-slams, wrung-out bathwater puddles,
  *                 button volleys, bath ducks to the rescue. Unstitched (half): a puff of stuffing, then
- *                 tumbling triple charges, double slams, toy blocks raining off the shelves, slowing
- *                 stuffing rings.
+ *                 tumbling double charges, double slams, toy blocks raining off the shelves, slowing
+ *                 stuffing rings (polish batch 4: pace 1.0 and two charges, not 1.15 and three — he was the
+ *                 deadliest boss of the game).
  */
 
 import type { BossDef } from '../../sim/types';
@@ -24,7 +26,7 @@ const bosses: BossDef[] = [
     name: 'Pirouetta',
     kind: 'boss',
     chapters: CH,
-    hp: 280,
+    hp: 225,
     size: 12,
     speed: 34,
     mass: 5,
@@ -76,7 +78,7 @@ const bosses: BossDef[] = [
     name: 'Sir Sopsalot',
     kind: 'boss',
     chapters: CH,
-    hp: 300,
+    hp: 240,
     size: 14,
     speed: 22,
     mass: 9,
@@ -109,12 +111,12 @@ const bosses: BossDef[] = [
         attacks: [],
         speedMul: 1.3,
         tint: '#e07a5a',
-        pace: 1.15,
+        pace: 1,
         order: 'random',
         rest: [0.9, 1.4],
         enter: { kind: 'ring', shot: 'dust', params: { windup: 0.2, count: 14, speed: 62, accel: -18, life: 3.4 } },
         patterns: [
-          { kind: 'charge', params: { windup: 0.7, speed: 200, count: 3, pause: 0.35, stun: 0.5, maxTime: 1.4, ring: 6, ringSpeed: 70, debris: 2 } },
+          { kind: 'charge', params: { windup: 0.7, speed: 200, count: 2, pause: 0.35, stun: 0.5, maxTime: 1.4, ring: 6, ringSpeed: 70, debris: 2 } },
           { kind: 'jumpSlam', params: { windup: 0.5, air: 0.8, height: 54, count: 2, waves: 2, waveRadius: 80, ring: 10, ringSpeed: 75 } },
           { kind: 'debrisRain', params: { windup: 0.6, count: 10, time: 1.5, targeted: 3, air: 1, slam: 1 } },
           { kind: 'ring', shot: 'dust', params: { windup: 0.5, count: 12, speed: 65, repeats: 3, gap: 0.35, spin: 15, accel: -12, life: 4 } },

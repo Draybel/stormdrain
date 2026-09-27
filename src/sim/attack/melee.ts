@@ -48,6 +48,8 @@ export class Swipe implements Poolable {
   nHit = 0;
   readonly cells = new Int16Array(8);
   nCells = 0;
+  /** Hostile shots swatted by this swipe (ATTACK_TUNING.meleeSwatMax at most). */
+  swats = 0;
 }
 
 export function spawnSwipe(
@@ -83,6 +85,7 @@ export function spawnSwipe(
   s.hit.fill(null);
   s.nHit = 0;
   s.nCells = 0;
+  s.swats = 0;
   w.events.emit('swipe', s.x, s.y, Math.cos(ang), Math.sin(ang), ownerKind === OWN_PLAYER ? '' : 'mini');
   if (s.bomb) {
     // Bomb rider: the swipe's tip explodes.
@@ -95,11 +98,11 @@ export function spawnSwipe(
 /** Pseudo shot handed to hit hooks. */
 const P = new ShotState();
 
-function inArc(s: Swipe, x: number, y: number, r: number): boolean {
+function inArc(s: Swipe, x: number, y: number, r: number, reach = s.reach): boolean {
   const dx = x - s.x;
   const dy = y - s.y;
   const d = Math.sqrt(dx * dx + dy * dy);
-  if (d > s.reach + r) return false;
+  if (d > reach + r) return false;
   if (d < 8 + r) return true;
   let a = Math.atan2(dy, dx) - s.ang;
   a = Math.atan2(Math.sin(a), Math.cos(a));
@@ -168,13 +171,15 @@ export function updateSwipes(w: World, dt: number): void {
       s.hit[s.nHit++] = h;
       strike(w, s, h);
     }
-    // Swat hostile shots out of the air.
+    // Swat hostile shots out of the air: near the blade's root, a couple a swing (polish batch 4).
     const shots = w.enemyShots;
-    for (let k = shots.count - 1; k >= 0; k--) {
+    const inner = s.reach * T.meleeSwatReach;
+    for (let k = shots.count - 1; k >= 0 && s.swats < T.meleeSwatMax; k--) {
       const e = shots.items[k]!;
-      if (e.allied || e.lob || !inArc(s, e.x, e.y, e.r)) continue;
+      if (e.allied || e.lob || !inArc(s, e.x, e.y, e.r, inner)) continue;
       w.events.emitFx('eshotPop', e.x, e.y, 1, e.style, '');
       shots.release(e);
+      s.swats++;
     }
     // Crack breakable props in reach (once per swipe).
     const room = w.room;

@@ -1,7 +1,10 @@
 /**
  * The boss side of damage (called by sim/enemies/damage.ts, which must not import the brain):
  * - `bossDamage` filters a hit: nothing gets through during a phase change (the shot 'tinks'), and one
- *   blow can never skip past the next phase threshold (every phase transition is seen);
+ *   blow can never skip past the next phase threshold (every phase transition is seen); until a phase has been fought
+ *   for BOSS_TUNING.minPhase s (finals: minPhaseFinal) its HP stays above the next threshold — the last phase's
+ *   killing blow leaves 1 HP — so a huge build still sees every phase (polish batch 4). The hit itself still lands
+ *   (flash, sparks, knockback): it reads as a tough boss, not an immune one;
  * - `bossLethal` decides what a killing blow does: a part of a split boss simply dies while others
  *   stand; the LAST part starts the death sequence instead (the brain plays it out, then kills it).
  */
@@ -20,10 +23,15 @@ export function bossDamage(w: World, e: Enemy, dmg: number): number {
   const f = w.boss;
   if (!f.active || f.group !== b.group) return dmg;
   const next = b.phase + 1;
+  const early = b.live < b.minPhase;
   if (next < f.marks.length && f.phase < next) {
-    // Stop just past the next threshold: the phase changes on the next tick (with its roar).
-    const floor = f.marks[next]! * f.maxHp - 0.01;
+    // Stop just past the next threshold: the phase changes on the next tick (with its roar) — or, while the phase is
+    // young, just short of it.
+    const floor = f.marks[next]! * f.maxHp + (early ? 0.01 : -0.01);
     if (f.hp - dmg < floor) dmg = Math.max(0, f.hp - floor);
+  } else if (next >= f.marks.length && early && f.hp - dmg < 1) {
+    // The last phase: its killing blow waits until the phase has had its time.
+    dmg = Math.max(0, f.hp - 1);
   }
   f.hp -= dmg;
   return dmg;

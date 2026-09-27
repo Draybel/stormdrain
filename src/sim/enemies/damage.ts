@@ -74,7 +74,8 @@ export function damageEnemy(w: World, e: Enemy, dmg: number, source: number, kx:
     }
   }
   w.counters.hits++;
-  w.events.emit('enemyHit', e.x, e.y - e.r, dmg, source, e.def.id);
+  // Cosmetic (sparks, a hit sound): a tick of a big build's hits never crowds kills or hurts out of the queue.
+  w.events.emitFx('enemyHit', e.x, e.y - e.r, dmg, source, e.def.id);
   // Character mechanics that react to your hits (Sable's pickpocket, sim/mechanics.ts).
   if (w.player.mech.kind !== 0) mechanicEnemyHit(w, e, source);
   if (e.hp <= 0) {
@@ -139,7 +140,7 @@ export function applyEnemyStatus(w: World, e: Enemy, kind: StatusKind, duration:
   const applied = addStatus(e.status, idx, duration, power, source, e.resist);
   if (applied < 0) return;
   if ((before & (1 << applied)) === 0) {
-    w.events.emit('status', e.x, e.y - e.r - 4, applied, source, e.def.id);
+    w.events.emitFx('status', e.x, e.y - e.r - 4, applied, source, e.def.id);
     // Switching sides or freezing solid drops whatever it was about to do.
     if (applied === ST_CHARM || applied === ST_FREEZE) {
       e.windAtk = -1;

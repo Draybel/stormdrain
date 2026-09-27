@@ -25,7 +25,7 @@ const items: ItemDef[] = [
     desc: 'SHOTS SNIFF OUT FOES FROM ACROSS THE ROOM',
     kind: 'passive',
     quality: 3,
-    pools: ['treasure', 'boss'],
+    pools: ['treasure', 'boss', 'broker'],
     tags: ['modifier', 'mothkin'],
     set: 'mothkin',
     effects: [

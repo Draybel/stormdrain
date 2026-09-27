@@ -39,7 +39,6 @@ const items: ItemDef[] = [
   // ── Spawn: more shots, other directions ──
   {
     id: 'twin-straws',
-    unlock: 'it-clicks',
     name: 'Twin Straws',
     desc: 'SIP TWICE · ONE MORE SHOT EVERY VOLLEY',
     kind: 'passive',
@@ -81,12 +80,11 @@ const items: ItemDef[] = [
   // ── Motion: how shots travel ──
   {
     id: 'lantern-moth',
-    unlock: 'glow-in-the-dark',
     name: 'Lantern Moth',
     desc: 'SHOTS FLUTTER STRAIGHT FOR FOES',
     kind: 'passive',
     quality: 3,
-    pools: ['treasure'],
+    pools: ['treasure', 'broker'],
     tags: ['modifier', 'mothkin'],
     effects: [
       { type: 'mod', mod: 'homing' },
@@ -217,8 +215,7 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     /** Locked until the 'deeper-still' achievement (src/content/achievements/core.ts). */
-    unlock: 'deeper-still',
-    pools: ['treasure'],
+    pools: ['treasure', 'broker'],
     tags: ['modifier', 'glimmer'],
     effects: [
       { type: 'mod', mod: 'split' },
@@ -250,7 +247,6 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     /** Locked until the 'drain-cleaner' achievement (src/content/achievements/core.ts). */
-    unlock: 'drain-cleaner',
     pools: ['treasure'],
     tags: ['modifier', 'toybox', 'explosive'],
     effects: [{ type: 'mod', mod: 'explode' }],
@@ -291,7 +287,6 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     /** Locked until the 'pack-rat' achievement (src/content/achievements/core.ts). */
-    unlock: 'pack-rat',
     pools: ['treasure'],
     tags: ['modifier', 'glimmer'],
     effects: [
@@ -308,7 +303,6 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     /** Locked until the 'soaked-through' achievement (src/content/achievements/core.ts). */
-    unlock: 'soaked-through',
     pools: ['treasure'],
     tags: ['modifier', 'toybox'],
     effects: [

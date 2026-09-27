@@ -176,7 +176,7 @@ describe('save export → import through the save service', () => {
 describe('achievements page', () => {
   it('reward lines list unlock refs and the items / characters naming the achievement', () => {
     expect(rewardLines(findAchievement('clear-skies')!)).toContain('THE HIDDEN ROUTE RUNS DEEPER');
-    expect(rewardLines(findAchievement('drain-cleaner')!)).toContain('NEW ITEM: PARTY POPPER');
+    expect(rewardLines(findAchievement('drain-cleaner')!)).toContain('NEW ITEM: CHIPPED PIGGY BANK');
     for (const a of allAchievements()) expect(Array.isArray(rewardLines(a))).toBe(true);
   });
 });

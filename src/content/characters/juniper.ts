@@ -3,7 +3,7 @@
  * Mechanic FIREFLY JAR (`juniper.fireflyJar`, sim/mechanics.ts): two fireflies (innate familiars that circle her
  * and fire with her); every cleared room lets one more out of the jar (six at most); a hit scares one of the
  * extras away and a new floor settles the jar back to two.
- * Unlock: have 3 familiars at once.
+ * Unlock: have 5 familiars at once (polish batch 4: 3).
  */
 
 import type { CharacterDef } from '../../sim/types';

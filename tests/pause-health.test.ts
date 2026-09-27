@@ -59,7 +59,7 @@ describe('HEALTH in the pause stats', () => {
     expect(maxHearts(CHARACTERS.get('wren')!)).toEqual({ red: 3, tin: 0, ember: 0 });
     expect(maxHearts(CHARACTERS.get('pip')!)).toEqual({ red: 4, tin: 0, ember: 0 });
     expect(maxHearts(CHARACTERS.get('marrow')!)).toEqual({ red: 0, tin: 3, ember: 0 });
-    expect(maxHearts(CHARACTERS.get('bolt')!)).toEqual({ red: 2, tin: 1, ember: 0 });
+    expect(maxHearts(CHARACTERS.get('bolt')!)).toEqual({ red: 3, tin: 1, ember: 0 });
   });
 });
 

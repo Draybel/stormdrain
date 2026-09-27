@@ -29,7 +29,7 @@ const items: ItemDef[] = [
     desc: 'LIGHTNING LEAPS FROM FOE TO FOE TO FOE',
     kind: 'passive',
     quality: 3,
-    pools: ['treasure', 'boss'],
+    pools: ['treasure', 'boss', 'broker'],
     tags: ['modifier', 'stormcaller', 'lightning'],
     set: 'stormcaller',
     effects: [
@@ -122,12 +122,11 @@ const items: ItemDef[] = [
   },
   {
     id: 'static-cling',
-    unlock: 'bone-deep',
     name: 'Static Cling',
     desc: 'SHOTS HANG IN THE AIR, CRACKLING',
     kind: 'passive',
     quality: 3,
-    pools: ['treasure'],
+    pools: ['treasure', 'broker'],
     tags: ['modifier', 'stormcaller', 'lightning'],
     set: 'stormcaller',
     effects: [

@@ -45,6 +45,9 @@ function shapeR(shape: number, a: number, r: number): number {
   }
 }
 
+/** The crescent's bright inner edge (a white-hot, faintly warm glint — never a hostile shot's dark core). */
+const CRESCENT_EDGE = parseHexColor('#fffbe8');
+
 /**
  * A player shot of `style` in shape index `shape` (attackRenderer SHAPE_INDEX: 0 marble, 1 spiky, 2 bomb, 3 blade,
  * 4 crescent, 5 star, 6 gear, 7 shard, 8 bubble), radius `r`, rotated by `rot`: dark outline, rim, body, highlight,
@@ -73,13 +76,24 @@ export function playerShotPixels(style: ShotStyle, shape: number, r: number, rot
       const d = Math.sqrt(dx * dx + dy * dy);
       const a = Math.atan2(dy, dx) - rot;
       if (shape === 4) {
-        // Crescent: a thick arc facing +x (rotated).
-        const ca = Math.cos(a);
-        const inArc = d <= r + 0.5 && d >= r * 0.45 && ca > -0.15;
-        const edge = inArc && (d > r - 0.6 || d < r * 0.45 + 1 || ca < 0.05);
-        const out = !inArc && d <= r + 1.4 && d >= r * 0.45 - 1 && ca > -0.3;
-        if (inArc) put(x, y, edge ? cols[1]! : d > r * 0.75 ? cols[3]! : cols[2]!);
-        else if (out) put(x, y, cols[0]!);
+        // Crescent (polish batch 4, B4-8): a moon-shaped blade bulging toward +x (rotated) — the disc minus a disc
+        // bitten out of its back — so it reads as an open C with sharp horns trailing, not a hollow ring (the hostile
+        // shots are dark-cored discs). A bright inner edge along the bite, the rim on the outer curve, a dark outline.
+        const cr = Math.max(2.6, r * 1.15);
+        const ux = Math.cos(a) * d;
+        const uy = Math.sin(a) * d;
+        const bx = ux + cr * 0.55;
+        const bite = Math.sqrt(bx * bx + uy * uy);
+        const br = cr * 0.86;
+        const inMoon = d <= cr + 0.4 && bite > br;
+        if (inMoon) {
+          if (bite < br + 1.1) put(x, y, CRESCENT_EDGE);
+          else if (d > cr - 0.7) put(x, y, cols[1]!);
+          else put(x, y, cols[2]!);
+        } else if (d <= cr + 1.4 && bite > br + 0.2) {
+          // The outline hugs the outer curve and the horn tips; the bite side stays open (no ring).
+          put(x, y, cols[0]!);
+        }
         continue;
       }
       if (shape === 8) {
@@ -102,8 +116,11 @@ export function playerShotPixels(style: ShotStyle, shape: number, r: number, rot
   }
   // Highlight and accents (combo colours) on round-ish shapes.
   const hr = Math.max(1, Math.round(r * 0.45));
-  put(R - hr, R - hr, cols[3]!);
-  if (r >= 3) put(R - hr + 1, R - hr, cols[3]!);
+  if (shape !== 4) {
+    // (The crescent's glint is its inner edge: this spot falls in its bite.)
+    put(R - hr, R - hr, cols[3]!);
+    if (r >= 3) put(R - hr + 1, R - hr, cols[3]!);
+  }
   const acc = style.accents;
   if (shape !== 4 && acc.length > 0) {
     const ar = Math.max(1, r * 0.62);

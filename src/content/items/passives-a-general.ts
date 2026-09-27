@@ -41,7 +41,7 @@ const items: ItemDef[] = [
     desc: 'HEAVY AND MEAN · DAMAGE X1.3',
     kind: 'passive',
     quality: 3,
-    pools: ['treasure', 'boss', 'challenge'],
+    pools: ['treasure', 'boss', 'challenge', 'broker'],
     tags: ['stat-up'],
     effects: [
       { type: 'stat', stat: 'damage', mul: 1.3 },
@@ -217,10 +217,11 @@ const items: ItemDef[] = [
   },
   {
     id: 'snail-mail-stamp',
+    unlock: 'mole-in-one',
     name: 'Snail Mail Stamp',
     desc: 'SHOTS ARRIVE LATE... BUT THEY ARRIVE BIG',
     kind: 'passive',
-    quality: 1,
+    quality: 3,
     pools: ['treasure', 'secret', 'deepSecret'],
     tags: ['weird'],
     effects: [

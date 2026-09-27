@@ -8,7 +8,7 @@
  * - phase looks (BossHook.looks): validated like boss sprites, a broken one is reported;
  * - UNDER THE ROOTS fires on a chapter-2 boss of the chapter's own pool in a real run;
  * - synergies in a real run: a brand-new player's items can make most of them; walking onto the pedestals
- *   switches one on (the SYNERGY pill), the meta tracker counts it and IT CLICKS unlocks Twin Straws.
+ *   switches one on (the SYNERGY pill), the meta tracker counts it and IT CLICKS unlocks the Dizzy Top.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -22,6 +22,9 @@ import { getBossHook, registerBossHook } from '../src/sim/bosses/hooks';
 import { bossHpFor, bossPool, finalBossDef, homeFloor, pickBoss } from '../src/sim/bosses/select';
 import { validateBossDef } from '../src/sim/bosses/validate';
 import { chapterFor } from '../src/sim/run/chapters';
+import { bossFor } from '../src/sim/run/contents';
+import { generateFloor } from '../src/sim/floor/generate';
+import { BOSS_TUNING } from '../src/sim/tuning';
 import { Sim } from '../src/sim/sim';
 import type { BossDef, Requirement, SynergyDef } from '../src/sim/types';
 import { fightBoss } from './helpers/bossBot';
@@ -36,9 +39,9 @@ function bossFloors(ch: { floors: readonly [number, number] }): number[] {
 }
 
 describe('bosses: totals, own pools, finals', () => {
-  it('meets the Phase 6 targets: 20+ bosses, 8+ minibosses, three finals, all with 2+ phases', () => {
+  it('meets the Phase 6 targets: 22 bosses (polish batch 4: +2), 8+ minibosses, three finals, all with 2+ phases', () => {
     expect(validateContent()).toEqual([]);
-    expect(ofKind('boss').length).toBeGreaterThanOrEqual(20);
+    expect(ofKind('boss').length).toBeGreaterThanOrEqual(22);
     expect(ofKind('miniboss').length).toBeGreaterThanOrEqual(8);
     expect(ofKind('final').length).toBe(3);
     for (const b of REAL) expect(b.phases.length, b.id).toBeGreaterThanOrEqual(2);
@@ -57,17 +60,35 @@ describe('bosses: totals, own pools, finals', () => {
       // bossPool only falls back to "every boss of the kind" for a chapter with none of its own.
       expect(bossPool(ch.id, 'boss').map((b) => b.id).sort()).toEqual(own.map((b) => b.id).sort());
       expect(bossPool(ch.id, 'miniboss').length).toBeLessThan(ofKind('miniboss').length);
+      // A chapter that spans two floors has two bosses of its own (polish batch 4: the Rust Foundry and the Glimmer
+      // Grotto had one, so the hidden route fought it twice).
+      if (ch.floors[0] !== ch.floors[1] && ch.floors[1] < 12) expect(own.length, `${ch.id} bosses`).toBeGreaterThanOrEqual(2);
     }
-    // Each boss is at home in the chapter it lists first (its HP there is its own).
+    // Each boss is at home in the chapter it lists first; its HP grows with the floor there like anywhere (polish batch 4).
     for (const b of [...ofKind('boss'), ...ofKind('miniboss')]) {
       const home = CHAPTERS.get(b.chapters[0]!)!;
       expect(home, b.id).toBeDefined();
       expect(homeFloor(b)).toBe(home.floors[0]);
-      expect(bossHpFor(b, home.floors[1])).toBe(b.hp);
+      expect(bossHpFor(b, home.floors[1])).toBe(Math.round(b.hp * (1 + BOSS_TUNING.hpPerFloor * (home.floors[1] - 1))));
     }
   });
 
-  it('real runs put the chapter\'s own bosses in their boss rooms, every one of them over seeds, at home HP', () => {
+  it('no two-floor chapter ever shows the same boss on both of its floors (200 seeds each)', () => {
+    for (const ch of CHAPTERS.values()) {
+      const [f1, f2] = ch.floors;
+      if (f1 === f2 || f2 >= 12) continue;
+      for (let seed = 1; seed <= 200; seed++) {
+        const a = pickBoss(seed, f1, ch.track, ch.id, 'boss')!;
+        const b = pickBoss(seed, f2, ch.track, ch.id, 'boss', a.id)!;
+        expect(b.id, `${ch.id} seed ${seed}`).not.toBe(a.id);
+        // The run's own rule (sim/run/contents.ts bossFor) avoids the previous floor's pick the same way.
+        const layout = generateFloor(seed, f2, ch.track, {});
+        expect(bossFor(layout, ch.id, 'boss')!.id, `${ch.id} seed ${seed} (bossFor)`).not.toBe(a.id);
+      }
+    }
+  });
+
+  it('real runs put the chapter\'s own bosses in their boss rooms, every one of them over seeds, at their floor\'s HP', () => {
     for (const ch of CHAPTERS.values()) {
       const own = new Set(bossesInChapter(ch.id, 'boss').map((b) => b.id));
       const seen = new Set<string>();
@@ -80,7 +101,7 @@ describe('bosses: totals, own pools, finals', () => {
           expect(own.has(st.boss), `${ch.id} floor ${floor}: ${st.boss}`).toBe(true);
           const def = BOSSES.get(st.boss)!;
           expect(st.bossHp, st.boss).toBe(bossHpFor(def, floor));
-          if (def.chapters[0] === ch.id) expect(st.bossHp, st.boss).toBe(def.hp);
+          expect(st.bossHp, st.boss).toBeGreaterThanOrEqual(def.hp);
           seen.add(st.boss);
           // A miniboss room (when the floor has one) holds one of the chapter's minibosses.
           const mini = run.data.layout.rooms.find((r) => r.type === 'miniboss');
@@ -209,7 +230,7 @@ describe('synergies: in real runs', () => {
     for (const s of syns) expect(s.requires.every((r) => obtainable(r, new Set())), s.id).toBe(true);
   });
 
-  it('walking onto the pedestals switches a synergy on in a run: the pill, the tracker, IT CLICKS → Twin Straws', () => {
+  it('walking onto the pedestals switches a synergy on in a run: the pill, the tracker, IT CLICKS → the Dizzy Top', () => {
     const save = new GameSave(new MemoryStorage());
     const locked = new Set(lockedItems(save.meta.state));
     // A synergy of passive items only, all unlocked for a brand-new player.
@@ -219,7 +240,7 @@ describe('synergies: in real runs', () => {
         s.requires.every((r) => typeof r === 'string' && getItem(r).kind === 'passive' && obtainable(r, locked)),
     );
     expect(pick, 'a synergy a new player can make').toBeDefined();
-    expect(itemUnlocked(save.meta.state, getItem('twin-straws'))).toBe(false);
+    expect(itemUnlocked(save.meta.state, getItem('dizzy-top'))).toBe(false);
 
     const sim = Sim.newRun('SYNERGY1', { curse: null, unlocked: runUnlocks(save.meta.state) });
     sim.world.godMode = true;
@@ -245,8 +266,8 @@ describe('synergies: in real runs', () => {
     expect(pill).toBe(1);
     expect(save.meta.counter('synergiesFound')).toBe(1);
     expect(save.meta.hasAchievement('it-clicks')).toBe(true);
-    expect(itemUnlocked(save.meta.state, getItem('twin-straws'))).toBe(true);
-    // Twin Straws now rolls in this player's next runs.
-    expect(runUnlocks(save.meta.state)).toContain('twin-straws');
+    expect(itemUnlocked(save.meta.state, getItem('dizzy-top'))).toBe(true);
+    // The Dizzy Top now rolls in this player's next runs (Twin Straws always did: polish batch 4).
+    expect(runUnlocks(save.meta.state)).toContain('dizzy-top');
   });
 });

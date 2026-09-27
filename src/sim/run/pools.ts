@@ -12,10 +12,20 @@ import type { Rng } from '../../engine/rng';
 import { allItems, findItem } from '../../content/registry';
 import type { ItemDef, PoolId } from '../types';
 
-/** Treasure-style rolls make the best items rarer (quality 0-4). */
+/** Treasure-style rolls make the best items rarer (quality 0-4); an item's own `weight` replaces it. */
 export const QUALITY_WEIGHT = [1, 1, 1, 0.7, 0.35] as const;
-/** Shop prices (coins) by quality for passives / actives (~15 for a middling item). */
-export const ITEM_PRICE = [10, 12, 15, 20, 25] as const;
+/**
+ * Shop prices (coins) by quality for passives / actives (polish batch 4: 15-40, was 10-25 — at ~12 coins a shop sold
+ * 2-3 items a floor and coins still piled up at 99; with the scarcer coins a shop item is a choice again).
+ */
+export const ITEM_PRICE = [15, 18, 22, 30, 40] as const;
+/** Trinkets in the shop (consumables cost 5 + quality). */
+export const TRINKET_PRICE = 12;
+
+/** An item's roll weight: its own `weight`, else the quality's. */
+export function rollWeight(d: ItemDef): number {
+  return d.weight ?? QUALITY_WEIGHT[d.quality] ?? 1;
+}
 
 /** Every item id that must not roll this run: `unlock`-flagged items not unlocked, plus extra ids. */
 export function lockedItemIds(unlocked: ReadonlySet<string>, extra: readonly string[] = []): string[] {
@@ -53,13 +63,13 @@ export function rollItem(
         if (!anyKind && !isPedestalKind(d)) continue;
         if (pass === 0 && (used.has(d.id) || d.quality < minQuality)) continue;
         list.push(d);
-        total += QUALITY_WEIGHT[d.quality] ?? 1;
+        total += rollWeight(d);
       }
       if (list.length === 0) continue;
       let r = roll * total;
       let chosen = list[list.length - 1]!;
       for (const d of list) {
-        const wt = QUALITY_WEIGHT[d.quality] ?? 1;
+        const wt = rollWeight(d);
         if (r < wt) {
           chosen = d;
           break;
@@ -77,7 +87,7 @@ export function rollItem(
 export function itemPrice(id: string): number {
   const d = findItem(id);
   if (!d) return 15;
-  if (d.kind === 'trinket') return 10;
+  if (d.kind === 'trinket') return TRINKET_PRICE;
   if (d.kind === 'consumable') return 5 + d.quality;
   return ITEM_PRICE[d.quality] ?? 15;
 }

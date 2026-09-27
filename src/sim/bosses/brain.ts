@@ -37,6 +37,11 @@ export interface BossSpawnOpts {
   hp?: number;
   /** Play the intro (default true). */
   intro?: boolean;
+  /**
+   * Minimum phase time (s; default BOSS_TUNING.minPhase, finals minPhaseFinal). Tests that force phase changes with
+   * direct damage pass 0.
+   */
+  minPhase?: number;
 }
 
 export function fightKind(def: BossDef): number {
@@ -65,6 +70,7 @@ export function spawnBoss(w: World, def: BossDef, x: number, y: number, opts: Bo
   const b = new BossState(def, c);
   b.group = e.uid;
   b.pace = ph.pace;
+  b.minPhase = opts.minPhase ?? (def.kind === 'final' ? BOSS_TUNING.minPhaseFinal : BOSS_TUNING.minPhase);
   b.introT = opts.intro === false ? 0 : def.kind === 'miniboss' ? BOSS_TUNING.minibossIntro : BOSS_TUNING.intro;
   b.rest = restTime(w, b, ph) * 0.6;
   // The first phase's own entrance (e.g. shields) comes right after the intro.
@@ -100,6 +106,8 @@ function spawnPart(w: World, src: Enemy, sb: BossState, scale: number, hp: numbe
   b.phase = sb.phase;
   b.pace = sb.pace;
   b.phaseT = sb.phaseT;
+  b.live = sb.live;
+  b.minPhase = sb.minPhase;
   b.rest = restTime(w, b, ph) * (0.5 + w.combatRng.next() * 0.5);
   e.boss = b;
   e.kx = Math.cos(a) * push;
@@ -275,6 +283,7 @@ function startPhase(w: World, e: Enemy, b: BossState, i: number): void {
   b.pace = ph.pace;
   b.invulnT = BOSS_TUNING.phaseInvuln;
   b.phaseT = 0;
+  b.live = 0;
   b.enterPending = ph.enter !== null;
   b.cycle = -1;
   b.rest = restTime(w, b, ph) * 0.5;
@@ -439,6 +448,8 @@ export function updateBoss(w: World, e: Enemy, dt: number, spd: number, rate: nu
     if (b.invulnT <= 0) b.anim = '';
     return;
   }
+  // The phase is being fought (the minimum phase time counts from here).
+  b.live += dt;
   // A phase's entrance (split, shields, summon…) runs once, after the intro / the roar.
   if (b.enterPending) {
     b.enterPending = false;

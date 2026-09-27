@@ -55,8 +55,8 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
 |---|---|---|---|
 | 1 | Sodden Snarl, Brimwell | Pirouetta, Sir Sopsalot | Pipewhip (ch. 1), Bumbershoot, Puddlestomp (ch. 1-2) |
 | 2 | Grandmother Brine, Old Knotroot | Vesperwing, Wickwarden | (as above) |
-| 3 | Old Governor, Gnawgear | Bellowbelly | Canshell, Glowtail (ch. 3-4), Slagjacket (Rust Foundry, Hollow Nest) |
-| 4 | Grandmother Gill, Bramblehorn | Hushwing | Shiverwing (Glimmer Grotto, Frostbitten Vault) |
+| 3 | Old Governor, Gnawgear | Bellowbelly, Hammerjaw | Canshell, Glowtail (ch. 3-4), Slagjacket (Rust Foundry, Hollow Nest) |
+| 4 | Grandmother Gill, Bramblehorn | Hushwing, Facetta | Shiverwing (Glimmer Grotto, Frostbitten Vault) |
 | 5 | Marrowbough, The Gloamkeeper | Hoarquill, The Vaultwarden | Tatterjack (Bone Orchard, Eye of the Storm) |
 | 6 | Squallvane (floor 11) | Ambergut (floor 11) | |
 
@@ -74,13 +74,13 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
 2. **Pip** — tiny mole with a mining lamp. High HP, slow. *Burrow:* dashing (double-tap move or button) ducks
    underground for 0.4 s (invulnerable, moves fast); cooldown. Unlock: defeat the chapter 2 boss.
 3. **Marrow** — little friendly skeleton in a red scarf. No red hearts, starts with Tin hearts; red heart pickups become
-   Tin. *Bone Toss:* starts with the boomerang carrier. Unlock: die 10 times.
+   Tin. *Bone Toss:* starts with the boomerang carrier. Unlock: die 3 times.
 4. **Juniper** — girl in a moss cloak with a jar of fireflies. Low damage. *Firefly Jar:* starts with 2 firefly familiars;
-   each room cleared adds a temporary firefly (max 6). Unlock: have 3 familiars at once.
+   each room cleared adds a temporary firefly (max 6). Unlock: have 5 familiars at once.
 5. **Bolt** — tin robot kid with a wind-up key. *Wind-Up:* starts with the charge rider; active items recharge over time
-   as well as per room. Unlock: use active items 50 times.
+   as well as per room. Unlock: use active items 150 times.
 6. **Sable** — masked fox thief. Starts with the melee carrier. *Pickpocket:* hitting enemies sometimes knocks coins
-   loose; shop prices −25%. Unlock: steal from/destroy a shop or hold 60 coins.
+   loose; shop prices −25%. Unlock: steal from/destroy a shop or hold 75 coins.
 7. **Mosswick** — a small swamp sprite with a lily-pad hat. *Bog Blood:* shots leave puddles (puddle modifier);
    standing in own puddles slowly heals tin hearts. Unlock: defeat Old Thunderhead.
 8. **Drizzle** (secret) — a little raincloud that followed the storm home. Floats. *Rainmaker:* every hit Drizzle takes

@@ -176,6 +176,7 @@ npm test                        # unit and simulation tests (Vitest)
 npm run build                   # typecheck + production build into dist/
 npx playwright install webkit   # once: the WebKit browser for the end-to-end tests
 npm run test:e2e                # end-to-end tests in WebKit (iPhone 15 profiles); builds and serves the game itself
+npm run balance                 # optional: a bot plays 160 whole runs and prints win rates, deaths and the economy (~3 min)
 ```
 
 More documentation: `DESIGN.md` (the game), `ARCHITECTURE.md` (the code), `PLAN.md` (the build plan),

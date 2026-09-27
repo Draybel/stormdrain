@@ -36,7 +36,8 @@ const OPEN = ['.............', '.............', '.............', '.............'
 /** A boss room like the real ones: cover blocks round a free centre. */
 const COVER = ['.............', '..#.......#..', '.............', '.............', '.............', '..#.......#..', '.............'];
 
-const BOSS_IDS = ['old-governor', 'gnawgear', 'bellowbelly', 'grandmother-gill', 'bramblehorn', 'hushwing'] as const;
+// (Hammerjaw and Facetta: polish batch 4, the alt chapters' second bosses.)
+const BOSS_IDS = ['old-governor', 'gnawgear', 'bellowbelly', 'grandmother-gill', 'bramblehorn', 'hushwing', 'hammerjaw', 'facetta'] as const;
 const MINI_IDS = ['canshell', 'glowtail'] as const;
 const ALL_IDS = [...BOSS_IDS, ...MINI_IDS] as const;
 const HOME: Record<string, string> = {
@@ -46,6 +47,8 @@ const HOME: Record<string, string> = {
   'grandmother-gill': 'mushroom_hollow',
   bramblehorn: 'mushroom_hollow',
   hushwing: 'glimmer_grotto',
+  hammerjaw: 'rust_foundry',
+  facetta: 'glimmer_grotto',
 };
 const CH34 = ['grinding_works', 'rust_foundry', 'mushroom_hollow', 'glimmer_grotto'];
 const NEW_KINDS = Object.keys(PATTERNS_B);
@@ -59,7 +62,7 @@ function def(id: string): BossDef {
 function arena(id: string, seed: number | string = 7, intro = false, room = OPEN): Sim {
   const sim = new Sim({ seed, room });
   sim.world.player.placeAt(30, 56);
-  const e = sim.startBossFight(id, 150, 56, { intro });
+  const e = sim.startBossFight(id, 150, 56, { intro, minPhase: 0 });
   expect(e).not.toBeNull();
   return sim;
 }
@@ -132,11 +135,14 @@ describe('boss pack B: content', () => {
         expect(d.phases[i]!.tint).toMatch(/^#[0-9a-f]{6}$/i);
       }
     }
-    for (const id of ['bellowbelly', 'grandmother-gill', 'hushwing']) expect(def(id).phases.length).toBe(3);
+    for (const id of ['bellowbelly', 'grandmother-gill', 'hushwing', 'hammerjaw', 'facetta']) expect(def(id).phases.length).toBe(3);
     // Chapter 3 (floors 5-6) < chapter 4 (floors 7-8); both above the Gutterways' bosses.
     const ch1 = Math.max(def('sodden-snarl').hp, def('brimwell').hp);
-    for (const id of ['old-governor', 'gnawgear', 'bellowbelly']) expect(def(id).hp).toBeGreaterThan(ch1 * 1.5);
-    for (const id of ['grandmother-gill', 'bramblehorn', 'hushwing']) expect(def(id).hp).toBeGreaterThan(def('old-governor').hp);
+    for (const id of ['old-governor', 'gnawgear', 'bellowbelly', 'hammerjaw']) expect(def(id).hp).toBeGreaterThan(ch1 * 1.5);
+    for (const id of ['grandmother-gill', 'bramblehorn', 'hushwing', 'facetta']) expect(def(id).hp).toBeGreaterThan(def('old-governor').hp);
+    // A chapter's second boss is in line with its first.
+    expect(Math.abs(def('hammerjaw').hp - def('bellowbelly').hp)).toBeLessThanOrEqual(60);
+    expect(Math.abs(def('facetta').hp - def('hushwing').hp)).toBeLessThanOrEqual(60);
     for (const id of MINI_IDS) expect(def(id).hp).toBeGreaterThan(def('pipewhip').hp * 1.5);
   });
 
@@ -164,7 +170,7 @@ describe('boss pack B: content', () => {
 
   it('art: a sprite per phase look, same size and anchor, boss-sized, outlined, all frames distinct per look', () => {
     const all = artSprites();
-    expect(all.length).toBe(19);
+    expect(all.length).toBe(25);
     for (const s of all) {
       expect(validateSpriteDef(s), s.id).toEqual([]);
       expect(s.frames.length, s.id).toBe(8);
@@ -214,7 +220,7 @@ describe('boss pack B: new pattern kinds', () => {
     }
     const sim = new Sim({ seed: 5, room: OPEN });
     sim.world.player.placeAt(52, 56);
-    sim.startBossFight(id, 150, 56, { intro: false });
+    sim.startBossFight(id, 150, 56, { intro: false, minPhase: 0 });
     sim.world.godMode = true;
     return sim;
   }
@@ -321,9 +327,9 @@ describe('boss pack B: new pattern kinds', () => {
 describe('boss pack B: pools and runs', () => {
   it('each chapter has its own bosses and both minibosses (union rule)', () => {
     expect(bossesInChapter('grinding_works', 'boss').map((b) => b.id).sort()).toEqual(['gnawgear', 'old-governor']);
-    expect(bossesInChapter('rust_foundry', 'boss').map((b) => b.id)).toEqual(['bellowbelly']);
+    expect(bossesInChapter('rust_foundry', 'boss').map((b) => b.id).sort()).toEqual(['bellowbelly', 'hammerjaw']);
     expect(bossesInChapter('mushroom_hollow', 'boss').map((b) => b.id).sort()).toEqual(['bramblehorn', 'grandmother-gill']);
-    expect(bossesInChapter('glimmer_grotto', 'boss').map((b) => b.id)).toEqual(['hushwing']);
+    expect(bossesInChapter('glimmer_grotto', 'boss').map((b) => b.id).sort()).toEqual(['facetta', 'hushwing']);
     for (const ch of CH34) {
       const minis = bossPool(ch, 'miniboss').map((b) => b.id);
       expect(minis, ch).toEqual(expect.arrayContaining([...MINI_IDS]));
@@ -335,16 +341,17 @@ describe('boss pack B: pools and runs', () => {
       expect(a).not.toBe(b);
     }
     // Minibosses scale on chapter 4's floors.
-    expect(bossHpFor(def('canshell'), 5)).toBe(def('canshell').hp);
-    expect(bossHpFor(def('canshell'), 8)).toBeGreaterThan(def('canshell').hp * 1.2);
+    // Every boss grows with depth (polish batch 4), home or borrowed.
+    expect(bossHpFor(def('canshell'), 5)).toBe(Math.round(def('canshell').hp * (1 + 4 * BOSS_TUNING.hpPerFloor)));
+    expect(bossHpFor(def('canshell'), 8)).toBeGreaterThan(bossHpFor(def('canshell'), 5));
   });
 
   it('a real run meets them in the boss room of each chapter', () => {
     const cases: [number, 'main' | 'alt', readonly string[]][] = [
       [5, 'main', ['old-governor', 'gnawgear']],
-      [6, 'alt', ['bellowbelly']],
+      [6, 'alt', ['bellowbelly', 'hammerjaw']],
       [7, 'main', ['grandmother-gill', 'bramblehorn']],
-      [8, 'alt', ['hushwing']],
+      [8, 'alt', ['hushwing', 'facetta']],
     ];
     for (const [floor, track, ids] of cases) {
       const sim = Sim.newRun(`b-run-${floor}`, { floor, track, curse: null });

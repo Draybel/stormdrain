@@ -47,8 +47,12 @@ export const MECHANIC_TUNING = {
    * big enemies: `bigMax`), chance that the coin is silver.
    */
   pickpocket: { chance: 0.14, luck: 0.03, maxChance: 0.4, perEnemy: 1, bigMax: 3, silver: 0.08 },
-  /** Mosswick's bog blood: seconds standing in Mosswick's own puddles per half Tin heart, up to `cap` Tin halves. */
-  soak: { every: 2.5, cap: 6 },
+  /**
+   * Mosswick's bog blood: seconds standing in Mosswick's own puddles per half Tin heart, up to `cap` Tin halves — only
+   * while a fight is on (polish batch 4: she refilled three Tin hearts after every room by shooting the floor; now two,
+   * earned under fire).
+   */
+  soak: { every: 2.5, cap: 4 },
 } as const;
 
 /** Floor runs (sim/run): room entry, doors, trapdoor, curses. */
@@ -103,10 +107,20 @@ export const BOSS_TUNING = {
   deathTime: 2.4,
   boomEvery: 0.15,
   /**
-   * A boss met deeper than its home chapter (fallback pools while later chapters have no bosses of
-   * their own): HP × (1 + this × floors past its home floor).
+   * Depth (polish batch 4): every boss and miniboss has HP × (1 + this × (floor − 1)) — sim/bosses/select.ts bossHpFor
+   * (it used to scale only bosses borrowed deeper than their home chapter; from floor 6 on bosses fell inside their
+   * intro). The finals keep their own HP.
    */
-  hpPerFloor: 0.14,
+  hpPerFloor: 0.3,
+  /**
+   * Minimum phase time (polish batch 4): until a phase has been fought this long (s, counted after the intro and its
+   * roar) a hit can't take the boss past the next threshold, and the last phase's killing blow leaves it at 1 HP —
+   * the hits still land (flash, sparks), so it never reads as immunity. Every phase gets seen. Finals: `minPhaseFinal`.
+   */
+  minPhase: 3,
+  minPhaseFinal: 5,
+  /** Half hearts a final boss's attacks deal at least (sim/combat.ts damagePlayer). */
+  finalHit: 2,
   /** Enemy beams: the hit test uses width / 2 + this × the player's radius. */
   beamGrace: 0.6,
 } as const;
@@ -187,6 +201,11 @@ export const PICKUP_TUNING = {
   separation: 0.35,
   /** Seconds between "locked" nudges of a lockbox without a key. */
   lockedCooldown: 0.7,
+  /**
+   * Loot never comes to rest on spikes (polish batch 4, B4-7): a grounded pickup on a spike cell slower than this (px/s)
+   * is pushed at this speed toward the nearest spike-free floor cell until it is off the spikes.
+   */
+  spikeShove: 60,
 } as const;
 
 export const BOMB_TUNING = {
@@ -280,6 +299,22 @@ export const ENEMY_TUNING = {
   shardDamage: 5,
   /** Radius at or above which an enemy counts as big (hit-stop on death) unless `big` says so. */
   bigRadius: 8,
+  /**
+   * Depth (polish batch 4): a regular enemy spawns with HP × (1 + hpPerFloor × (floor − 1) + hpPerLateFloor × floors past
+   * `hpLateFrom`) (split copies keep the HP they are given) — sim/enemies/spawn.ts depthHpMul. Enemy HP had grown ~4.8×
+   * over twelve floors while a build's damage grew hundreds of times, most of it after the first chapters: the gentle
+   * slope keeps floors 2-6 fair, the steep one keeps the last chapters' rooms from dying inside their spawn poof.
+   */
+  hpPerFloor: 0.25,
+  hpLateFrom: 6,
+  hpPerLateFloor: 1.0,
+  /**
+   * From this chapter on (polish batch 4) every enemy hit — shots, contact, creep, shockwaves, boss attacks — costs at
+   * least `deepHit` half hearts (the Curse of the Leaky Roof still adds one more). Health sat at the 12-heart cap from
+   * floor 7 with half-heart hits.
+   */
+  dmgFromChapter: 4,
+  deepHit: 2,
 } as const;
 
 /** Status effects on enemies / dummies (sim/enemies/status.ts). */
@@ -412,7 +447,8 @@ export const ATTACK_TUNING = {
 
   // ── Boomerang (primary) ──
   boomerangRange: 0.55,
-  boomerangDamage: 1.25,
+  /** Polish batch 4: 1.25 → 1.0 (it hits on the way out and back: Marrow dealt 1.6× Wren's damage). */
+  boomerangDamage: 1.0,
   boomerangPeriod: 1.35,
   boomerangSpeed: 1.05,
   /** Returning blades are caught within this distance of the owner (px, + shot size). */
@@ -423,19 +459,31 @@ export const ATTACK_TUNING = {
   /** Half of the ~110° arc (rad). */
   meleeArc: 0.96,
   meleeLife: 0.16,
-  meleeDamage: 2.2,
+  /**
+   * Polish batch 4: 2.2 → 1.4 and the crescent 1.0 → 0.6 (Sable's swipe dealt 2.7× Wren's damage in reach; now ≈ 1.7×,
+   * ≈ 0.5× at 70 px). The balance harness still had her winning 98 % of runs at 1.6 with two swats a swing.
+   */
+  meleeDamage: 1.4,
   meleeKnock: 2.5,
   meleePeriod: 1.1,
   crescentRange: 0.55,
   crescentSpeed: 1.1,
-  crescentDamage: 1.0,
+  crescentDamage: 0.6,
+  /**
+   * A swipe swats hostile shots out of the air only near the blade's root (this fraction of its reach) and at most
+   * `meleeSwatMax` of them (polish batch 4: a swing deleted every shot in reach, whole rings included; the harness put
+   * the swat alone at ~10 points of Sable's win rate, so one shot a swing, not two).
+   */
+  meleeSwatReach: 0.7,
+  meleeSwatMax: 1,
   /** Melee as a rider: the extra swipe's damage (× damage). */
   meleeRiderDamage: 1.4,
 
   // ── Bomb rider ──
   bombRadius: 24,
   bombRadiusStack: 6,
-  bombDamage: 1.8,
+  /** Polish batch 4: 1.8 → 1.3 (the Firecracker Pouch rider was ×2.8 on Marrow's boomerang). */
+  bombDamage: 1.3,
   /** Beams: explosions every N px along the beam (max count), re-armed every N ticks. */
   beamBombSpacing: 44,
   beamBombMax: 5,

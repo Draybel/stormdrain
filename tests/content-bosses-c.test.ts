@@ -44,7 +44,7 @@ function arena(id: string, seed: number | string = 7, intro = false, chapter?: s
   const sim = new Sim({ seed, room: OPEN });
   if (chapter) sim.world.chapter = chapter;
   sim.world.player.placeAt(30, 56);
-  expect(sim.startBossFight(id, 160, 56, { intro })).not.toBeNull();
+  expect(sim.startBossFight(id, 160, 56, { intro, minPhase: 0 })).not.toBeNull();
   return sim;
 }
 
@@ -218,11 +218,12 @@ describe('selection', () => {
     );
   });
 
-  it('HP follows depth: full at home, more when met deeper (the multi-chapter minibosses)', () => {
-    expect(bossHpFor(def('marrowbough'), 9)).toBe(def('marrowbough').hp);
-    expect(bossHpFor(def('ambergut'), 11)).toBe(def('ambergut').hp);
-    expect(bossHpFor(def('slagjacket'), 5)).toBe(def('slagjacket').hp);
-    expect(bossHpFor(def('slagjacket'), 11)).toBeGreaterThan(def('slagjacket').hp * 1.6);
+  it('HP follows depth: every boss grows per floor (polish batch 4), deeper means more', () => {
+    const at = (id: string, f: number) => Math.round(def(id).hp * (1 + BOSS_TUNING.hpPerFloor * (f - 1)));
+    expect(bossHpFor(def('marrowbough'), 9)).toBe(at('marrowbough', 9));
+    expect(bossHpFor(def('ambergut'), 11)).toBe(at('ambergut', 11));
+    expect(bossHpFor(def('slagjacket'), 5)).toBe(at('slagjacket', 5));
+    expect(bossHpFor(def('slagjacket'), 11)).toBeGreaterThan(bossHpFor(def('slagjacket'), 5) * 1.3);
     expect(bossHpFor(def('shiverwing'), 9)).toBeGreaterThan(def('shiverwing').hp);
     expect(bossHpFor(def('tatterjack'), 11)).toBeGreaterThan(def('tatterjack').hp);
   });
@@ -444,6 +445,8 @@ describe('headless god-mode fights (the real attack pipeline)', () => {
     run.teleport(run.data.layout.boss);
     expect(['marrowbough', 'gloamkeeper']).toContain(sim.world.boss.id);
     expect(sim.world.boss.chapter).toBe('The Bone Orchard');
+    // A floor-9 boss has floor-9 HP (polish batch 4: ×2.1): Wren gets a floor-9 sort of build for it.
+    for (const id of ['brick-chip', 'brick-chip', 'brick-chip', 'wind-up-crank', 'wind-up-crank', 'kite-string']) sim.giveItem(id);
     const res = fightBoss(sim, 150 * 60);
     expect(res.won).toBe(true);
     stepN(sim, makeInput(), 3);

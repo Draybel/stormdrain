@@ -8,6 +8,7 @@ Four layers, from fast and narrow to slow and wide. All of them run headless exc
 | Synergy stress | `tests/stress-synergy.test.ts` | any build, any room: no crash, NaN, escape, cap breach, leak; bounded step time | part of `npm test` |
 | Play-bot + explorer | `tests/bot.test.ts`, `tests/explorer.test.ts` | whole runs play through: every floor, track, route, ending and character | part of `npm test` |
 | End-to-end | `e2e/*.spec.ts` | real WebKit on both iPhone 15 profiles: boot, touch, HUD, saves, debug menu | `npm run test:e2e` |
+| Balance harness (opt-in) | `tests/balance/*.balance.ts` | how a good human-like player fares: win rates, deaths, damage, economy, items | `npm run balance` |
 
 `npm run typecheck` / `npm run build` complete the gate. CI (`.github/workflows/deploy.yml`) runs typecheck → tests →
 build → GitHub Pages on every push to `main`; the e2e job runs beside it and never blocks the deploy (on CI a failed e2e
@@ -27,6 +28,13 @@ only the deploy job holds `pages: write` / `id-token: write`. `tests/ci-workflow
 | `BOT_DEBUG=1` | per-fight stats (shots, hits, distance, line of sight, the build) and a map of every teleport's room |
 | `EXPLORE_SEEDS`, `EXPLORE_FULL`, `EXPLORE_FIRST` | the explorer soak's seed count / whole runs / first seed |
 | `PERF_SLACK=<x>` | multiplies every timing budget (default 1; **3 when `CI` is set**) |
+| `BALANCE_SEEDS=<n>` | balance harness: runs per character (default 20) |
+| `BALANCE_SAVE=unlocked` | balance harness: every gated item and both route endings unlocked (default `fresh`: a brand-new save) |
+| `BALANCE_TRACK=alt` | balance harness: the alt track (default `main`) |
+| `BALANCE_CHARS=a,b` | balance harness: only these characters |
+| `BALANCE_UNTIL=<n>` | balance harness: stop at this floor (default 14 = the whole run) |
+| `BALANCE_VERBOSE=1` | balance harness: also list every run's problems and notes |
+| `BALANCE_CAREER=1`, `BALANCE_CAREER_RUNS=<n>` | the career simulation (`npm run balance -- career`; default 40 runs) |
 
 ## The synergy stress test
 
@@ -97,6 +105,31 @@ minibosses, the full finals); `BOT_FULL` then played 83 runs, 25 766 doors, 3 09
 Bugs it found and fixed (pinned in `tests/verify-5.test.ts`): doors ignored the Dizzy Tonic's mirrored movement (no
 door worked for 6 s); a prop could shove loot into the seam between two corner-touching blocks; loot dropped by a flyer
 over a crate pile or a pit spawned inside it; coins lodged in the 7 px seam between two neighbouring pit lips.
+
+## The balance harness (polish batch 4)
+
+`npm run balance` (`vitest.balance.config.ts`: `tests/balance/**/*.balance.ts`, never part of `npm test`) plays every
+character × `BALANCE_SEEDS` seeded runs with the play-bot in **human mode** (`playRun(sim, { human: true })`): god mode
+off and no top-ups; it buys only what it can afford (items first, at most 3 a shop; keys, bombs and hearts only when
+out or low), spends bombs and keys only when it holds them (locked doors / chests, tinted rocks, hinted secret walls) and
+explores every reachable room before the boss. It dodges with `tests/helpers/dodge.ts`: every 6 ticks it scores 16 directions + standing still over a
+0.5 s look-ahead against enemy shots it has seen for at least 0.15 s (curves and acceleration integrated), lob landing
+marks, shockwaves, creep, foes (melee characters close in), boss beams (with their spin), telegraphed lines, spikes in a
+fight and fire; Pip burrows through a hit it can't dodge. It uses charged actives in fights and has 90 s room / 240 s boss
+limits. Its aim is near-perfect, so read its win rates as an upper bound for a good player.
+
+Each character has two shard files (`<id>-1.balance.ts`, `<id>-2.balance.ts`) so 16 workers play in parallel; each writes
+`balance-results/<save>-<track>-<id>.<part>.json` and the global teardown (`tests/balance/report.ts`) prints and saves
+`balance-results/report-<save>-<track>.txt` (+ a JSON summary): win rate per character, deaths by floor (and after floor
+4) and their killers, then per floor the damage taken by source (enemy, boss, spikes, fire, blast, toll, other), median
+fight and boss seconds, realized boss DPS, pedestal items taken, coins / keys / bombs held at the floor's end and taken
+during it, the share at 99 coins, the champion share of spawns and how often the shop was entered — plus the floor-1
+key for the floor-2 shop, the Storm Lance by floor 4 and items by room kind. 160 runs take ≈ 3 minutes on 16 cores.
+
+`tests/balance/career.balance.ts` (`BALANCE_CAREER=1 npm run balance -- career`) plays a brand-new player's career through
+the real meta layer (GameSave, the achievement engine, MetaTracker, `unlockedForRun`), one run after another with each
+new character in turn, and logs what every run unlocked (`balance-results/career.txt`). DECISIONS "Polish batch 4" has
+the numbers before and after the balance pass.
 
 ## End-to-end (WebKit)
 

@@ -122,6 +122,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'spare-spoon',
+    unlock: 'taste-tester',
     name: 'Spare Spoon',
     desc: 'FOES MAY LEAVE A SIP OF HEALTH BEHIND',
     kind: 'passive',
@@ -198,6 +199,7 @@ const items: ItemDef[] = [
   // ── Economy ──
   {
     id: 'chipped-piggy-bank',
+    unlock: 'drain-cleaner',
     name: 'Chipped Piggy Bank',
     desc: '+5 COINS · A COIN FOR EVERY ROOM CLEARED',
     kind: 'passive',
@@ -308,7 +310,6 @@ const items: ItemDef[] = [
   // ── Stat multipliers ──
   {
     id: 'cast-iron-kettle',
-    unlock: 'boss-hunter',
     name: 'Cast-Iron Kettle',
     desc: 'DAMAGE +30% · HEAVY TO LUG AROUND',
     kind: 'passive',

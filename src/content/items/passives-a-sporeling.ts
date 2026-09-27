@@ -73,6 +73,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'toddlecap',
+    unlock: 'glow-in-the-dark',
     name: 'Toddlecap',
     desc: 'A LITTLE MUSHROOM THAT HEADBUTTS FOES',
     kind: 'passive',

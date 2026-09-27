@@ -22,11 +22,25 @@
  * Missing coins / keys / bombs for a purchase, a lock or a wall are topped up (logged): the bot tests the
  * game's machinery, not the economy. It never throws — every problem lands in its report. Its choices
  * depend only on the Sim's state, so a run replays exactly from the same seed.
+ *
+ * `human: true` (polish batch 4, the balance harness tests/balance): plays like a reasonable player instead —
+ * god mode off and no top-ups (it can die: the run ends there); buys only what it can afford (items first, the best
+ * first, at most 3 purchases per shop; a Nook deal only with hearts to spare; Old Pell with the keys in hand); uses
+ * bombs and keys only when it holds them (locked doors first; a lockbox only with a key to spare; hinted secret
+ * walls and tinted rocks with bombs to spare); breaks crates, urns and fires it can shoot; sidesteps enemy shots it
+ * has seen for at least 0.15 s, looking 0.5 s ahead, and keeps clear of foes, landing marks, shockwaves, creep and
+ * boss beams (tests/helpers/dodge.ts; Pip burrows through a hit it can't dodge); avoids spikes in fights; explores
+ * every room it can reach before the boss (a Thorn Room only with 2 hearts to spare); uses a charged active in
+ * fights. Every floor record also carries the numbers the harness prints (damage by source, fight times, pedestal
+ * items, coins / keys / bombs, champions, the shop).
  */
 
 import { clearEdges } from '../../src/engine/inputState';
 import { Rng, hashString } from '../../src/engine/rng';
-import { allItems } from '../../src/content/registry';
+import { allItems, findItem } from '../../src/content/registry';
+import { DMG_ENEMY, DMG_EXPLOSION, DMG_FIRE, DMG_SPIKES, DMG_TOLL } from '../../src/sim/combat';
+import { containers, totalHalves } from '../../src/sim/health';
+import { haggled } from '../../src/sim/pedestals';
 import { CM_NONE } from '../../src/sim/attack/profile';
 import { FLY_MODE, SHOT_MODE, WALK_MODE, circleOverlapsGrid, type CollideMode } from '../../src/sim/collision';
 import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W, TILE } from '../../src/sim/constants';
@@ -34,16 +48,18 @@ import { DK, DOOR_FRONT_X, DOOR_FRONT_Y, DOOR_X, DOOR_Y, DS, TRAPDOOR_OPEN_TIME 
 import { damageEnemy } from '../../src/sim/enemies/damage';
 import type { Enemy } from '../../src/sim/enemies/enemy';
 import { neighborRoom } from '../../src/sim/floor/generate';
+import { DIR_BITS } from '../../src/sim/floor/types';
 import { SRC_PLAYER } from '../../src/sim/hittable';
 import type { Pedestal } from '../../src/sim/pedestals';
-import { PK } from '../../src/sim/pickupKinds';
-import { wouldCollect, type Pickup } from '../../src/sim/pickups';
+import { PK, type PickupKind } from '../../src/sim/pickupKinds';
+import { canTakeKind, wouldCollect, type Pickup } from '../../src/sim/pickups';
 import type { FloorThing } from '../../src/sim/roomProps';
 import { PROP_JAR, PROP_SLOTS, PROP_TRADER } from '../../src/sim/shopProps';
 import type { Sim } from '../../src/sim/sim';
 import { Tile } from '../../src/sim/tiles';
 import { BOMB_TUNING, ITEM_TUNING, RUN_TUNING } from '../../src/sim/tuning';
 import { floorPrint } from './explorer';
+import { Dodger } from './dodge';
 import { checkCapacities, checkWorld } from './stress';
 import { makeInput } from './sim';
 
@@ -65,7 +81,12 @@ export interface BotOptions {
   onEnter?: (sim: Sim) => void;
   /** Called after every tick (extra invariants, diagnostics); a returned string is reported as a problem. */
   onTick?: (sim: Sim) => string | void;
+  /** The balance harness: play like a reasonable human (see the header) — no god mode, no top-ups, it can die. */
+  human?: boolean;
 }
+
+/** Damage sources of `BotFloor.hurt` (half hearts lost). */
+export const HURT_SOURCES = ['enemy', 'boss', 'spikes', 'fire', 'blast', 'toll', 'other'] as const;
 
 export interface BotFloor {
   floor: number;
@@ -85,6 +106,32 @@ export interface BotFloor {
   chests: number;
   itemsTaken: number;
   print: number;
+  // ── Balance numbers (every run fills them; the harness prints them) ──
+  /** Half hearts lost on the floor per HURT_SOURCES entry ('boss' = anything during a boss / miniboss fight). */
+  hurt: number[];
+  /** Seconds of each normal room fight (room entry with foes → clear). */
+  fights: number[];
+  /** The floor boss's HP when the fight began (0 = no fight). */
+  bossHp: number;
+  /** Passives / actives taken fresh (pedestals, shops, the Nook, Old Pell), and by room type. */
+  pedestalItems: number;
+  itemsBy: Record<string, number>;
+  /** Coins / keys / bombs held when the floor ended, and picked up during it. */
+  coins: number;
+  keys: number;
+  bombs: number;
+  coinsIn: number;
+  keysIn: number;
+  bombsIn: number;
+  /** Enemies spawned on the floor and how many of them were champions. */
+  spawned: number;
+  champions: number;
+  /** The floor's shop was entered. */
+  shop: boolean;
+  /** The run died on this floor. */
+  died: boolean;
+  /** Items held when the floor ended. */
+  held: string[];
 }
 
 export interface BotReport {
@@ -113,6 +160,11 @@ export interface BotReport {
   /** "floor track:room" per room entry, in order. */
   trace: string[];
   final: string;
+  /** Human mode: the run ended in a death — where, and what dealt the blow (World.killer / killedBy). */
+  died: boolean;
+  deathFloor: number;
+  killer: string;
+  killedBy: number;
 }
 
 /** A moving walk target (a pickup): its live position and whether it's still worth walking to. */
@@ -124,6 +176,9 @@ interface WalkFollow {
 
 /** `BOT_DEBUG=1`: per-fight stats (shots, hits, distance, line of sight, the build) and each teleport's scene. */
 const DEBUG = typeof process !== 'undefined' && !!process.env.BOT_DEBUG;
+
+/** Human mode: ticks a dodge decision holds (a player re-decides about every 0.1 s). */
+const DODGE_EVERY = 6;
 
 const PUSH_X = [0, 1, 0, -1];
 const PUSH_Y = [-1, 0, 1, 0];
@@ -167,6 +222,10 @@ export class Bot {
     simMs: 0,
     trace: [],
     final: '',
+    died: false,
+    deathFloor: 0,
+    killer: '',
+    killedBy: -1,
   };
   private readonly input = makeInput();
   private floorRec: BotFloor | null = null;
@@ -190,6 +249,11 @@ export class Bot {
   private readonly roomLimit: number;
   private readonly bossLimit: number;
   private readonly stuckLimit: number;
+  /** Human mode (the balance harness). */
+  private readonly human: boolean;
+  private readonly dodger = new Dodger();
+  /** Human mode: doors ('floor track room side') it could not use when it got there. */
+  private readonly noDoor = new Set<string>();
 
   constructor(
     private readonly sim: Sim,
@@ -198,6 +262,7 @@ export class Bot {
     this.roomLimit = opts.roomLimit ?? 45;
     this.bossLimit = opts.bossLimit ?? 150;
     this.stuckLimit = opts.stuckLimit ?? 4;
+    this.human = !!opts.human;
   }
 
   private get w() {
@@ -249,9 +314,38 @@ export class Bot {
     }
     clearEdges(this.input);
     this.report.ticks++;
-    // Purchases that really went through (a 'buy' event: paid and handed over).
+    // Purchases that really went through (a 'buy' event: paid and handed over), and the floor's balance numbers.
     const q = this.sim.events;
-    for (let i = 0; i < q.count; i++) if (q.at(i).type === 'buy') this.buys++;
+    const rec = this.floorRec;
+    for (let i = 0; i < q.count; i++) {
+      const ev = q.at(i);
+      switch (ev.type) {
+        case 'buy':
+          this.buys++;
+          break;
+        case 'hurt':
+          if (rec) rec.hurt[this.hurtIndex(ev.b)]! += ev.a;
+          break;
+        case 'item':
+          if (rec && ev.a <= 1 && ev.b === 1) {
+            rec.pedestalItems++;
+            const t = this.run.room.type;
+            rec.itemsBy[t] = (rec.itemsBy[t] ?? 0) + 1;
+          }
+          break;
+        case 'pickup':
+          if (rec) countPickup(rec, ev.a as PickupKind, ev.b);
+          break;
+        case 'enemySpawn':
+          if (rec) {
+            rec.spawned++;
+            if (ev.b > 0) rec.champions++;
+          }
+          break;
+        default:
+          break;
+      }
+    }
     // A boss fight on: the furthest phase it reached (a boss must go through every phase before it falls).
     const bf = w.boss;
     if (bf.active) {
@@ -275,7 +369,18 @@ export class Bot {
       this.stopped = true;
     }
     if (w.player.dead) {
-      this.problem('the player died in god mode');
+      if (this.human) {
+        const r = this.report;
+        if (!r.died) {
+          r.died = true;
+          r.deathFloor = d.floor;
+          r.killer = w.killer;
+          r.killedBy = w.killedBy;
+          if (this.floorRec) this.floorRec.died = true;
+        }
+      } else {
+        this.problem('the player died in god mode');
+      }
       this.stopped = true;
     }
     // An arena that stays shut with nothing alive to fight (between challenge waves it waits ~1 s).
@@ -291,6 +396,16 @@ export class Bot {
       this.problem('tick budget exhausted');
       this.stopped = true;
     }
+  }
+
+  /** HURT_SOURCES index of a 'hurt' event's damage source. */
+  private hurtIndex(src: number): number {
+    if (src === DMG_ENEMY) return this.w.boss.active ? 1 : 0;
+    if (src === DMG_SPIKES) return 2;
+    if (src === DMG_FIRE) return 3;
+    if (src === DMG_EXPLOSION) return 4;
+    if (src === DMG_TOLL) return 5;
+    return 6;
   }
 
   private hands(): void {
@@ -314,7 +429,7 @@ export class Bot {
   /** Plays until the run is won, reaches `untilFloor`, or something goes wrong. */
   play(): BotReport {
     try {
-      this.w.godMode = true;
+      this.w.godMode = !this.human;
       const capErr = checkCapacities(this.sim, null);
       if (capErr) this.problem(capErr);
       while (!this.stopped) {
@@ -351,6 +466,7 @@ export class Bot {
       this.startFloor();
     }
     this.lastRoom = key;
+    if (this.floorRec && this.run.room.type === 'shop') this.floorRec.shop = true;
     this.report.roomsEntered++;
     this.report.trace.push(key);
     if (this.floorRec) this.floorRec.visited = d.rooms.filter((r) => r.visited).length;
@@ -377,6 +493,22 @@ export class Bot {
       chests: 0,
       itemsTaken: 0,
       print: floorPrint(this.sim),
+      hurt: HURT_SOURCES.map(() => 0),
+      fights: [],
+      bossHp: 0,
+      pedestalItems: 0,
+      itemsBy: {},
+      coins: 0,
+      keys: 0,
+      bombs: 0,
+      coinsIn: 0,
+      keysIn: 0,
+      bombsIn: 0,
+      spawned: 0,
+      champions: 0,
+      shop: false,
+      died: false,
+      held: [],
     };
     // Random items: the build grows floor by floor (seeded by the run seed and the floor).
     const n = this.opts.itemsPerFloor ?? 0;
@@ -395,6 +527,11 @@ export class Bot {
       rec.visited = d.rooms.filter((r) => r.visited).length;
       rec.rooms = d.layout.rooms.length;
     }
+    const inv = this.w.player.inv;
+    rec.coins = inv.coins;
+    rec.keys = inv.keys;
+    rec.bombs = inv.bombs;
+    rec.held = [...inv.passives, ...(inv.active ? [inv.active.id] : [])];
     this.report.floors.push(rec);
     this.floorRec = null;
   }
@@ -432,8 +569,11 @@ export class Bot {
     // The doors open once the room is clear.
     if (w.arena.active || w.arena.locked) this.problem(`room cleared but the arena is still ${w.arena.active ? 'active' : 'locked'}`);
     this.idle(20);
+    // (A death in those ticks — a lingering shot or a blast — freezes the doors mid-swing: not a door bug.)
+    if (this.stopped || this.roomChanged(key)) return;
     if (w.arena.doors > 0.01) this.problem(`the doors stayed barred after the clear (arena.doors ${w.arena.doors.toFixed(2)})`);
-    this.collect(key);
+    if (this.human) this.collectHuman(key);
+    else this.collect(key);
     if (this.stopped || this.roomChanged(key)) return;
     this.useItems(key);
   }
@@ -445,7 +585,8 @@ export class Bot {
     // A teleport item could land her in a final boss's room, which ends the run: not while rooms are left.
     if (this.run.data.layout.finalBoss && this.roomsLeft()) return;
     const salt = hashString(`${this.run.data.seed}:${key}`);
-    if (inv.active && inv.active.charge >= inv.active.max && (salt & 3) === 0) {
+    // (A player uses a charged active in the fights instead: fightTick.)
+    if (!this.human && inv.active && inv.active.charge >= inv.active.max && (salt & 3) === 0) {
       this.doing = `using the active ${inv.active.id}`;
       this.input.active = true;
       this.idle(30);
@@ -477,6 +618,8 @@ export class Bot {
     const limit = (bossRoom || w.boss.active ? this.bossLimit : this.roomLimit) * 60;
     // Only a fight that starts with the boss alive counts for the floor record (re-entries don't).
     const bossAlive = bossRoom && this.busy();
+    const realFight = !bossRoom && !w.boss.active && w.enemies.count > 0;
+    if (bossAlive && this.floorRec && w.boss.active) this.floorRec.bossHp = w.boss.maxHp;
     let t = 0;
     let quiet = 0;
     this.doing = bossRoom ? `fighting the boss ${this.run.state.boss}` : 'fighting';
@@ -493,6 +636,7 @@ export class Bot {
     this.hands();
     const secs = t / 60;
     if (DEBUG && t > 60) this.printFight(secs);
+    if (realFight && this.floorRec && !this.busy()) this.floorRec.fights.push(secs);
     if (bossAlive && this.floorRec && !this.busy()) {
       this.floorRec.bossKilledBy = 'fight';
       this.floorRec.bossSeconds = secs;
@@ -598,7 +742,10 @@ export class Bot {
     const tick = w.tick;
     const foe = this.nearestFoe();
     // Pip's burrow now and then — only at a foe, and never with an open exit in the room (surfacing on it drops her).
-    if (foe && tick % 90 === 45 && !this.exitOpen()) inp.dash = true;
+    // (A player burrows to get out of a hit instead: dodgeMove.)
+    if (!this.human && foe && tick % 90 === 45 && !this.exitOpen()) inp.dash = true;
+    // A charged active goes off in the fight (not a teleport: that would leave the fight).
+    if (this.human && foe && this.activeReady()) inp.active = true;
     if (!foe) {
       if (DEBUG) {
         this.fightStats.nofoe++;
@@ -608,6 +755,7 @@ export class Bot {
       inp.fireHeld = false;
       inp.aimX = inp.aimY = 0;
       this.steerTo(ROOM_W / 2, ROOM_H / 2 + 8, 24, -1);
+      if (this.human) this.dodgeMove(false, true);
       this.step();
       return;
     }
@@ -635,8 +783,45 @@ export class Bot {
       const side = ((tick / 75) | 0) % 2 === 0 ? 1 : -1;
       this.setMove((-dy / d) * side * 0.8, (dx / d) * side * 0.8);
     }
+    if (this.human) this.dodgeMove(melee, true);
     this.avoidExits();
     this.step();
+  }
+
+  /**
+   * Human mode: turns the move the fight / the walk wants into the safest nearby one (tests/helpers/dodge.ts); a hit
+   * it can't step out of soon sends Pip underground when the burrow is ready.
+   */
+  private dodgeMove(melee: boolean, fight: boolean): void {
+    const w = this.w;
+    if (!this.dodger.threats(w)) return;
+    const inp = this.input;
+    // A player re-decides a few times a second, not every frame: the choice holds for DODGE_EVERY ticks.
+    if (w.tick - this.dodgeTick < DODGE_EVERY && w.tick >= this.dodgeTick) {
+      this.setMove(this.dodgeX, this.dodgeY);
+      return;
+    }
+    const r = this.dodger.choose(w, inp.moveX, inp.moveY, melee, fight);
+    this.dodgeTick = w.tick;
+    this.dodgeX = r.mx;
+    this.dodgeY = r.my;
+    this.setMove(r.mx, r.my);
+    const m = w.player.mech;
+    if (r.danger >= 0.8 && m.dashTime > 0 && m.dashCd <= 0 && !w.player.underground && !this.exitOpen()) inp.dash = true;
+  }
+
+  private dodgeTick = -1e9;
+  private dodgeX = 0;
+  private dodgeY = 0;
+
+  /** Human mode: the active is charged and worth using in a fight (never a teleport, never on a final floor too early). */
+  private activeReady(): boolean {
+    const inv = this.w.player.inv;
+    const a = inv.active;
+    if (!a || a.max <= 0 || a.charge < a.max) return false;
+    if (this.run.data.layout.finalBoss && this.roomsLeft()) return false;
+    const def = findItem(a.id);
+    return !(def?.active?.use ?? []).some((e) => e.type === 'hook' && e.hook === 'itemsC.teleport');
   }
 
   /** Would a shot from her reach (x, y) without hitting a wall / rock / prop on the way (pits don't stop shots)? */
@@ -737,9 +922,13 @@ export class Bot {
   }
 
   private cellCost(cell: number): number {
-    const t = this.w.room.get(cell % ROOM_COLS, Math.floor(cell / ROOM_COLS));
+    return this.spiky(cell) ? (this.human ? 25 : 6) : 1;
+  }
+
+  /** Spikes that would hurt her (not flying, not immune). */
+  private spiky(cell: number): boolean {
     const p = this.w.player;
-    return t === Tile.Spikes && !p.flags.flying && !p.flags.spikeImmune ? 6 : 1;
+    return !p.flags.flying && !p.flags.spikeImmune && this.w.room.get(cell % ROOM_COLS, Math.floor(cell / ROOM_COLS)) === Tile.Spikes;
   }
 
   /**
@@ -860,6 +1049,8 @@ export class Bot {
       const cell = cellOf(sx, sy);
       if (cell !== goal && this.block[cell] !== 0 && !this.nearCell(sx, sy, cellOf(p.x, p.y))) return false;
       if (cell !== goal && !this.walkable(cell)) return false;
+      // A player doesn't cut across spikes the path went round (only when the goal is on them).
+      if (this.human && cell !== goal && cell !== cellOf(p.x, p.y) && this.spiky(cell)) return false;
     }
     return true;
   }
@@ -975,6 +1166,7 @@ export class Bot {
         this.input.aimX = this.input.aimY = 0;
       }
       this.steerTo(x, y, reach, g);
+      if (this.human) this.dodgeMove(false, !!foe);
       this.step();
     }
     return false;
@@ -1063,6 +1255,8 @@ export class Bot {
   // ── Loot, items, shops ─────────────────────────────────────────────────────
 
   private ensure(coins: number, bombs: number, keys: number, why: string): void {
+    // A player can't conjure pickups: human mode checks before it acts instead.
+    if (this.human) return;
     const inv = this.w.player.inv;
     const c = Math.max(0, coins - inv.coins);
     const b = Math.max(0, bombs - inv.bombs);
@@ -1154,6 +1348,261 @@ export class Bot {
     }
   }
 
+  /**
+   * Human mode: what a reasonable player takes — free items, then what it can afford (the best item first, at most
+   * 3 purchases a shop; goods only when useful), a Nook deal with hearts to spare, Old Pell with the keys in hand, a
+   * few spins of a Gumball Gambler with coins to spare (never the donation jar); then it shoots the crates, urns and
+   * fires open, bombs tinted rocks with a bomb to spare, and picks up the loot (a lockbox with a key to spare).
+   */
+  private collectHuman(key: string): void {
+    const w = this.w;
+    const rec = this.floorRec;
+    let buys = 0;
+    let nook = false;
+    const tried = new Set<Pedestal>();
+    for (;;) {
+      if (this.stopped || this.roomChanged(key)) return;
+      const ped = this.nextPedestalHuman(tried, buys, nook);
+      if (!ped) break;
+      tried.add(ped);
+      if (ped.prop === PROP_SLOTS) {
+        this.doing = 'playing the Gumball Gambler';
+        if (!this.touch(ped.x, ped.y, 75 * 3)) return;
+        this.walkAway(ped.x, ped.y, 26);
+        continue;
+      }
+      if (ped.hearts > 0) nook = true;
+      const itemsBefore = w.counters.items;
+      const buysBefore = this.buys;
+      this.doing = `taking ${ped.item || `goods ${ped.goods}`} from a pedestal at ${ped.x},${ped.y}`;
+      if (!this.touch(ped.x, ped.y, 6)) return;
+      if (this.buys > buysBefore) {
+        if (ped.prop !== PROP_TRADER && ped.hearts === 0) buys++;
+        if (rec) rec.bought++;
+      }
+      if (rec && w.counters.items > itemsBefore) rec.itemsTaken++;
+      this.walkAway(ped.x, ped.y, 26);
+    }
+    this.shootProps(key);
+    if (this.stopped || this.roomChanged(key)) return;
+    this.bombTinted(key);
+    if (this.stopped || this.roomChanged(key)) return;
+    const tried2 = new Set<Pickup>();
+    for (let pass = 0; pass < 3 && !this.stopped; pass++) {
+      this.idle(20);
+      for (;;) {
+        if (this.stopped || this.roomChanged(key)) return;
+        const pk = this.nextPickup(tried2);
+        if (!pk) break;
+        tried2.add(pk);
+        if (!this.plan(cellOf(pk.x, pk.y))) continue;
+        // A lockbox only with a key to spare (one stays for a locked door, else for the next floor's shop).
+        if (pk.kind === PK.Lockbox && w.player.inv.keys < (this.locksLeft() ? 3 : 2)) continue;
+        const chestsBefore = w.counters.chestsOpened;
+        this.doing = `picking up kind ${pk.kind} at ${pk.x.toFixed(1)},${pk.y.toFixed(1)}`;
+        const follow: WalkFollow = {
+          x: () => pk.x,
+          y: () => pk.y,
+          wanted: () => pk.alive && !pk.opened && (pk.kind === PK.Satchel || pk.kind === PK.Lockbox || wouldCollect(w, pk)),
+        };
+        if (!this.walkTo(pk.x, pk.y, Math.max(2, pk.r + w.player.r - 0.5), -1, 8, follow)) return;
+        this.idle(3);
+        if (rec && w.counters.chestsOpened > chestsBefore) rec.chests++;
+      }
+    }
+  }
+
+  /** Human mode: the next offer worth taking (free items first, then the best affordable ones), or null. */
+  private nextPedestalHuman(tried: Set<Pedestal>, buys: number, nook: boolean): Pedestal | null {
+    const w = this.w;
+    const p = w.player;
+    const inv = p.inv;
+    let best: Pedestal | null = null;
+    let bs = -Infinity;
+    for (let i = 0; i < w.pedestals.count; i++) {
+      const ped = w.pedestals.items[i]!;
+      if (!ped.alive || ped.gone || ped.bell || tried.has(ped) || ped.blocked) continue;
+      let score: number;
+      if (ped.prop === PROP_JAR) continue;
+      if (ped.prop === PROP_SLOTS) {
+        if (ped.broken || inv.coins < 20) continue;
+        score = 1;
+      } else if (ped.prop === PROP_TRADER) {
+        if (!ped.item || inv.keys < haggled(w, ped.keys) + (this.locksLeft() ? 1 : 0)) continue;
+        score = 50;
+      } else if (ped.goods >= 0) {
+        if (buys >= 3 || inv.coins < haggled(w, ped.price) || !this.goodsUseful(ped.goods as PickupKind)) continue;
+        score = 10;
+      } else if (!ped.item || !ped.fresh) {
+        continue;
+      } else if (ped.hearts > 0) {
+        if (nook || !this.canPayHearts(ped.hearts)) continue;
+        score = 40 + (findItem(ped.item)?.quality ?? 0);
+      } else if (ped.price > 0) {
+        if (buys >= 3 || inv.coins < haggled(w, ped.price)) continue;
+        score = 20 + (findItem(ped.item)?.quality ?? 0) - ped.price / 100;
+      } else {
+        score = 100;
+      }
+      // Nearest first within a tier.
+      score -= Math.hypot(ped.x - p.x, ped.y - p.y) / 1000;
+      if (score > bs) {
+        bs = score;
+        best = ped;
+      }
+    }
+    return best;
+  }
+
+  /** Human mode: shop goods worth buying right now. */
+  private goodsUseful(kind: PickupKind): boolean {
+    const p = this.w.player;
+    const inv = p.inv;
+    switch (kind) {
+      case PK.Key:
+      case PK.KeyRing:
+        return inv.keys < 1;
+      case PK.Bomb:
+      case PK.DoubleBomb:
+        return inv.bombs < 1;
+      case PK.Heart:
+      case PK.HalfHeart:
+      case PK.TinHeart:
+      case PK.EmberHeart:
+        return totalHalves(p.health) <= 3 && canTakeKind(this.w, kind);
+      default:
+        return canTakeKind(this.w, kind);
+    }
+  }
+
+  /** Human mode: a Nook price it can pay and keep two hearts (with no containers, Tin hearts at 3 each). */
+  private canPayHearts(n: number): boolean {
+    const h = this.w.player.health;
+    const c = containers(h);
+    if (c > 0) return c >= n + 2;
+    return totalHalves(h) >= n * 6 + 4;
+  }
+
+  /** Human mode: shoots the crates, urns and fires in the room open (loot), from a spot it can hit them from. */
+  private shootProps(key: string): void {
+    const w = this.w;
+    const p = w.player;
+    for (let n = 0; n < 12 && !this.stopped; n++) {
+      if (this.roomChanged(key)) return;
+      // The nearest breakable prop with a spot to shoot it from.
+      let tc = -1;
+      let spot = -1;
+      let bd = Infinity;
+      const melee = p.attack.primary === 'melee';
+      for (let cell = 0; cell < CELLS; cell++) {
+        const t = w.room.get(cell % ROOM_COLS, Math.floor(cell / ROOM_COLS));
+        if (t !== Tile.Crate && t !== Tile.Urn && t !== Tile.Fire) continue;
+        if (this.propTried.has(`${key} ${cell}`)) continue;
+        const s = this.shootSpot(cell, melee);
+        if (s < 0) continue;
+        const dd = Math.hypot(cx(s) - p.x, cy(s) - p.y);
+        if (dd < bd) {
+          bd = dd;
+          tc = cell;
+          spot = s;
+        }
+      }
+      if (tc < 0) return;
+      this.propTried.add(`${key} ${tc}`);
+      this.doing = `shooting a prop at cell ${tc}`;
+      if (!this.walkTo(cx(spot), cy(spot), 4, -1)) return;
+      const col = tc % ROOM_COLS;
+      const row = Math.floor(tc / ROOM_COLS);
+      const tile = w.room.get(col, row);
+      for (let i = 0; i < 150 && !this.stopped && w.room.get(col, row) === tile; i++) {
+        if (this.roomChanged(key)) return;
+        const ax = cx(tc) - p.x;
+        const ay = cy(tc) - p.y;
+        const a = Math.hypot(ax, ay) || 1;
+        this.input.moveX = this.input.moveY = 0;
+        this.input.aimX = ax / a;
+        this.input.aimY = ay / a;
+        this.input.fireHeld = !(p.attack.chargeMode !== CM_NONE && p.atk.charge >= 1 && this.input.fireHeld);
+        this.step();
+      }
+      this.hands();
+      this.idle(10);
+    }
+  }
+
+  /** Props already shot at (per room), so a prop that won't break isn't tried forever. */
+  private readonly propTried = new Set<string>();
+
+  /** A plain floor cell to shoot `target` from: in line, 2-4 cells away (melee: next to it), nearest to her. */
+  private shootSpot(target: number, melee: boolean): number {
+    const w = this.w;
+    const p = w.player;
+    const tx = cx(target);
+    const ty = cy(target);
+    let best = -1;
+    let bd = Infinity;
+    for (let cell = 0; cell < CELLS; cell++) {
+      if (w.room.get(cell % ROOM_COLS, Math.floor(cell / ROOM_COLS)) !== Tile.Floor) continue;
+      const d = Math.hypot(cx(cell) - tx, cy(cell) - ty);
+      if (melee ? d > TILE * 1.5 : d < TILE * 1.5 || d > TILE * 4.5) continue;
+      // Never on (or next to) an open floor exit: standing there drops her through.
+      if (this.nearOpenExit(cx(cell), cy(cell), RUN_TUNING.trapdoorReach + 12)) continue;
+      if (!this.clearShot(cx(cell), cy(cell), tx, ty, target)) continue;
+      if (!this.plan(cell)) continue;
+      const dd = Math.hypot(cx(cell) - p.x, cy(cell) - p.y);
+      if (dd < bd) {
+        bd = dd;
+        best = cell;
+      }
+    }
+    return best;
+  }
+
+  /** A shot from (x0, y0) to (x1, y1) meets nothing solid before the target cell. */
+  private clearShot(x0: number, y0: number, x1: number, y1: number, target: number): boolean {
+    const w = this.w;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const steps = Math.ceil(Math.hypot(dx, dy) / 4);
+    for (let i = 1; i < steps; i++) {
+      const sx = x0 + (dx * i) / steps;
+      const sy = y0 + (dy * i) / steps;
+      if (cellOf(sx, sy) === target) return true;
+      if (circleOverlapsGrid(w.room, sx, sy, 1.5, SHOT_MODE)) return false;
+    }
+    return true;
+  }
+
+  /** Human mode: tinted rocks (they always pay out) get a bomb while it holds two or more. */
+  private bombTinted(key: string): void {
+    const w = this.w;
+    for (let n = 0; n < 3 && !this.stopped && w.player.inv.bombs >= 2; n++) {
+      if (this.roomChanged(key)) return;
+      let spot = -1;
+      let bd = Infinity;
+      const p = w.player;
+      for (let cell = 0; cell < CELLS; cell++) {
+        const c = cell % ROOM_COLS;
+        const r = Math.floor(cell / ROOM_COLS);
+        if (w.room.get(c, r) !== Tile.RockTinted) continue;
+        for (let k = 0; k < 4; k++) {
+          const nc = c + PUSH_X[k]!;
+          const nr = r + PUSH_Y[k]!;
+          if (nc < 0 || nr < 0 || nc >= ROOM_COLS || nr >= ROOM_ROWS || w.room.get(nc, nr) !== Tile.Floor) continue;
+          const s = nr * ROOM_COLS + nc;
+          if (this.nearOpenExit(cx(s), cy(s), RUN_TUNING.trapdoorReach + 12) || !this.plan(s)) continue;
+          const dd = Math.hypot(cx(s) - p.x, cy(s) - p.y);
+          if (dd < bd) {
+            bd = dd;
+            spot = s;
+          }
+        }
+      }
+      if (spot < 0) return;
+      if (!this.bombAt(cx(spot), cy(spot), 'a tinted rock')) return;
+    }
+  }
+
   /** The next pedestal worth a visit (nearest first), or null. */
   private nextPedestal(tried: Set<Pedestal>, pass: number, bought: number, boughtNook: boolean): Pedestal | null {
     const w = this.w;
@@ -1229,6 +1678,7 @@ export class Bot {
     const w = this.w;
     const key = this.roomKey();
     this.ensure(0, 1, 0, why);
+    if (w.player.inv.bombs <= 0) return false;
     this.doing = `walking to bomb ${why}`;
     if (!this.walkTo(x, y, 3, -1)) return false;
     const before = w.counters.explosions;
@@ -1294,6 +1744,7 @@ export class Bot {
   /** The nearest unvisited room, else the floor's exit. False = stop. */
   private moveOn(): boolean {
     this.surface();
+    if (this.human) return this.moveOnHuman();
     const d = this.run.data;
     // A final boss ends the run: on its floor the boss room waits until every other room has been seen.
     const others = !!d.layout.finalBoss && this.roomsLeft();
@@ -1316,6 +1767,108 @@ export class Bot {
     return useGrate ? this.takeGrate() : this.takeTrapdoor();
   }
 
+  /**
+   * Human mode: the nearest room it can reach and wants (see `wantRoom`) — through open doors, locked ones while it
+   * holds a key, hinted secret walls while it holds a bomb — the boss room only once nothing else is left, then the
+   * Broker's Nook if it opened, then the trapdoor.
+   */
+  private moveOnHuman(): boolean {
+    const d = this.run.data;
+    const boss = d.layout.boss;
+    const path = this.routeHuman((i) => !d.rooms[i]!.visited && i !== boss && this.wantRoom(i), false);
+    if (path) return this.goThrough(path[0]!);
+    if (d.current !== boss) {
+      const p2 = this.routeHuman((i) => i === boss, true);
+      if (!p2) {
+        this.problem('no way to the boss room');
+        return false;
+      }
+      return this.goThrough(p2[0]!);
+    }
+    return this.takeTrapdoor();
+  }
+
+  /** Human mode: is this room worth the trip (a Thorn Room costs a heart there and back)? */
+  private wantRoom(i: number): boolean {
+    const d = this.run.data;
+    const type = d.layout.rooms[i]!.type;
+    const halves = totalHalves(this.w.player.health);
+    if (type === 'cursed') return halves >= 5;
+    if (type === 'challenge') return halves >= 3;
+    return true;
+  }
+
+  /**
+   * Human mode: the side to leave by on the cheapest way to a room matching `target` (open doors 1, a key or a bomb
+   * 4), or null. Locked doors need a key in hand, secret walls a bomb and a hint; the boss room is only passed through
+   * when it is the target (`toBoss`).
+   */
+  private routeHuman(target: (i: number) => boolean, toBoss: boolean): number[] | null {
+    const d = this.run.data;
+    const layout = d.layout;
+    const inv = this.w.player.inv;
+    const see = this.w.player.flags.seeSecrets;
+    const n = d.rooms.length;
+    const dist = new Array<number>(n).fill(Infinity);
+    const from = new Array<number>(n).fill(-1);
+    const side0 = new Array<number>(n).fill(-1);
+    const done = new Array<boolean>(n).fill(false);
+    dist[d.current] = 0;
+    for (;;) {
+      let cur = -1;
+      let best = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (!done[i] && dist[i]! < best) {
+          best = dist[i]!;
+          cur = i;
+        }
+      }
+      if (cur < 0) return null;
+      if (cur !== d.current && target(cur)) {
+        const sides: number[] = [];
+        for (let c = cur; c !== d.current; c = from[c]!) sides.unshift(side0[c]!);
+        return sides;
+      }
+      done[cur] = true;
+      // Only the start of the trip leaves the boss room; nothing passes through it on the way elsewhere.
+      if (cur !== d.current && cur === layout.boss && !toBoss) continue;
+      const room = layout.rooms[cur]!;
+      const st = d.rooms[cur]!;
+      for (let side = 0; side < 4; side++) {
+        const bit = DIR_BITS[side]!;
+        if ((room.doors & bit) === 0) continue;
+        const nb = neighborRoom(layout, cur, side);
+        if (nb < 0 || !d.rooms[nb] || done[nb]) continue;
+        if (this.noDoor.has(`${d.floor}${d.track} ${cur} ${side}`)) continue;
+        const opened = (st.opened & bit) !== 0;
+        let cost = 1;
+        if ((room.secretDoors & bit) !== 0 && !opened) {
+          if (inv.bombs <= 0 || ((room.hints & bit) === 0 && !see)) continue;
+          cost = 4;
+        } else if ((room.lockedDoors & bit) !== 0 && !opened) {
+          if (inv.keys <= 0) continue;
+          cost = 4;
+        }
+        const nd = best + cost;
+        if (nd < dist[nb]!) {
+          dist[nb] = nd;
+          from[nb] = cur;
+          side0[nb] = side;
+        }
+      }
+    }
+  }
+
+  /** Human mode: locked doors of unvisited rooms still shut on this floor (a key is worth keeping for them). */
+  private locksLeft(): boolean {
+    const d = this.run.data;
+    for (let i = 0; i < d.layout.rooms.length; i++) {
+      const r = d.layout.rooms[i]!;
+      if (r.locked && d.rooms[i] && !d.rooms[i]!.visited) return true;
+    }
+    return false;
+  }
+
   /** Pip: a dash still under way finishes before walking anywhere important. */
   private surface(): void {
     this.hands();
@@ -1330,6 +1883,11 @@ export class Bot {
     if (slot.kind === DK.None) {
       this.problem(`the route leads through side ${side}, which has no door`);
       return false;
+    }
+    const doorKey = `${this.run.data.floor}${this.run.data.track} ${this.run.data.current} ${side}`;
+    if (this.human && ((slot.state === DS.Hidden && w.player.inv.bombs <= 0) || (slot.state === DS.Locked && w.player.inv.keys <= 0))) {
+      this.noDoor.add(doorKey);
+      return true;
     }
     if (slot.state === DS.Hidden) {
       const dx = Math.min(ROOM_W - 8, Math.max(8, DOOR_FRONT_X[side]!));
@@ -1349,6 +1907,11 @@ export class Bot {
     if (locked) this.ensure(0, 0, 1, `the locked door on side ${side}`);
     this.doing = `walking to the door on side ${side} (kind ${slot.kind}, to room ${slot.to})`;
     if (!this.walkTo(DOOR_FRONT_X[side]!, DOOR_FRONT_Y[side]!, 3, -1)) return !this.stopped;
+    // (A lockbox brushed on the way can spend the key meant for this door.)
+    if (this.human && slot.state === DS.Locked && w.player.inv.keys <= 0) {
+      this.noDoor.add(doorKey);
+      return true;
+    }
     this.surface();
     const p = w.player;
     this.doing = `pushing into the door on side ${side} (state ${slot.state})`;
@@ -1462,6 +2025,28 @@ export class Bot {
     const path = this.route((i) => i === d.layout.boss);
     if (!path) return false;
     return this.goThrough(path[0]!);
+  }
+}
+
+/** Adds a collected pickup to the floor's coin / key / bomb income. */
+function countPickup(rec: BotFloor, kind: PickupKind, amount: number): void {
+  switch (kind) {
+    case PK.Coin:
+    case PK.SilverCoin:
+    case PK.GoldCoin:
+    case PK.LuckyCoin:
+      rec.coinsIn += amount;
+      break;
+    case PK.Key:
+    case PK.KeyRing:
+      rec.keysIn += amount;
+      break;
+    case PK.Bomb:
+    case PK.DoubleBomb:
+      rec.bombsIn += amount;
+      break;
+    default:
+      break;
   }
 }
 

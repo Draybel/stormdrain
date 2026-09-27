@@ -45,8 +45,11 @@ export function homeFloor(def: BossDef): number {
   return ch ? ch.floors[0] : 1;
 }
 
-/** A boss's HP on a floor: its own HP, scaled up when it appears deeper than its home chapter. */
+/**
+ * A boss's HP on a floor: its own HP × (1 + BOSS_TUNING.hpPerFloor × (floor − 1)) — every boss and miniboss grows with
+ * depth (polish batch 4; before, only bosses borrowed deeper than their home chapter did). Content HP already rises by
+ * chapter, so this is on top: a floor-6 boss has ×1.7, a floor-11 one ×2.4.
+ */
 export function bossHpFor(def: BossDef, floor: number): number {
-  const deeper = Math.max(0, floor - homeFloor(def) - 1);
-  return Math.round(def.hp * (1 + BOSS_TUNING.hpPerFloor * deeper));
+  return Math.round(def.hp * (1 + BOSS_TUNING.hpPerFloor * Math.max(0, floor - 1)));
 }

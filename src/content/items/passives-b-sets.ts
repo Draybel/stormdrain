@@ -189,6 +189,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'crows-jawbone',
+    unlock: 'boss-hunter',
     name: "Crow's Jawbone",
     desc: 'DAMAGE UP · FOES MAY DROP TIN HEARTS',
     kind: 'passive',
@@ -211,6 +212,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'spine-rattle',
+    unlock: 'bone-deep',
     name: 'Spine Rattle',
     desc: 'WHEN HURT, A SPOOKY RATTLE SCARES FOES OFF',
     kind: 'passive',

@@ -42,6 +42,9 @@ const SHAPE_INDEX: Readonly<Record<ShapeHint, number>> = {
   shard: 7,
   bubble: 8,
 };
+/** Segments of a swipe's tapered slash edge (drawSwipes). */
+const SLASH_SEGS = 5;
+
 /** Rotation frames per shape (spinners by age, crescents / shards by heading). */
 const ROT_FRAMES = [1, 8, 1, 8, 16, 8, 8, 16, 1] as const;
 const MAX_R = 12;
@@ -705,22 +708,43 @@ export class AttackRenderer {
       const r1 = s.reach;
       const r0 = s.reach * 0.5;
       const glow = s.style ? rgbCss(s.style.glow) : '#dfe6f2';
-      ctx.globalAlpha = 0.32 * (1 - t);
+      ctx.globalAlpha = 0.4 * (1 - t);
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.arc(x, y, r1, start, lead);
       ctx.arc(x, y, r0, lead, start, true);
       ctx.closePath();
       ctx.fill();
-      // Bright leading edge.
-      const back = Math.max(start, lead - 0.45);
-      ctx.globalAlpha = 0.9 * (1 - t * 0.6);
-      ctx.fillStyle = '#ffffff';
+      // Polish batch 4 (B4-8): the edge reads as a slash, not a white block — a thin tapered arc about a radian long
+      // (widest at the tip, a coloured falloff under a white-hot core), with two fading ghosts of it just behind for
+      // the motion smear. Strokes only: no new canvases.
+      const er = r1 - 1.2;
+      for (let g = 2; g >= 1; g--) {
+        const gl = lead - g * 0.3;
+        if (gl <= start + 0.05) continue;
+        ctx.globalAlpha = (0.3 / g) * (1 - t);
+        ctx.strokeStyle = glow;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, er - g, Math.max(start, gl - 0.7), gl);
+        ctx.stroke();
+      }
+      const tail = Math.max(start, lead - 1);
+      for (let k = 0; k < SLASH_SEGS; k++) {
+        const f = (k + 1) / SLASH_SEGS;
+        ctx.globalAlpha = (0.3 + 0.55 * f) * (1 - t * 0.5);
+        ctx.strokeStyle = glow;
+        ctx.lineWidth = 0.8 + 1.4 * f;
+        ctx.beginPath();
+        ctx.arc(x, y, er, tail + ((lead - tail) * k) / SLASH_SEGS, tail + ((lead - tail) * (k + 1)) / SLASH_SEGS);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.95 * (1 - t * 0.6);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(x, y, r1, back, lead);
-      ctx.arc(x, y, r1 * 0.74, lead, back, true);
-      ctx.closePath();
-      ctx.fill();
+      ctx.arc(x, y, er, Math.max(tail, lead - 0.55), lead);
+      ctx.stroke();
       ctx.globalAlpha = 0.7 * (1 - t);
       ctx.strokeStyle = glow;
       ctx.lineWidth = 1;

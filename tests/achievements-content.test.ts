@@ -105,19 +105,19 @@ describe('conditions → unlocks', () => {
       [
         'marrow',
         (m, e) => {
-          m.addStat('deaths', 10);
+          m.addStat('deaths', 3);
           e.checkCounters();
         },
       ],
-      ['juniper', (_m, e) => e.event('familiars', '', 3)],
+      ['juniper', (_m, e) => e.event('familiars', '', 5)],
       [
         'bolt',
         (m, e) => {
-          m.bump('activesUsed', 50);
+          m.bump('activesUsed', 150);
           e.checkCounters();
         },
       ],
-      ['sable', (_m, e) => e.event('coinsHeld', '', 60)],
+      ['sable', (_m, e) => e.event('coinsHeld', '', 75)],
       ['mosswick', (_m, e) => e.event('endingReached', '', 1)],
     ];
     for (const [id, earn] of cases) {
@@ -132,13 +132,14 @@ describe('conditions → unlocks', () => {
     }
   });
 
-  it('near misses unlock nothing: chapter 1 boss, 49 actives, 59 coins, 2 familiars', () => {
+  it('near misses unlock nothing: chapter 1 boss, 2 deaths, 149 actives, 74 coins, 4 familiars', () => {
     const { meta, engine } = fresh();
     engine.event('chapterBossKilled', 'gutterways', 1);
-    meta.bump('activesUsed', 49);
+    meta.addStat('deaths', 2);
+    meta.bump('activesUsed', 149);
     engine.checkCounters();
-    engine.event('coinsHeld', '', 59);
-    engine.event('familiars', '', 2);
+    engine.event('coinsHeld', '', 74);
+    engine.event('familiars', '', 4);
     expect(unlockedCharacters(meta.state).map((d) => d.id)).toEqual(['wren']);
   });
 
@@ -152,16 +153,22 @@ describe('conditions → unlocks', () => {
 
   it('milestones unlock their items', () => {
     const { meta, engine } = fresh();
-    const kettle = getItem('cast-iron-kettle');
-    expect(itemUnlocked(meta.state, kettle)).toBe(false);
-    meta.addStat('bossKills', 10);
+    const jaw = getItem('crows-jawbone');
+    expect(itemUnlocked(meta.state, jaw)).toBe(false);
+    meta.addStat('bossKills', 24);
     engine.checkCounters();
-    expect(itemUnlocked(meta.state, kettle)).toBe(true);
-    expect(runUnlocks(meta.state)).toContain('cast-iron-kettle');
+    expect(itemUnlocked(meta.state, jaw)).toBe(false);
+    meta.addStat('bossKills', 1);
+    engine.checkCounters();
+    expect(itemUnlocked(meta.state, jaw)).toBe(true);
+    expect(runUnlocks(meta.state)).toContain('crows-jawbone');
     // Deeper chapters, a clean deep floor, the collection.
     engine.event('chapterReached', 'eye_of_storm', 6);
-    for (const id of ['tracing-paper', 'geode', 'lantern-moth', 'static-cling', 'storm-kite']) expect(runUnlocks(meta.state), id).toContain(id);
-    engine.event('noDamageFloor', '', 7);
+    for (const id of ['tracing-paper', 'tin-cuckoo', 'toddlecap', 'spine-rattle', 'storm-kite']) expect(runUnlocks(meta.state), id).toContain(id);
+    // UNTOUCHABLE: floor 9 or deeper (polish batch 4: 7).
+    engine.event('noDamageFloor', '', 8);
+    expect(runUnlocks(meta.state)).not.toContain('bomb-parasol');
+    engine.event('noDamageFloor', '', 9);
     expect(runUnlocks(meta.state)).toContain('bomb-parasol');
     expect(runUnlocks(meta.state)).toContain('rooftop-rod');
   });
