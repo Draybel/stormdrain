@@ -57,6 +57,18 @@ const WATER_BITS = ['#8fc8f0', '#ffffff', '#3b78c0', '#6fb0e8'] as const;
 const LUCK_BITS = ['#7ee06a', '#c8ff9a', '#fff4a8', '#ffffff'] as const;
 const GUMBALLS = ['#ff6a8a', '#6ad0ff', '#ffe06a', '#8aff9a', '#c0403a'] as const;
 const MOTH_DUST = ['#c8b894', '#9a8a70', '#fff4d0', '#6e6250'] as const;
+/** Particles rising off allied puddles by ENEMY_SHOT_STYLES index (null: plain puddles stay quiet). */
+const PUDDLE_BITS: readonly (readonly string[] | null)[] = [['#b8e890', '#7ee06a', '#4f9a3a'], null, MOTH_DUST, null, EMBER, ICE, null];
+/** 'nova' flavours besides the default storm 'shock' (see WorldFx.novaColors). */
+const NOVA_LOOKS: Readonly<Record<string, readonly string[]>> = {
+  ember: EMBER,
+  frost: ICE,
+  spore: ['#b8e890', '#7ee06a', '#ffffff', '#4f9a3a'],
+  charm: ['#ff8ad0', '#ffe4f4', '#ffffff', '#c0407a'],
+  ink: ['#c9a0ff', '#7a4ad0', '#ffffff', '#4a2a8a'],
+  gold: GOLD,
+  water: WATER_BITS,
+};
 /** Wall-slot centres (screen, before shake) per side, for door / secret-wall effects. */
 const SLOT_SX = [ROOM_X + TILE * 6.5, ROOM_X + TILE * 13 + 4, ROOM_X + TILE * 6.5, ROOM_X - 4];
 const SLOT_SY = [ROOM_Y - 4, ROOM_Y + TILE * 3.5, ROOM_Y + TILE * 7 + 4, ROOM_Y + TILE * 3.5];
@@ -155,6 +167,24 @@ export class WorldFx {
     this.attack = new AttackFx(particles, shake, this);
   }
 
+  /**
+   * Spark colours of a 'nova' by its flavour id: 'ember', 'frost', 'spore', 'charm', 'ink', 'gold',
+   * 'water', a '#rrggbb' colour (a ring in that colour — special synergies), anything else the storm
+   * blue-white 'shock'.
+   */
+  private novaColors(id: string): readonly string[] {
+    if (id.length === 7 && id.charCodeAt(0) === 35) {
+      const t = this.novaTint;
+      t[0] = id;
+      t[2] = id;
+      return t;
+    }
+    return NOVA_LOOKS[id] ?? SHOCK;
+  }
+
+  /** Reused colour list for '#rrggbb' novas. */
+  private readonly novaTint: string[] = ['#ffffff', '#ffffff', '#ffffff', '#ffffff'];
+
   /** A warm explosion-style flash (resets the lance's colour). */
   private warmFlash(amount: number): void {
     this.flash = Math.max(this.flash, amount);
@@ -216,6 +246,24 @@ export class WorldFx {
         );
         if (p) p.drag = 0.8;
       }
+    }
+    // Allied elemental puddles (special synergies: burning oil, spore bogs, frost, moth dust) give off
+    // a wisp of their element now and then.
+    const creep = world.creep;
+    for (let i = 0; i < creep.count; i++) {
+      const c = creep.items[i]!;
+      if (!c.allied || Math.random() > 0.08) continue;
+      const bits = PUDDLE_BITS[c.style];
+      if (!bits) continue;
+      const p = P.spawn(
+        c.x + ROOM_X + (Math.random() - 0.5) * c.r * 1.4,
+        c.y + ROOM_Y + (Math.random() - 0.5) * c.r * 0.6,
+        (Math.random() - 0.5) * 8,
+        -12 - Math.random() * 14,
+        0.45 + Math.random() * 0.3,
+        bits[(Math.random() * bits.length) | 0]!,
+      );
+      if (p) p.drag = 1;
     }
   }
 
@@ -492,7 +540,7 @@ export class WorldFx {
         break;
       }
       case 'nova': {
-        const colors = e.id === 'ember' ? EMBER : SHOCK;
+        const colors = this.novaColors(e.id);
         const radius = e.a;
         // A fast ring of sparks reaching the nova radius, plus a flash at the centre.
         const n = 32;
