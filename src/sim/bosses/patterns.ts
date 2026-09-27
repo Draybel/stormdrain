@@ -27,6 +27,7 @@ import type { BossState } from './state';
 import { PATTERNS_A } from './patterns-a';
 import { PATTERNS_B } from './patterns-b';
 import { PATTERNS_C } from './patterns-c';
+import { FINALS_PATTERNS } from './patterns-finals';
 
 export interface PatternBehavior {
   readonly params: ParamSpec;
@@ -1026,4 +1027,5 @@ export const PATTERNS: Readonly<Record<BossPatternKind, PatternBehavior>> = {
   ...PATTERNS_A,
   ...PATTERNS_B,
   ...PATTERNS_C,
+  ...FINALS_PATTERNS,
 };

@@ -45,6 +45,11 @@ export interface BossHook {
   phase?(ctx: BossHookCtx, phase: number): void;
   /** A 'hook' pattern: runs each tick, return true when done. */
   pattern?(ctx: BossHookCtx): boolean;
+  /**
+   * Every tick of the death sequence (a final's special send-off): `ctx.t` = seconds left. The first call
+   * comes right after the room was swept (adds dead, shots fizzled); it may lengthen `ctx.b.dieT`.
+   */
+  dying?(ctx: BossHookCtx): void;
 }
 
 const hooks = new Map<string, BossHook>();
