@@ -657,6 +657,8 @@ export const BOSS_PATTERN_KINDS = [
   'hazard',
   /** Runs a named boss hook (registerBossHook) — per-boss code. */
   'hook',
+  /** Finals (sim/bosses/patterns-finals.ts): marked strikes, rain curtains, wind, thunderclaps, adds, dives, walls, debris. */
+  'strikes', 'curtain', 'gust', 'clap', 'brood', 'dive', 'barricade', 'vortex',
 ] as const;
 export type BossPatternKind = (typeof BOSS_PATTERN_KINDS)[number];
 

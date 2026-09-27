@@ -347,6 +347,13 @@ function dyingUpdate(w: World, e: Enemy, b: BossState, dt: number): void {
     const waves = w.waves;
     for (let i = waves.count - 1; i >= 0; i--) if (!waves.items[i]!.allied) waves.release(waves.items[i]!);
   }
+  // A boss's own send-off (finals: lightning, a crumbling hive, the water growing still…).
+  const own = b.def.hook ? getBossHook(b.def.hook) : undefined;
+  if (own?.dying) {
+    const ctx = ctxFor(w, e, b, dt);
+    ctx.t = b.dieT;
+    own.dying(ctx);
+  }
   b.dieT -= dt;
   b.boomT -= dt;
   if (b.boomT <= 0 && b.dieT > 0.35) {
