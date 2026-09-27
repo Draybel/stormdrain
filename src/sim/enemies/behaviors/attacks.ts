@@ -10,6 +10,7 @@ import type { World } from '../../world';
 import type { Enemy } from '../enemy';
 import { spawnCreep, spawnEnemyShot, spawnLob, spawnWave, type EnemyShot } from '../shots';
 import { spawnEnemy } from '../spawn';
+import { EXT_B_ATTACKS } from './ext-b';
 import { ST_CHARM, hasStatus } from '../status';
 import { ATTACK_COMMON, SHOT_COMMON, walkableAt, type AttackBehavior, type CompiledAttack, type ParamSpec } from './common';
 
@@ -304,4 +305,5 @@ export const ATTACKS: Readonly<Record<AttackKind, AttackBehavior>> = {
   spawnMinion,
   landShockwave,
   leaveTrail,
+  ...EXT_B_ATTACKS,
 };

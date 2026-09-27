@@ -460,6 +460,7 @@ export const MOVE_KINDS = [
   'wallCrawl',
   'float',
   'turret',
+  'intercept', 'swoop', 'lurk', // ext-b: sim/enemies/behaviors/ext-b.ts
 ] as const;
 export type MoveKind = (typeof MOVE_KINDS)[number];
 
@@ -474,6 +475,7 @@ export const ATTACK_KINDS = [
   'spawnMinion',
   'landShockwave',
   'leaveTrail',
+  'stream', // ext-b: sim/enemies/behaviors/ext-b.ts
 ] as const;
 export type AttackKind = (typeof ATTACK_KINDS)[number];
 

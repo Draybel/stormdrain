@@ -15,6 +15,7 @@ import type { World } from '../../world';
 import type { Enemy } from '../enemy';
 import { lineClear } from '../pathfield';
 import { triggerAttacks } from '../attackRunner';
+import { EXT_B_MOVES } from './ext-b';
 import {
   ON_APPEAR,
   ON_BONK,
@@ -735,4 +736,5 @@ export const MOVES: Readonly<Record<MoveKind, MoveBehavior>> = {
   wallCrawl,
   float,
   turret,
+  ...EXT_B_MOVES,
 };
