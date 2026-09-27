@@ -269,7 +269,7 @@ export class MetaTracker {
       this.feat('familiars', '', fam);
       this.dirty = true;
     }
-    // Items shown / taken this run → the collection (hidden by the Curse of the Blind: those only count
+    // Items shown / taken this run → the collection (hidden by the Curse of the Fogged Glass: those only count
     // once taken, which 'item' events report).
     const seen = sim.run!.data.seen;
     if (this.seenIdx < seen.length) {
@@ -377,8 +377,9 @@ export class MetaTracker {
         this.feat('synergy', e.id);
         break;
       case 'trapdoor':
-        // Dropped through (trapdoor / grate / whirlpool / debug): floor e.b is done.
-        if (e.a !== 1) return;
+        // Dropped through (trapdoor / grate / whirlpool / debug): floor e.b is done. Main floor 1's start-room
+        // grate only restarts that floor on the alt track: not a finished (or a clean) floor.
+        if (e.a !== 1 || e.id === 'startGrate') return;
         this.floorDone(sim, e.b);
         break;
       case 'floorStart':

@@ -2,7 +2,7 @@
  * The expanded floor map (tap the minimap, or Tab): an overlay over the frozen run — on a phone the
  * thumb that tapped the map is off the sticks, so the run pauses while the map is open. Tap anywhere
  * (or Tab / Esc / M) to close. Shows every known room with its icon, the current room blinking, the
- * floor / chapter and the curse. The Curse of the Lost Map leaves only a '?'.
+ * floor / chapter and the curse. Under the Curse of the Soggy Map it shows only the rooms already visited.
  */
 
 import type { InputState } from '../engine/inputState';
@@ -22,7 +22,7 @@ import { tickButtons, uiButton, type UiButton } from './widgets';
 const TITLE: TextStyle = { color: UI.accent, shadow: UI.shadow };
 const NOTE: TextStyle = { color: UI.textDim, shadow: UI.shadow };
 const CURSE: TextStyle = { color: '#e08ad8', shadow: UI.shadow };
-const LOST: TextStyle = { color: UI.text, shadow: UI.shadow };
+const SOGGY: TextStyle = { color: '#9a86a8', shadow: UI.shadow };
 
 export class MapScene implements Scene {
   readonly name = 'map';
@@ -83,12 +83,8 @@ export class MapScene implements Scene {
     const run = this.sim.run;
     if (run) {
       const d = run.data;
-      if (d.map.lostMap) {
-        this.map.drawBig(ctx, d.layout, d.map, GAME_W / 2, GAME_H / 2, this.time);
-        drawTextCentered(ctx, 'THE MAP IS LOST', GAME_W / 2, GAME_H / 2 + 14, LOST);
-      } else {
-        this.map.drawBig(ctx, d.layout, d.map, GAME_W / 2, GAME_H / 2 + 2, this.time);
-      }
+      this.map.drawBig(ctx, d.layout, d.map, GAME_W / 2, GAME_H / 2 + 2, this.time);
+      if (d.map.lostMap) drawTextCentered(ctx, 'SOGGY: ONLY WHERE YOU HAVE BEEN', GAME_W / 2, py + 16, SOGGY);
       const curse = d.layout.curse;
       if (curse) {
         const name = CURSE_NAMES[curse];

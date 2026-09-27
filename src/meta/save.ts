@@ -16,7 +16,7 @@
  */
 
 import type { Sim } from '../sim/sim';
-import { RUN_SNAPSHOT_VERSION, type RunSnapshot } from '../sim/run/types';
+import { RUN_SNAPSHOT_VERSION, type RunSeedInfo, type RunSnapshot } from '../sim/run/types';
 import { AchievementEngine } from './achievements';
 import { exportCode, importCode, type ImportResult } from './exportCode';
 import { MetaStore } from './metaState';
@@ -24,7 +24,7 @@ import type { Migration } from './migrations';
 import { RunSaveStore } from './runSave';
 import { createStorage, type SaveStorage } from './storage';
 import { MetaTracker } from './tracker';
-import { runUnlocks, unlockEverything } from './unlocks';
+import { runUnlocks, unlockEverything, unlocksForRun } from './unlocks';
 
 /**
  * Run snapshot migrations: `steps[v]` upgrades a snapshot from version v to v + 1 (sim/run/types
@@ -172,9 +172,13 @@ export class GameSave {
     this.clearRun();
   }
 
-  /** The unlock snapshot a new run carries (RunOptions.unlocked). */
-  unlockedForRun(): string[] {
-    return runUnlocks(this.meta.state);
+  /**
+   * The unlock snapshot a new run carries (RunOptions.unlocked): the player's own for a random run (and debug
+   * starts), the canonical fresh-save one for typed codes and dailies, or `fixed` (a retry's stored snapshot) —
+   * see `unlocksForRun`.
+   */
+  unlockedForRun(seed?: RunSeedInfo | null, fixed?: readonly string[]): string[] {
+    return seed === undefined && fixed === undefined ? runUnlocks(this.meta.state) : unlocksForRun(this.meta.state, seed, fixed);
   }
 
   /**

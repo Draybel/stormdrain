@@ -9,7 +9,8 @@
 
 import { vec2 } from '../../../engine/math';
 import { WALK_MODE } from '../../collision';
-import { ROOM_H, ROOM_W } from '../../constants';
+import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W, TILE } from '../../constants';
+import { Tile } from '../../tiles';
 import type { MoveKind } from '../../types';
 import type { World } from '../../world';
 import type { Enemy } from '../enemy';
@@ -453,6 +454,100 @@ const keepDistance: MoveBehavior = {
 };
 
 // ── burrow: tunnel under the floor toward the target, rumble, surface (ON_EMERGE), dig back in ──
+
+/** Seconds past its tunnel time before a burrower stuck under something heads for open floor. */
+const BURROW_OVERDUE = 0.75;
+/** Seconds past its tunnel time before it is simply moved onto that floor and surfaces (never stays down). */
+const BURROW_GIVE_UP = 4;
+
+const bfsQueue = new Int16Array(ROOM_COLS * ROOM_ROWS);
+const bfsSeen = new Uint8Array(ROOM_COLS * ROOM_ROWS);
+
+function cellX(c: number): number {
+  return (c % ROOM_COLS) * TILE + TILE / 2;
+}
+
+function cellY(c: number): number {
+  return Math.floor(c / ROOM_COLS) * TILE + TILE / 2;
+}
+
+/** A burrower of radius r may come up in the middle of cell c. */
+function surfaceOk(w: World, c: number, r: number): boolean {
+  return walkableAt(w, cellX(c), cellY(c), r);
+}
+
+/**
+ * The cell a stuck burrower heads for: breadth-first over the room grid from its own cell (it tunnels under
+ * everything, so every neighbour is a step), taking the first ring that holds a cell it can surface on and,
+ * within that ring, the one nearest in a straight line (lowest index on ties). Falls back to the nearest plain
+ * Floor cell (a body too big for any cell), then -1. Deterministic, no allocation.
+ */
+function surfaceCell(w: World, e: Enemy): number {
+  const room = w.room;
+  const col0 = Math.min(ROOM_COLS - 1, Math.max(0, Math.floor(e.x / TILE)));
+  const row0 = Math.min(ROOM_ROWS - 1, Math.max(0, Math.floor(e.y / TILE)));
+  bfsSeen.fill(0);
+  let head = 0;
+  let tail = 0;
+  const start = row0 * ROOM_COLS + col0;
+  bfsQueue[tail++] = start;
+  bfsSeen[start] = 1;
+  let floorBest = -1;
+  while (head < tail) {
+    // One whole ring at a time, so "nearest" means fewest steps first, then straight-line distance.
+    const ringEnd = tail;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = head; i < ringEnd; i++) {
+      const c = bfsQueue[i]!;
+      if (surfaceOk(w, c, e.r)) {
+        const dx = cellX(c) - e.x;
+        const dy = cellY(c) - e.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD || (d2 === bestD && c < best)) {
+          bestD = d2;
+          best = c;
+        }
+      } else if (floorBest < 0 && room.get(c % ROOM_COLS, Math.floor(c / ROOM_COLS)) === Tile.Floor) {
+        floorBest = c;
+      }
+    }
+    if (best >= 0) return best;
+    for (let i = head; i < ringEnd; i++) {
+      const c = bfsQueue[i]!;
+      const col = c % ROOM_COLS;
+      const row = (c - col) / ROOM_COLS;
+      if (col > 0 && !bfsSeen[c - 1]) {
+        bfsSeen[c - 1] = 1;
+        bfsQueue[tail++] = c - 1;
+      }
+      if (col < ROOM_COLS - 1 && !bfsSeen[c + 1]) {
+        bfsSeen[c + 1] = 1;
+        bfsQueue[tail++] = c + 1;
+      }
+      if (row > 0 && !bfsSeen[c - ROOM_COLS]) {
+        bfsSeen[c - ROOM_COLS] = 1;
+        bfsQueue[tail++] = c - ROOM_COLS;
+      }
+      if (row < ROOM_ROWS - 1 && !bfsSeen[c + ROOM_COLS]) {
+        bfsSeen[c + ROOM_COLS] = 1;
+        bfsQueue[tail++] = c + ROOM_COLS;
+      }
+    }
+    head = ringEnd;
+  }
+  return floorBest;
+}
+
+/** Rumble + telegraph, then it comes up (mode 1). */
+function beginSurfacing(w: World, e: Enemy, p: Params): void {
+  e.mode = 1;
+  e.modeT = p.rise!;
+  e.surfCell = -1;
+  telegraph(e, p.rise!);
+  w.events.emit('burrow', e.x, e.y, 1, e.r, e.def.id);
+}
+
 const burrow: MoveBehavior = {
   handlesFear: true,
   params: {
@@ -479,14 +574,24 @@ const burrow: MoveBehavior = {
       case 0: {
         e.burrowed = true;
         const d = goalDir(w, e);
-        if (e.modeT < -0.75 && !walkableAt(w, e.x, e.y, e.r)) {
-          // Overdue under a rock / pit (its target stands where it can't come up): tunnel for the middle of the
-          // room and come up on the first open floor on the way, so it never stays down for good.
-          const cx = ROOM_W / 2 - e.x;
-          const cy = ROOM_H / 2 - e.y;
-          const cl = Math.sqrt(cx * cx + cy * cy) || 1;
-          e.tvx = (cx / cl) * spd * p.tunnel!;
-          e.tvy = (cy / cl) * spd * p.tunnel!;
+        if (e.modeT < -BURROW_OVERDUE && !walkableAt(w, e.x, e.y, e.r)) {
+          // Overdue under a rock / pit (its target stands where it can't come up): tunnel for the nearest cell
+          // it can come up on (cached until it surfaces), so it never stays down for good. The room's middle
+          // used to be the goal, but many templates put a rock or a barrel right there.
+          let c = e.surfCell;
+          if (c < 0 || !surfaceOk(w, c, e.r)) c = e.surfCell = surfaceCell(w, e);
+          const sx = c >= 0 ? cellX(c) : ROOM_W / 2;
+          const sy = c >= 0 ? cellY(c) : ROOM_H / 2;
+          if (e.modeT < -BURROW_GIVE_UP && c >= 0) {
+            // Hard cap: still stuck (pushed about, a prop dropped on its spot…) — pop out on that cell now.
+            e.x = e.prevX = sx;
+            e.y = e.prevY = sy;
+            e.vx = e.vy = e.kx = e.ky = 0;
+            stop(e);
+            beginSurfacing(w, e, p);
+            break;
+          }
+          toward(e, sx, sy, spd * p.tunnel!);
         } else if (d !== Infinity) {
           e.tvx = e.dirX * spd * p.tunnel!;
           e.tvy = e.dirY * spd * p.tunnel!;
@@ -495,12 +600,7 @@ const burrow: MoveBehavior = {
         }
         e.modeT -= dt;
         // Underground it passes under rocks and pits, but it can only surface on open floor.
-        if ((e.modeT <= 0 || (!feared(e) && d < p.near!)) && walkableAt(w, e.x, e.y, e.r)) {
-          e.mode = 1;
-          e.modeT = p.rise!;
-          telegraph(e, p.rise!);
-          w.events.emit('burrow', e.x, e.y, 1, e.r, e.def.id);
-        }
+        if ((e.modeT <= 0 || (!feared(e) && d < p.near!)) && walkableAt(w, e.x, e.y, e.r)) beginSurfacing(w, e, p);
         break;
       }
       case 1:

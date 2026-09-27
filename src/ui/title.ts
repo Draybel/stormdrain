@@ -65,6 +65,8 @@ export class TitleScene implements Scene {
   private notice = '';
   /** Today's daily run has been played (a tick on its button). */
   private dailyDone = false;
+  /** Seconds until the tick is checked against the UTC date again (it clears at midnight). */
+  private dailyCheckT = 1;
   private time = 0;
   private rainAcc = 0;
   private lightning = 0;
@@ -211,6 +213,12 @@ export class TitleScene implements Scene {
     }
     this.lightning = Math.max(0, this.lightning - dt * 3.2);
     this.app.particles.update(dt);
+    // A title left open over UTC midnight: the new day's daily hasn't been played yet.
+    this.dailyCheckT -= dt;
+    if (this.dailyCheckT <= 0) {
+      this.dailyCheckT = 1;
+      this.dailyDone = this.app.save.meta.hasDaily(utcDateKey(Date.now()));
+    }
   }
 
   render(ctx: CanvasRenderingContext2D): void {

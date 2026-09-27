@@ -121,7 +121,7 @@ test('every chapter and every curse renders', async ({ page }) => {
     expect(s.floor).toBe(floor);
     expect(s.track).toBe(track);
   }
-  for (const curse of ['darkness', 'lostMap', 'maze', 'blind', 'unknown', 'deluge'] as const) {
+  for (const curse of ['darkness', 'lostMap', 'maze', 'blind', 'leak', 'deluge'] as const) {
     await page.evaluate((c) => window.__SD.debug.runAt(2, 'main', c, 9), curse);
     const t0 = (await page.evaluate(() => window.__SD.run()))!.tick;
     await page.waitForFunction((t) => window.__SD.run()!.tick > t + 5, t0);

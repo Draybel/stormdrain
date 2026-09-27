@@ -4,7 +4,8 @@
  * - compact: the HUD map in its slot (top right), centred on the current room, special rooms as dots;
  * - big: the whole floor with 5×5 icons and door connectors (the map overlay).
  * Both are cached into canvases keyed by the model's `version` (+ room count): per frame it is one
- * sub-rect drawImage and a blinking rectangle. The Lost Map curse shows a '?' instead.
+ * sub-rect drawImage and a blinking rectangle. Under the Curse of the Soggy Map the model shows only the rooms
+ * already visited (roomVis), so both maps still draw — just less of them.
  */
 
 import { MAP_DOT_COLOR, MAP_ICONS } from '../content/sprites/mapIcons';
@@ -12,7 +13,6 @@ import { layoutBounds } from '../sim/floor/generate';
 import { MapVis, roomIcon, roomVis, type MinimapState } from '../sim/floor/minimap';
 import { DIR_BITS, type FloorLayout } from '../sim/floor/types';
 import { ctx2d, makeCanvas } from './canvas';
-import { drawTextCentered, type TextStyle } from './font';
 import { getFrame } from './sprites';
 
 const C_VISITED = '#8e98b5';
@@ -20,7 +20,6 @@ const C_SEEN = '#3a4460';
 const C_OUTLINE = '#56648a';
 const C_CURRENT = '#ffffff';
 const C_CONNECT = '#56648a';
-const QUESTION: TextStyle = { color: '#c9d3f0', shadow: '#07080d', scale: 2 };
 
 /** A drawn map and what it was drawn from (numbers only: checked every frame, no key strings). */
 interface Cached {
@@ -107,10 +106,6 @@ export class MinimapRenderer {
 
   /** The HUD map inside (x, y, w, h), centred on the current room. */
   drawCompact(ctx: CanvasRenderingContext2D, layout: FloorLayout, map: MinimapState, x: number, y: number, w: number, h: number, time: number): void {
-    if (map.lostMap) {
-      drawTextCentered(ctx, '?', x + w / 2, y + (h >> 1) - 5, QUESTION);
-      return;
-    }
     const PW = 6;
     const PH = 5;
     const src = renderMap(this.compact, layout, map, PW, PH, false);
@@ -157,10 +152,6 @@ export class MinimapRenderer {
     const sh = (b.maxY - b.minY + 1) * PH;
     const x = Math.round(cx - sw / 2);
     const y = Math.round(cy - sh / 2);
-    if (map.lostMap) {
-      drawTextCentered(ctx, '?', cx, cy - 5, QUESTION);
-      return { w: 12, h: 12 };
-    }
     ctx.drawImage(src, sx, sy, sw, sh, x, y, sw, sh);
     const cur = layout.rooms[map.current];
     if (cur) {

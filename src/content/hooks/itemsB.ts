@@ -7,9 +7,12 @@
  *     Every enemy within `radius` px of the effect position gets the status (a nova shows the reach).
  *     Optional `power` (slow strength 0..1), `damage` (area damage on top), `look` ('shock' | 'ember').
  *   { type: 'hook', hook: 'itemsB.toll', params: { cost: 4, pickup: 'tinHeart' } }
- *     Takes `cost` coins (only if the player has them) and pops the pickup out at the effect position.
+ *     Takes `cost` coins (only if the player has them) and pops the pickup out at the effect position. A bonus
+ *     heart (Tin / Ember) is only bought when there is room for it: coins are never paid for a heart she can't hold.
  */
 
+// sim/health.ts is pure (it imports nothing), so using it here can't close the registry → hooks → sim cycle.
+import { BONUS_EMBER, BONUS_TIN, canAddBonus } from '../../sim/health';
 import { numParam, registerHook, strParam } from '../../sim/hooks';
 import { PICKUP_NAMES, STATUS_KINDS, type PickupName, type StatusKind } from '../../sim/types';
 
@@ -54,6 +57,8 @@ registerHook('itemsB.toll', (ctx) => {
   const pickup = strParam(ctx, 'pickup', 'tinHeart');
   const inv = ctx.w.player.inv;
   if (!isPickup(pickup) || inv.coins < cost) return;
+  const bonus = pickup === 'tinHeart' ? BONUS_TIN : pickup === 'emberHeart' ? BONUS_EMBER : 0;
+  if (bonus !== 0 && !canAddBonus(ctx.w.player.health, bonus)) return;
   inv.coins -= cost;
   inv.version++;
   ctx.api.spawnPickup(pickup, ctx.x, ctx.y);

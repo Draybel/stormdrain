@@ -40,7 +40,7 @@ const chapters: ChapterDef[] = [
     bossPool: [],
     minibossPool: [],
     music: 'ch_candlewick_crypt',
-    curses: ['darkness', 'blind', 'unknown'],
+    curses: ['darkness', 'blind', 'leak'],
     // Violet-grey crypt slabs and dressed blocks, cream wax everywhere; candle stubs, moths, drips.
     decor: { floor: [CRYPT_STUB, CRYPT_MOTH, CRYPT_WAX], wall: [CRYPT_DRIP_TRIM], count: [3, 6], streak: '#d9c7a0', ambience: 'motes' },
   },

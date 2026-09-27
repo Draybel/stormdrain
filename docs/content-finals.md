@@ -36,7 +36,7 @@ moustache). It looms along the top of the room, drifting after Wren but backing 
   (`brood` of Grumbleclouds at 0.6 size, 14 HP); three fanned lightning lines, slanted curtains, stronger gusts
   from a random side, double claps, a lightning beam sweep, an X of strikes, more cloudlets.
 - The Last Downpour (near-black, cracked with glowing veins, a crown of bolts): enter — **the blackout** (hook
-  pattern `thunderhead-blackout`, ~4.5 s): the room goes dark (the Curse of Darkness overlay — `world.curse`
+  pattern `thunderhead-blackout`, ~4.5 s): the room goes dark (the Curse of the Blackout overlay, id `darkness` — `world.curse`
   borrowed, the floor's own curse put back after), straight shots and cloudlets are swallowed when the lights go
   out, three bolts strike around Wren every ~0.6 s (their markers inside her own light), and a distant strike
   lights the whole room for a moment every ~1.1 s. Also: rings of strikes closing on her, fast curtains, triple

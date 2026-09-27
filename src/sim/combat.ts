@@ -19,6 +19,8 @@ export const DMG_SPIKES = 1;
 export const DMG_FIRE = 2;
 export const DMG_EXPLOSION = 3;
 export const DMG_ENEMY = 4;
+/** A price paid, not a hit: the Thorn Room door toll (the Curse of the Leaky Roof leaves it alone). */
+export const DMG_TOLL = 5;
 
 const result = makeDamageResult();
 
@@ -27,12 +29,15 @@ const result = makeDamageResult();
  * dead, invulnerable or burrowed (Pip, sim/mechanics.ts). Starts ~1 s of i-frames (the renderer flickers the
  * sprite), releases a fire nova for every Ember heart emptied, fires the 'hurt' trigger (and the character
  * mechanic's hurt rule: one of Juniper's temporary fireflies flees), and kills at zero health.
+ * Under the Curse of the Leaky Roof every hit from the room — foes, their shots and creep, spikes, fire, blasts —
+ * costs half a heart more; a price she chooses to pay (DMG_TOLL, and DMG_GENERIC: tonics, debug) does not.
  * Returns true if any damage was taken.
  */
 export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0): boolean {
   const p = w.player;
   if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0 || p.underground) return false;
-  damageHealth(p.health, halves, result);
+  const leak = w.curse === 'leak' && source !== DMG_GENERIC && source !== DMG_TOLL ? 1 : 0;
+  damageHealth(p.health, halves + leak, result);
   if (result.taken <= 0) return false;
   const emberBroken = result.emberBroken;
   const tinBroken = result.tinBroken;

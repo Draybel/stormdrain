@@ -121,14 +121,27 @@ describe('minimap model', () => {
     }
   });
 
-  it('the Lost Map curse hides everything but the current room, and lifting it restores the map', () => {
+  it('the Soggy Map curse shows only the rooms already visited, and lifting it restores the map', () => {
     const L = generateFloor(11, 6, 'main', { forceCurse: 'lostMap' });
     const m = createMinimap(L);
     expect(m.lostMap).toBe(true);
+    // Only the start room at first: its neighbours were seen through the doors, but stay off the map.
+    for (const r of L.rooms) expect(isRoomShown(m, r.index)).toBe(r.index === L.start);
     walkTo(m, L, L.boss);
-    for (const r of L.rooms) expect(isRoomShown(m, r.index)).toBe(r.index === L.boss);
+    const visited = new Set<number>();
+    for (const r of L.rooms) if (m.vis[r.index] === MapVis.Visited) visited.add(r.index);
+    expect(visited.has(L.start) && visited.has(L.boss)).toBe(true);
+    for (const r of L.rooms) {
+      expect(isRoomShown(m, r.index)).toBe(visited.has(r.index));
+      expect(roomVis(m, r.index)).toBe(visited.has(r.index) ? MapVis.Visited : MapVis.Unknown);
+    }
+    // The boss room was visited: its icon shows. An unvisited special room shows no icon, even once revealed.
+    expect(roomIcon(m, L, L.boss)).toBe('boss');
     const treasure = L.rooms.find((r) => r.type === 'treasure')!.index;
+    expect(visited.has(treasure)).toBe(false);
+    revealMap(m, L, 'full');
     expect(roomIcon(m, L, treasure)).toBeNull();
+    expect(isRoomShown(m, treasure)).toBe(false);
     const v = m.version;
     setLostMap(m, false);
     expect(m.version).toBeGreaterThan(v);

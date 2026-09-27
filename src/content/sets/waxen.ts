@@ -2,7 +2,7 @@
  * Waxen transformation (DESIGN.md item sets #5): hold 3 items whose `set` is 'waxen'
  * (content/items/passives-a-waxen.ts). A crown of little candles: burning shots (longer burns),
  * +damage, fireproof (fires and fire hazards can't hurt you), and a bright light that ignores the
- * Curse of Darkness (`darkVision`).
+ * Curse of the Blackout (`darkVision`).
  */
 
 import type { ItemSetDef } from '../../sim/types';

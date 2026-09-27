@@ -67,7 +67,7 @@ export const RUN_TUNING = {
   trapdoorReach: 7,
   /** Loot resting on the open trapdoor slides off at this speed (px/s). */
   hatchShove: 60,
-  /** Curse of the Maze: chance that a door leads to a random visited room instead. */
+  /** Curse of the Shifting Pipes (maze): chance that a door leads to a random visited room instead. */
   mazeChance: 0.2,
   /** Broker's Nook after the boss: base chance, plus this when no damage was taken on the floor. */
   nookChance: 0.25,

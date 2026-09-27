@@ -1,10 +1,13 @@
 /**
- * The six visible stats as the menus show them (pause menu, character select): an icon, a label, the value
- * (text cached per value — no allocation while it doesn't change) and a colour against the character's base.
+ * The visible stats as the menus show them (pause menu, character select): HEALTH (hearts: red as current / max,
+ * then Tin and Ember on top) and the six attack / movement stats — an icon, a label, the value (text cached per
+ * value — no allocation while it doesn't change) and a colour against the character's base.
  */
 
 import type { Stats } from '../sim/types';
+import { BONUS_EMBER, BONUS_TIN, bonusHalvesOf, type Health } from '../sim/health';
 import { STAT_DAMAGE, STAT_LUCK, STAT_RANGE, STAT_RATE, STAT_SHOTSPEED, STAT_SPEED } from '../content/sprites/menuIcons';
+import { HEART_SPRITE } from '../content/sprites/ui';
 import { UI } from '../content/sprites/palette';
 import { drawText, measureText, type TextStyle } from '../render/font';
 import { drawSprite } from '../render/sprites';
@@ -60,6 +63,57 @@ export function drawStatLine(ctx: CanvasRenderingContext2D, row: StatRow, stats:
   const text = statText(v, row.dp);
   const style = v > b + 1e-6 ? UP : v < b - 1e-6 ? DOWN : VALUE;
   drawText(ctx, text, x + w - measureText(text), y, style);
+}
+
+// ── HEALTH ───────────────────────────────────────────────────────────────────
+
+const RED_T: TextStyle = { color: '#ff9aa0', shadow: UI.shadow };
+const TIN_T: TextStyle = { color: '#d8e0ee', shadow: UI.shadow };
+const EMBER_T: TextStyle = { color: '#ffb050', shadow: UI.shadow };
+
+/** One piece of the HEALTH value, in its heart's colour. */
+export interface HealthPart {
+  text: string;
+  style: TextStyle;
+}
+
+/** Half hearts as hearts: 6 → '3', 5 → '2.5'. */
+function hearts(halves: number): string {
+  return halves % 2 === 0 ? String(halves / 2) : (halves / 2).toFixed(1);
+}
+
+/**
+ * The HEALTH value: red hearts as current / max ('2.5/3'), then '+2 TIN' and '+1 EMBER' when she has any. A
+ * character without red containers (Marrow) shows only her Tin: '3 TIN'.
+ */
+export function healthParts(h: Health): HealthPart[] {
+  const tin = bonusHalvesOf(h, BONUS_TIN);
+  const ember = bonusHalvesOf(h, BONUS_EMBER);
+  const out: HealthPart[] = [];
+  if (h.redMax > 0 || (tin === 0 && ember === 0)) out.push({ text: `${hearts(h.red)}/${hearts(h.redMax)}`, style: RED_T });
+  if (tin > 0) out.push({ text: `${out.length ? '+' : ''}${hearts(tin)} TIN`, style: TIN_T });
+  if (ember > 0) out.push({ text: `${out.length ? '+' : ''}${hearts(ember)} EMBER`, style: EMBER_T });
+  return out;
+}
+
+/** The HEALTH value as one string ('2.5/3 +2 TIN +1 EMBER'). */
+export function healthText(h: Health): string {
+  return healthParts(h)
+    .map((p) => p.text)
+    .join(' ');
+}
+
+/** The HEALTH line (pause menu): heart icon, label, then the parts right-aligned at `x + w`. */
+export function drawHealthLine(ctx: CanvasRenderingContext2D, parts: readonly HealthPart[], x: number, y: number, w: number): void {
+  drawSprite(ctx, HEART_SPRITE, 0, x - 1, y - 2);
+  drawText(ctx, 'HEALTH', x + 10, y, LABEL);
+  let rx = x + w;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]!;
+    rx -= measureText(p.text);
+    drawText(ctx, p.text, rx, y, p.style);
+    rx -= 5;
+  }
 }
 
 /** A stat with a bar (character select): icon, label, bar, value. */

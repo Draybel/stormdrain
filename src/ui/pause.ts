@@ -2,7 +2,8 @@
  * Pause overlay (Phase 4B): the frozen run dimmed underneath.
  * - Left: PAUSED, the character, floor + chapter, the seed (daily / practice tag), the curse, the run time;
  *   RESUME / SETTINGS / QUIT TO TITLE (quitting keeps the run for Continue — it was saved on pause).
- * - Right: the six stats with icons (green above the character's base, red below), every held item as a grid
+ * - Right: HEALTH (red hearts now / max, Tin and Ember on top) across the panel, then the six stats in two columns
+ *   of three with icons (green above the character's base, red below), every held item as a grid
  *   (duplicates show ×N; scrolls when it overflows), the active item with its charge, trinkets, the consumable
  *   and transformations. Tap anything for its name and description underneath.
  * Secret: tapping the PAUSED title 5 times (each within 1.5 s of the last) opens the debug menu.
@@ -12,10 +13,10 @@ import { makeButton, type HitButton } from '../engine/buttons';
 import type { InputState } from '../engine/inputState';
 import { GAME_H, GAME_W } from '../engine/screen';
 import { CHAPTERS, findItem, findSet } from '../content/registry';
-import { CURSE_ICONS, CURSE_NAMES } from '../content/sprites/mapIcons';
+import { CURSE_ICONS, CURSE_SHORT } from '../content/sprites/mapIcons';
 import { UI } from '../content/sprites/palette';
 import { formatSeed, numericSeedLabel } from '../meta/seedCode';
-import { drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
+import { FONT_H, drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
 import { drawSprite, getFrame } from '../render/sprites';
 import { itemIcon } from '../render/worldRenderer';
@@ -23,7 +24,7 @@ import type { Sim } from '../sim/sim';
 import { itemDesc, itemName } from '../sim/tonics';
 import type { App } from './app';
 import type { Scene } from './scene';
-import { STAT_ROWS, drawStatLine } from './statRows';
+import { STAT_ROWS, drawHealthLine, drawStatLine, healthParts, healthText, statText, type HealthPart } from './statRows';
 import { BTN_H, MenuNav, Scroller, drawMenuButtons, drawWrapped, tickButtons, uiButton, type UiButton } from './widgets';
 
 const TITLE: TextStyle = { color: UI.accent, shadow: '#243052', outline: '#0d0b14', scale: 3 };
@@ -45,7 +46,11 @@ const SECRET_GAP = 1.5;
 const PX = 132;
 const PW = GAME_W - PX - 6;
 const GRID_X = PX + 6;
-const GRID_Y = 59;
+/** The HEALTH line (full width) and the stat rows under it (8 px apart). */
+const HEALTH_Y = 17;
+const STATS_Y = 26;
+const STAT_STEP = 8;
+const GRID_Y = 63;
 const CELL = 18;
 const COLS = Math.floor((PW - 12) / CELL);
 const GRID_H = CELL * 3;
@@ -85,6 +90,8 @@ export class PauseScene implements Scene {
   private info: string[] = [];
   private seedLine = '';
   private seedTag = '';
+  /** The HEALTH value (health can't change while paused: built when the menu opens). */
+  private health: HealthPart[] = [];
 
   constructor(app: App) {
     this.app = app;
@@ -152,8 +159,10 @@ export class PauseScene implements Scene {
     this.info = [];
     this.seedLine = '';
     this.seedTag = '';
+    this.health = [];
     if (!sim) return;
     const p = sim.world.player;
+    this.health = healthParts(p.health);
     const d = sim.run?.data;
     if (d) {
       const ch = CHAPTERS.get(d.chapter);
@@ -277,7 +286,7 @@ export class PauseScene implements Scene {
     const curse = sim.world.curse;
     if (curse) {
       drawSprite(ctx, CURSE_ICONS[curse], 0, 7, y - 1);
-      drawText(ctx, CURSE_NAMES[curse].replace('CURSE OF ', ''), 17, y, CURSE);
+      drawText(ctx, CURSE_SHORT[curse], 17, y, CURSE);
       y += 9;
     }
     const d = sim.run?.data;
@@ -289,19 +298,20 @@ export class PauseScene implements Scene {
     const sim = this.sim;
     if (!sim) return;
     const p = sim.world.player;
-    // Stats: two columns of three.
+    // Stats: HEALTH across the panel, then two columns of three.
     drawText(ctx, 'STATS', PX + 6, 8, SECTION);
     const colW = Math.floor((PW - 18) / 2);
+    drawHealthLine(ctx, this.health, PX + 6, HEALTH_Y, PW - 12);
     const base = p.character.stats;
     for (let i = 0; i < STAT_ROWS.length; i++) {
       const col = i < 3 ? 0 : 1;
-      drawStatLine(ctx, STAT_ROWS[i]!, p.stats, base, PX + 6 + col * (colW + 6), 18 + (i % 3) * 9, colW);
+      drawStatLine(ctx, STAT_ROWS[i]!, p.stats, base, PX + 6 + col * (colW + 6), STATS_Y + (i % 3) * STAT_STEP, colW);
     }
     ctx.fillStyle = '#1e2638';
-    ctx.fillRect(PX + 4, 46, PW - 8, 1);
+    ctx.fillRect(PX + 4, STATS_Y + 3 * STAT_STEP + 1, PW - 8, 1);
     // Items.
     const n = p.inv.passives.length;
-    drawText(ctx, n ? `ITEMS · ${n}` : 'ITEMS', PX + 6, 50, SECTION);
+    drawText(ctx, n ? `ITEMS · ${n}` : 'ITEMS', PX + 6, GRID_Y - 9, SECTION);
     if (this.grid.length === 0) drawText(ctx, 'NOTHING YET. FIND SOME TREASURE!', GRID_X + 2, GRID_Y + 6, DIM);
     ctx.save();
     ctx.beginPath();
@@ -409,12 +419,48 @@ export class PauseScene implements Scene {
       seed: this.seedLine,
       tag: this.seedTag,
       curse: sim?.world.curse ?? null,
+      health: p ? healthText(p.health) : '',
       stats,
       items: this.grid.map((e) => ({ id: e.id, count: e.count })),
       slots: this.slots.map((e) => ({ id: e.id, kind: e.kind })),
       selected: this.selected ? { id: this.selected.id, kind: this.selected.kind } : null,
       itemCells: this.grid.map((e) => ({ id: e.id, x: e.x + e.w / 2, y: e.y + e.h / 2 - this.scroll.pos })),
+      panel: { x: PX, y: 4, w: PW, h: GAME_H - 8 },
+      statRects: this.statRects(),
+      gridTop: GRID_Y - 1,
     };
+  }
+
+  /**
+   * Tests: where the STATS block's pieces are drawn (game px) — the HEALTH icon / label / value, each stat's icon,
+   * label and value, and the ITEMS heading — so a test can check none overlap and all stay inside the panel.
+   */
+  private statRects(): { id: string; x: number; y: number; w: number; h: number }[] {
+    const p = this.sim?.world.player;
+    if (!p) return [];
+    const out: { id: string; x: number; y: number; w: number; h: number }[] = [];
+    const x0 = PX + 6;
+    out.push({ id: 'health.icon', x: x0 - 1, y: HEALTH_Y - 2, w: 9, h: 8 });
+    out.push({ id: 'health.label', x: x0 + 10, y: HEALTH_Y, w: measureText('HEALTH'), h: FONT_H });
+    let rx = x0 + PW - 12;
+    for (let i = this.health.length - 1; i >= 0; i--) {
+      const w = measureText(this.health[i]!.text);
+      rx -= w;
+      out.push({ id: `health.value${i}`, x: rx, y: HEALTH_Y, w, h: FONT_H });
+      rx -= 5;
+    }
+    const colW = Math.floor((PW - 18) / 2);
+    for (let i = 0; i < STAT_ROWS.length; i++) {
+      const r = STAT_ROWS[i]!;
+      const x = x0 + (i < 3 ? 0 : 1) * (colW + 6);
+      const y = STATS_Y + (i % 3) * STAT_STEP;
+      const v = measureText(statText(p.stats[r.key], r.dp));
+      out.push({ id: `${r.key}.icon`, x, y: y - 1, w: r.icon.w, h: r.icon.h });
+      out.push({ id: `${r.key}.label`, x: x + 10, y, w: measureText(r.label), h: FONT_H });
+      out.push({ id: `${r.key}.value`, x: x + colW - v, y, w: v, h: FONT_H });
+    }
+    out.push({ id: 'items.label', x: x0, y: GRID_Y - 9, w: measureText('ITEMS · 99'), h: FONT_H });
+    return out;
   }
 }
 

@@ -37,7 +37,7 @@ import {
 } from './types';
 
 /** Bump when a change alters the layouts produced for existing seeds (saves can detect it). */
-export const FLOORGEN_VERSION = 1;
+export const FLOORGEN_VERSION = 2;
 
 export const FLOOR_W = 11;
 export const FLOOR_H = 11;
@@ -51,7 +51,11 @@ export const MAX_FLOOR = 13;
 
 /** Treasure rooms are locked from chapter 2 (floor 3) on. */
 export const TREASURE_LOCK_FLOOR = 3;
+/** Magpie's Stall is locked from floor 2 on (owner requirement: keys open locked doors, shops and lockboxes). */
+export const SHOP_LOCK_FLOOR = 2;
 export const MINIBOSS_CHANCE = 0.35;
+/** No miniboss on floor 1 (it decided too many first floors). */
+export const MINIBOSS_MIN_FLOOR = 2;
 export const CHALLENGE_CHANCE = 0.3;
 export const CHALLENGE_MIN_FLOOR = 2;
 export const CURSED_ROOM_CHANCE = 0.25;
@@ -64,6 +68,11 @@ export const HIDDEN_ROUTE_IN_SECRET = 0.55;
 const CELLS = FLOOR_W * FLOOR_H;
 const START_CELL = START_GY * FLOOR_W + START_GX;
 const MAX_ATTEMPTS = 20000;
+
+/** Does a room of this type get a locked door on this floor? (Treasure from floor 3, the shop from floor 2.) */
+export function lockedOnFloor(type: RoomType, floorIndex: number): boolean {
+  return type === 'treasure' ? floorIndex >= TREASURE_LOCK_FLOOR : type === 'shop' && floorIndex >= SHOP_LOCK_FLOOR;
+}
 
 /** Base room count (start + normal + dead-end specials; secret rooms and the nook not counted). */
 export function baseRoomCount(floorIndex: number): number {
@@ -138,7 +147,7 @@ function rollPlan(rng: Rng, floorIndex: number): Plan {
   const challenge = rng.chance(CHALLENGE_CHANCE);
   const cursed = rng.chance(CURSED_ROOM_CHANCE);
   const extra = rng.int(0, 1);
-  if (mini) specials.push('miniboss');
+  if (mini && floorIndex >= MINIBOSS_MIN_FLOOR) specials.push('miniboss');
   if (challenge && floorIndex >= CHALLENGE_MIN_FLOOR) specials.push('challenge');
   if (cursed) specials.push('cursed');
   // Enough rooms that the specials never crowd out the normal rooms (1 start + boss + specials + 4).
@@ -427,18 +436,16 @@ export function generateFloor(
   const final = finalBossFor(floorIndex, track);
   bossRoom.finalBoss = final;
 
-  // Locked treasure rooms (both sides of the single door).
-  if (floorIndex >= TREASURE_LOCK_FLOOR) {
-    for (const r of rooms) {
-      if (r.type !== 'treasure') continue;
-      r.locked = true;
-      for (let d = 0; d < 4; d++) {
-        const bit = DIR_BITS[d]!;
-        if ((r.doors & bit) === 0 || (r.secretDoors & bit) !== 0) continue;
-        r.lockedDoors |= bit;
-        const nb = rooms[cells[(r.gy + DIR_DY[d]!) * FLOOR_W + r.gx + DIR_DX[d]!]!]!;
-        nb.lockedDoors |= DIR_BITS[DIR_OPPOSITE[d]!]!;
-      }
+  // Locked treasure rooms and shops (both sides of the single regular door; a secret wall stays a way in).
+  for (const r of rooms) {
+    if (!lockedOnFloor(r.type, floorIndex)) continue;
+    r.locked = true;
+    for (let d = 0; d < 4; d++) {
+      const bit = DIR_BITS[d]!;
+      if ((r.doors & bit) === 0 || (r.secretDoors & bit) !== 0) continue;
+      r.lockedDoors |= bit;
+      const nb = rooms[cells[(r.gy + DIR_DY[d]!) * FLOOR_W + r.gx + DIR_DX[d]!]!]!;
+      nb.lockedDoors |= DIR_BITS[DIR_OPPOSITE[d]!]!;
     }
   }
 

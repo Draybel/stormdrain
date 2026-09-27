@@ -5,7 +5,7 @@
  * - 'run' (New Run): a real run — floors, rooms, doors (sim/run). Walking through a door slides the
  *   camera to the next room (the sim is frozen for the slide), the trapdoor closes an iris and opens
  *   the next floor with its card, the minimap sits in its HUD slot (tap it / Tab for the big map), the
- *   Curse of Darkness dims the room. Death or the last boss ends the run with a card, then the title.
+ *   Curse of the Blackout dims the room. Death or the last boss ends the run with a card, then the title.
  * - 'yard' (debug menu): the Phase 2 training yard — F / the bell button call waves, death restarts.
  * Big kills get a 1-2 frame hit-stop (presentation only: the scene skips sim steps).
  *
@@ -186,11 +186,13 @@ export class RunScene implements Scene {
 
   private makeSim(): Sim {
     if (this.mode !== 'run') return new Sim({ seed: randomSeed() });
-    // A new run carries the meta unlock snapshot (locked items, the ending-gated routes) and its seed code.
+    // A new run carries an unlock snapshot (locked items, the ending-gated routes) and its seed code. Typed codes
+    // and dailies take the canonical fresh-save snapshot so the code always recreates the same run; a retry
+    // replays its original's (meta/unlocks.ts unlocksForRun).
     const s = this.start;
     const seed: RunSeedInfo = s?.seed ?? { code: randomSeedCode(), kind: 'random' };
     const character = s ? CHARACTERS.get(s.character) : undefined;
-    return Sim.newRun(s?.simSeed ?? seed.code, { unlocked: this.app.save.unlockedForRun(), seedInfo: seed }, character);
+    return Sim.newRun(s?.simSeed ?? seed.code, { unlocked: this.app.save.unlockedForRun(seed, s?.unlocked), seedInfo: seed }, character);
   }
 
   enter(): void {
@@ -522,7 +524,7 @@ export class RunScene implements Scene {
     this.app.particles.clear();
     this.labelFor = -1;
     // The last room's notice (Magpie's line, "ROOM CLEARED!") doesn't follow her through the door; one
-    // raised by this very transition ("THE MAZE SHIFTS...") stays.
+    // raised by this very transition ("THE PIPES SHIFT...") stays.
     if (this.noticeTick !== this.sim.world.tick) this.noticeTime = 0;
     if (side >= 0 && this.irisPhase === 0) {
       // Came in through `side`: the camera moves the other way (entering from the north = going south).

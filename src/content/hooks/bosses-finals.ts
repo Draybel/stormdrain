@@ -10,7 +10,7 @@
  *                         phase, half as strong on a flyer), churning; the water grows still as it falls
  *
  * Hook code only touches the World it is handed (no sim imports beyond pure constants), so the content
- * registry stays free of import cycles. Darkness borrows the Curse of Darkness (`world.curse`): the
+ * registry stays free of import cycles. Darkness borrows the Curse of the Blackout (`world.curse` = darkness): the
  * floor's own curse is kept aside and put back when the blackout ends, the phase changes or the boss
  * falls (a debug kill mid-blackout leaves it dark until the next room).
  */

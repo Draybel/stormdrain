@@ -14,6 +14,8 @@
  * Nothing here runs per tick: hooks fire on uses and triggers only.
  */
 
+// sim/health.ts is pure (no imports), so it is safe here (no registry -> hooks -> sim cycle).
+import { BONUS_TIN, canAddBonus, canHeal } from '../../sim/health';
 import type { Hittable } from '../../sim/hittable';
 import { numParam, registerHook, strParam, type HookCtx } from '../../sim/hooks';
 import type { Pedestal } from '../../sim/pedestals';
@@ -55,6 +57,8 @@ export interface ItemsCTools {
   /** Floor wiring (FLOOR_LINKS in sim/tonics.ts): false when there is no floor (training yard). */
   revealMap(w: World, level: MapReveal): boolean;
   teleport(w: World, to: TeleportTarget): boolean;
+  /** False while the floor won't let her leave the room (a boss's death sequence): teleports refuse and refund. */
+  canTeleport(w: World): boolean;
 }
 
 /** Filled in by src/sim/tonics.ts. */
@@ -357,7 +361,8 @@ registerHook('itemsC.buyHeal', (ctx) => {
   const cost = numParam(ctx, 'cost', 5);
   const halves = numParam(ctx, 'heal', 2);
   const tinOnly = p.flags.noRedHearts;
-  const full = tinOnly ? false : p.health.red >= p.health.redMax;
+  // Full = the cocoa could give nothing: no red to heal, or (Marrow) no room for another half Tin heart.
+  const full = tinOnly ? !canAddBonus(p.health, BONUS_TIN) : !canHeal(p.health);
   if (p.inv.coins < cost || full) {
     refused(ctx, t);
     return;
@@ -414,6 +419,11 @@ registerHook('itemsC.teleport', (ctx) => {
   const to = strParam(ctx, 'to', 'random') as TeleportTarget;
   const fromX = p.x;
   const fromY = p.y;
+  // Not now (a boss is going down): refused and refunded — no in-room blink either.
+  if (!t.canTeleport(w)) {
+    refused(ctx, t);
+    return;
+  }
   if (!t.teleport(w, to)) {
     if (to !== 'random') {
       refused(ctx, t);

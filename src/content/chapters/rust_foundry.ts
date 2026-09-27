@@ -40,7 +40,7 @@ const chapters: ChapterDef[] = [
     bossPool: [],
     minibossPool: [],
     music: 'ch_rust_foundry',
-    curses: ['darkness', 'maze', 'unknown'],
+    curses: ['darkness', 'maze', 'leak'],
     // Scorched iron plates and soot brick, glowing slag in every seam; embers drift up.
     decor: { floor: [FOUNDRY_CRACK, FOUNDRY_SLAG, FOUNDRY_CHAIN], wall: [FOUNDRY_CHAIN_TRIM], count: [3, 6], streak: '#6a2a14', ambience: 'embers' },
   },

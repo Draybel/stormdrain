@@ -10,6 +10,7 @@
  */
 
 import { Rng, hashString } from '../engine/rng';
+import type { RunSeedInfo } from '../sim/run/types';
 
 export const SEED_LEN = 8;
 /** Characters random / daily codes are made of (no I, O, 0, 1). */
@@ -51,6 +52,21 @@ export function randomSeedCode(rand: () => number = Math.random): string {
 export function dailySeedCode(date: string): string {
   const rng = new Rng(hashString(`stormdrain:daily:${date}`));
   return randomSeedCode(() => rng.next());
+}
+
+/** The daily run of a UTC date (`YYYY-MM-DD`): its code, and whether this attempt is the day's scored one. */
+export function dailySeedInfo(date: string, alreadyPlayed: boolean): RunSeedInfo {
+  return { code: dailySeedCode(date), kind: 'daily', date, scored: !alreadyPlayed };
+}
+
+/**
+ * A daily picked before UTC midnight but started after it: the new day's daily instead (its own code and scored
+ * flag), or null while `seed` is still today's (or isn't a daily). Without it, a character select left open over
+ * midnight would score yesterday's daily and then today's too.
+ */
+export function rolledOverDaily(seed: RunSeedInfo, today: string, played: (date: string) => boolean): RunSeedInfo | null {
+  if (seed.kind !== 'daily' || seed.date === today) return null;
+  return dailySeedInfo(today, played(today));
 }
 
 /** The label for a run without a code (debug runs, pre-4B saves): its numeric seed in hex. */

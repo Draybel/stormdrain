@@ -63,10 +63,21 @@ export type FloorTrack = 'main' | 'alt';
 /** Final boss marker for the last floor of a route. */
 export type FinalBossKey = 'thunderhead' | 'nestmother' | 'undertow';
 
-/** Floor curses (DESIGN.md "Floor curses"). */
-export type FloorCurse = 'darkness' | 'lostMap' | 'maze' | 'blind' | 'unknown' | 'deluge';
+/**
+ * Floor curses (DESIGN.md "Floor curses"; display names in content/sprites/mapIcons.ts CURSE_NAMES): darkness = the
+ * Blackout, lostMap = the Soggy Map, maze = the Shifting Pipes, blind = the Fogged Glass, leak = the Leaky Roof,
+ * deluge = the Deluge. None of them ever hides the HUD. 'leak' took the place of the retired 'unknown' (saves map it).
+ */
+export type FloorCurse = 'darkness' | 'lostMap' | 'maze' | 'blind' | 'leak' | 'deluge';
 
-export const FLOOR_CURSES: readonly FloorCurse[] = ['darkness', 'lostMap', 'maze', 'blind', 'unknown', 'deluge'];
+/** Order matters: seeded curse rolls index into it (a new curse goes at the end). */
+export const FLOOR_CURSES: readonly FloorCurse[] = ['darkness', 'lostMap', 'maze', 'blind', 'leak', 'deluge'];
+
+/** A curse id from a save: the retired 'unknown' reads as 'leak' (same slot in FLOOR_CURSES); anything else unknown → null. */
+export function migrateCurse(c: unknown): FloorCurse | null {
+  if (c === 'unknown') return 'leak';
+  return typeof c === 'string' && (FLOOR_CURSES as readonly string[]).includes(c) ? (c as FloorCurse) : null;
+}
 
 /**
  * Door sides as bits of a 4-bit mask. Index order N, E, S, W matches DIR_DX / DIR_DY.

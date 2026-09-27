@@ -200,11 +200,14 @@ export function itemDesc(w: World | null, id: string): string {
  * the Treasure Map Sticker reveals the map, the Keepsake Sticker / Hopscotch Chalk teleport. Return
  * false when nothing happened (the item then refunds itself / Hopscotch blinks inside the room
  * instead). A teleport is queued: the room changes at the end of the tick, never mid-update.
+ * `canTeleport` false = the floor won't let her leave the room right now (a boss's death sequence is
+ * playing): every teleport item refuses and refunds, Hopscotch included (no blink either).
  */
 export const FLOOR_LINKS: {
   revealMap: ((w: World, level: MapReveal) => boolean) | null;
   teleport: ((w: World, to: TeleportTarget) => boolean) | null;
-} = { revealMap: null, teleport: null };
+  canTeleport: ((w: World) => boolean) | null;
+} = { revealMap: null, teleport: null, canTeleport: null };
 
 // ── Services for content/hooks/itemsC.ts ────────────────────────────────────
 
@@ -277,4 +280,5 @@ ITEMS_C_TOOLS.t = {
   freeSpot: (w, x, y, out) => nearestFreeSpot(w, x, y, out),
   revealMap: (w, level) => FLOOR_LINKS.revealMap?.(w, level) ?? false,
   teleport: (w, to) => FLOOR_LINKS.teleport?.(w, to) ?? false,
+  canTeleport: (w) => FLOOR_LINKS.canTeleport?.(w) ?? true,
 };

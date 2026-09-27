@@ -255,6 +255,14 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       3 finals, 97 room templates, 9 sets, 63 synergies, 53 achievements, 8 characters; the play-bot over every floor /
       track with the new bosses (default + BOT_FULL: 83 runs, 3 of the boss fights needed the fallback), the synergy stress
       test (+ STRESS=full), 62 unit-test files (2 652 tests), build and e2e (98 passed, 12 skipped by design) green)
+- [x] Polish batch 1 — critical bugs and unmet hard requirements: the burrower soft-lock (nearest surfacing cell + a
+      hard cap), shops locked from floor 2 and no floor-1 miniboss (FLOORGEN_VERSION 2), a start-room grate to the alt
+      floor 1, teleports entering through a door / no boss contact during the intro / no teleport during a boss death /
+      the clear before a pending teleport, the Thorn toll for a burrowed Pip, Coin-Op Cocoa at the Tin cap, original
+      curse names with no hidden HUD (the Leaky Roof replaces the Unknown, the Soggy Map keeps visited rooms), seeds that
+      always recreate their run (canonical unlocks for codes and dailies, retries replay their snapshot, no daily across
+      UTC midnight), HEALTH in the pause stats, the README (tests/start-route, run-fixes, curses, seeded-runs,
+      pause-health; e2e menus + floors)
 - [ ] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 
@@ -263,5 +271,8 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
 - [ ] Mobile UX pass (button sizes, safe areas, tap targets), e2e re-run on both iPhone viewports
 
 ## Phase 9 — Docs & finish
-- [ ] README.md (beginner GitHub + Pages + iPhone home screen guide; separate saves warning)
+- [x] README.md (beginner GitHub + Pages + iPhone home screen guide; separate saves warning)
+      (polish batch 1: controls, account → empty repo → push to main (or GitHub Desktop) → Pages source GitHub Actions →
+      the Test & deploy run → Add to Home Screen → separate saves + export / import → updates → troubleshooting → dev
+      commands; tests/ci-workflow.test.ts checks it against deploy.yml and package.json)
 - [ ] SYNERGIES.md complete; DECISIONS.md complete; final summary

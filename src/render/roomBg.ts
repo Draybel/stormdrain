@@ -6,9 +6,10 @@
  * renderer on top of this.
  */
 
-import { Rng, fmix32 } from '../engine/rng';
+import { Rng } from '../engine/rng';
 import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import type { RoomGrid } from '../sim/room';
+import { cellRand, floorLookAt } from '../sim/floorLook';
 import { Deco, Tile } from '../sim/tiles';
 import { FLOOR_VARIANT } from '../content/sprites/gutterways';
 import { CRATE_SPRITE, METAL_SPRITE, SPIKES_SPRITE, TINTED_ROCK_SPRITE, URN_SPRITE } from '../content/sprites/obstacles';
@@ -40,21 +41,6 @@ function isPit(room: RoomGrid, c: number, r: number): boolean {
   return room.get(c, r) === Tile.Pit;
 }
 
-/** Deterministic 0..1 value for a cell (+ salt), independent of every other cell. */
-function cellRand(seed: number, c: number, r: number, salt: number): number {
-  return fmix32((seed ^ Math.imul(c + 11, 0x9e3779b1) ^ Math.imul(r + 7, 0x85ebca6b) ^ Math.imul(salt, 0xc2b2ae35)) >>> 0) / 4294967296;
-}
-
-function weightedPick(u: number, weights: readonly number[]): number {
-  let total = 0;
-  for (const w of weights) total += w;
-  let x = u * total;
-  for (let i = 0; i < weights.length; i++) {
-    if (x < weights[i]!) return i;
-    x -= weights[i]!;
-  }
-  return weights.length - 1;
-}
 
 export function buildRoomBackground(room: RoomGrid, art: ChapterArt, reuse: HTMLCanvasElement | null = null): HTMLCanvasElement {
   const canvas = reuse ?? makeCanvas(ROOM_OUTER_W, ROOM_OUTER_H);
@@ -107,9 +93,8 @@ export function buildRoomBackground(room: RoomGrid, art: ChapterArt, reuse: HTML
       const y = WALL + r * TILE;
       const t = room.get(c, r);
       if (t === Tile.Pit) continue;
-      const edge = r === 0 || c === 0 || r === ROOM_ROWS - 1 || c === ROOM_COLS - 1;
-      const plainFloor = t === Tile.Floor && room.deco[r * ROOM_COLS + c] === Deco.None;
-      const variant = weightedPick(cellRand(seed, c, r, 1), [45, 30, 12, edge ? 22 : 6, plainFloor ? 2.5 : 0]);
+      // The same pick the sim uses to keep the hidden-route grate off decorative grates (sim/floorLook.ts).
+      const variant = floorLookAt(seed, c, r, t, room.deco[r * ROOM_COLS + c]!);
       ctx.drawImage(getFrame(art.floor, variant < 0 ? FLOOR_VARIANT.plain : variant), x, y);
     }
   }

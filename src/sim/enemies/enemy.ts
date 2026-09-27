@@ -135,6 +135,8 @@ export class Enemy implements Poolable, Hittable {
   volleys = 0;
   /** Underground (burrowers): not hittable, harmless, drawn as a mound. */
   burrowed = false;
+  /** Burrowers stuck under a prop: the cell (row × cols + col) they tunnel to until they surface, -1 = none. */
+  surfCell = -1;
   /** Blinking (teleporters mid-jump): not hittable, harmless. */
   hidden = false;
   /** Phantom champions in their faded phase: not hittable, harmless. */

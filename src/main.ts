@@ -37,7 +37,7 @@ import { SettingsScene } from './ui/settingsPanel';
 import { StatsScene } from './ui/statsPage';
 import { TitleScene } from './ui/title';
 import { utcDateKey } from './meta/metaState';
-import { dailySeedCode, randomSeedCode } from './meta/seedCode';
+import { dailySeedInfo, randomSeedCode, rolledOverDaily } from './meta/seedCode';
 import { drawText, type TextStyle } from './render/font';
 import { GAME_H } from './engine/screen';
 import { DebugActions } from './debug/actions';
@@ -74,6 +74,10 @@ function boot(): void {
     },
     newRun: () => nav.startRun({ character: lastCharacter(), seed: { code: randomSeedCode(), kind: 'random' } }),
     startRun: (start) => {
+      // A daily picked before UTC midnight and started after it is the NEW day's daily (its own code and scored
+      // flag) — never yesterday's scored attempt on top of today's.
+      const rolled = rolledOverDaily(start.seed, utcDateKey(Date.now()), (date) => save.meta.hasDaily(date));
+      if (rolled) start = { ...start, seed: rolled };
       // Starting a run abandons a saved one (a 'quit': the win streak ends).
       save.abandonSavedRun();
       scenes.replace(new RunScene(app, 'run', null, start));
@@ -82,7 +86,7 @@ function boot(): void {
     daily: () => {
       const date = utcDateKey(Date.now());
       // One scored attempt per UTC day: a replay of a day already played runs unscored.
-      nav.characters({ code: dailySeedCode(date), kind: 'daily', date, scored: !save.meta.hasDaily(date) });
+      nav.characters(dailySeedInfo(date, save.meta.hasDaily(date)));
     },
     seedEntry: () => openSeedEntry(app),
     collection: () => scenes.push(new CollectionScene(app)),

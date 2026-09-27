@@ -13,8 +13,9 @@
  *   become Seen only when discovered (wall bombed open → discoverRoom), entered, or revealed by an
  *   item. From inside a secret room its neighbours are revealed as usual.
  * - Special room icons are known exactly when the room is at least Seen.
- * - The Lost Map curse hides everything except the current room; knowledge keeps accumulating
- *   underneath, so lifting the curse (setLostMap(false)) brings the map back.
+ * - The Curse of the Soggy Map (id 'lostMap') shows only the rooms already VISITED: no outlines or icons of
+ *   rooms seen through a door or revealed by an item. Knowledge keeps accumulating underneath, so lifting
+ *   the curse (setLostMap(false)) brings the whole map back.
  */
 
 import { neighborRoom } from './generate';
@@ -31,7 +32,7 @@ export interface MinimapState {
   vis: number[];
   /** Room the player is in (-1 before the first enterRoom). */
   current: number;
-  /** Lost Map curse active. */
+  /** Soggy Map curse (lostMap) active: only visited rooms are shown. */
   lostMap: boolean;
   /** Bumped on every change so the renderer can cache its minimap canvas. */
   version: number;
@@ -110,10 +111,11 @@ export function setLostMap(state: MinimapState, on: boolean): void {
   }
 }
 
-/** Visibility to draw for a room (applies the Lost Map curse). */
+/** Visibility to draw for a room (the Soggy Map curse leaves only the visited rooms). */
 export function roomVis(state: MinimapState, room: number): MapVisValue {
-  if (state.lostMap && room !== state.current) return MapVis.Unknown;
-  return (state.vis[room] ?? MapVis.Unknown) as MapVisValue;
+  const v = (state.vis[room] ?? MapVis.Unknown) as MapVisValue;
+  if (state.lostMap) return v === MapVis.Visited ? v : MapVis.Unknown;
+  return v;
 }
 
 export function isRoomShown(state: MinimapState, room: number): boolean {

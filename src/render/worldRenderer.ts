@@ -77,6 +77,15 @@ const DEATH = [WREN_FRAME.hurt, WREN_FRAME.deathSlump, WREN_FRAME.deathHeap];
 const STRIDE = 5;
 /** How high a flying player floats (px). */
 const FLY_HEIGHT = 4;
+/** Curse of the Fogged Glass ('blind'): items show as '?' until she is this close (px). */
+export const FOG_REVEAL = 26;
+
+/** Under the Fogged Glass, is the item at (x, y) (room px) still fogged over? */
+function fogged(world: World, x: number, y: number): boolean {
+  if (world.curse !== 'blind') return false;
+  const p = world.player;
+  return (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y) > FOG_REVEAL * FOG_REVEAL;
+}
 
 /** An item's icon, or a stand-in while its art is a placeholder string. */
 export function itemIcon(id: string): SpriteDef {
@@ -100,7 +109,7 @@ export class WorldRenderer {
   private shaft: HTMLCanvasElement | null = null;
   /** Shop goods are drawn with the pickup art (a scratch pickup, never simulated). */
   private readonly goods = new Pickup();
-  /** Curse of Darkness. */
+  /** Curse of the Blackout (darkness). */
   readonly darkness = new DarknessLayer();
 
   /** Warm caches (room background, sprite frames) so the first frames don't hitch. */
@@ -387,7 +396,7 @@ export class WorldRenderer {
   private drawOffer(ctx: CanvasRenderingContext2D, world: World, ped: Pedestal, x: number, y: number, time: number, i: number): void {
     {
       const bob = Math.round(Math.sin(time * 2.6 + i * 1.3) * 1.5);
-      const icon = world.curse === 'blind' ? BLIND_ITEM_SPRITE : itemIcon(ped.item);
+      const icon = fogged(world, ped.x, ped.y) ? BLIND_ITEM_SPRITE : itemIcon(ped.item);
       const img = getFrame(icon, 0);
       const ix = Math.round(x - img.width / 2);
       const iy = Math.round(y - 8 - img.height + bob);
@@ -415,7 +424,7 @@ export class WorldRenderer {
       const k = pks.items[i]!;
       const x = Math.round(lerp(k.prevX, k.x, alpha) + ox);
       const y = Math.round(lerp(k.prevY, k.y, alpha) + oy - lerp(k.prevZ, k.z, alpha));
-      drawPickup(ctx, k, x, y, time, this.sparkGlow, world.curse === 'blind');
+      drawPickup(ctx, k, x, y, time, this.sparkGlow, fogged(world, k.x, k.y));
     }
   }
 

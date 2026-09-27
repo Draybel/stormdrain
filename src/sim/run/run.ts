@@ -4,14 +4,16 @@
  * snapshots. Headless, owned by the Sim (`sim.run`), stepped at the end of every Sim tick.
  *
  * Flow of a room change (walking into an open door, the trapdoor, debug teleports):
- *   decide the destination (Curse of the Maze may reroute) → pay a Thorn Room toll → save the room
+ *   decide the destination (the Curse of the Shifting Pipes may reroute) → pay a Thorn Room toll → save the room
  *   being left (tiles, pickups, pedestals) → `data.current` = destination → CHECKPOINT → enterCurrent().
  * The checkpoint (a JSON string of RunData + world + player) is what `snapshot()` returns: restoring
  * runs the very same enterCurrent() from the very same state, so play continues identically.
  * Everything that happens on entry (spawns, the floorStart trigger…) therefore lives in enterCurrent.
  *
  * Routes (DESIGN "Hidden routes"): boss trapdoors keep the track; a cracked drain grate (secret room,
- * or the boss room after the boss — bomb it open) drops to the ALT track. The alt route into chapter 6
+ * or the boss room after the boss — bomb it open) drops to the ALT track. On half the runs main floor 1's
+ * start room has one too: it restarts floor 1 on the alt track (the Drowned Nursery I) and seals for good
+ * once she leaves the start room. The alt route into chapter 6
  * needs 'ending1' unlocked (without it the alt track rejoins the main one there). A final boss ends the
  * run with its ending — unless 'ending1' and 'ending2' are unlocked: then a whirlpool (floor 13, The
  * Undertow) and a skylight (the ending) appear.
@@ -23,10 +25,11 @@ import { BOSSES, findEnemy } from '../../content/registry';
 import { beginWave, startWave, type FixedSpawn } from '../arena';
 import { respawnFamiliars } from '../attack/familiars';
 import { spawnBoss } from '../bosses/brain';
-import { DMG_SPIKES, damagePlayer } from '../combat';
+import { DMG_TOLL, damagePlayer } from '../combat';
 import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W, TILE } from '../constants';
 import { DK, DOOR_FRONT_X, DOOR_FRONT_Y, DOOR_X, DOOR_Y, DS, TRAPDOOR_OPEN_TIME, type DoorKind } from '../doors';
 import { floorStarted } from '../effects';
+import { FLOOR_LOOK, floorLookAt } from '../floorLook';
 import { UNDERTOW_FLOOR, generateFloor, neighborRoom, openNook, templateRng } from '../floor/generate';
 import { ROOM_TEMPLATES } from '../floor/library';
 import { createMinimap, discoverRoom, enterRoom as mapEnterRoom, revealMap, setLostMap } from '../floor/minimap';
@@ -34,6 +37,7 @@ import { pickTemplates, templateGrid } from '../floor/templates';
 import {
   DIR_BITS,
   DIR_OPPOSITE,
+  migrateCurse,
   type FinalBossKey,
   type FloorCurse,
   type FloorGenOptions,
@@ -114,9 +118,19 @@ const RUNS = new WeakMap<World, Run>();
 // outside a run (the yard) they report "nothing happened" and the item refunds / blinks in the room.
 FLOOR_LINKS.revealMap = (w: World, level: MapReveal): boolean => RUNS.get(w)?.revealMapBy(level) ?? false;
 FLOOR_LINKS.teleport = (w: World, to: TeleportTarget): boolean => RUNS.get(w)?.queueTeleport(to) ?? false;
+FLOOR_LINKS.canTeleport = (w: World): boolean => !RUNS.has(w) || !bossDying(w);
 
 /** Last floor of a route; floor 13 (The Undertow) comes after it through the whirlpool. */
 const LAST_FLOOR = 12;
+
+/**
+ * Chance of the cracked hidden-route grate in main floor 1's start room (its own fork, 'startRoute'): bombing it
+ * open and stepping in restarts floor 1 on the alt track — the only way into the Drowned Nursery I.
+ */
+export const START_ROUTE_CHANCE = 0.5;
+
+/** `RunData.entrySide` of a teleport into a room without any door (see placeClearOfThings). */
+const ENTRY_NO_DOOR = -2;
 
 const TRAPDOOR_X = cellCenterX(6);
 const TRAPDOOR_Y = cellCenterY(3);
@@ -231,7 +245,7 @@ export class Run {
     const inv = host.world.player.inv;
     const seen = [...new Set([...inv.passives, ...(inv.active ? [inv.active.id] : []), ...inv.trinkets, ...inv.consumables])];
     const routeChance = opts.hiddenRouteChance;
-    const f = makeFloor(seed, floor, track, curseMode, new Set(locked), new Set(seen), new Set(unlocked), routeChance);
+    const f = makeFloor(seed, floor, track, curseMode, new Set(locked), new Set(seen), new Set(unlocked), routeChance, opts.startRouteChance);
     const data: RunData = {
       v: RUN_SNAPSHOT_VERSION,
       seed,
@@ -272,6 +286,7 @@ export class Run {
    * that); this re-enters the room exactly as the original did.
    */
   static restore(host: RunHost, snap: RunSnapshot): Run {
+    upgradeRunData(snap.run);
     // A snapshot from before the tonics were saved: deal them from the seed, as a new run would.
     if (!host.world.tonics) initTonics(host.world, snap.run.seed);
     const run = new Run(host, snap.run);
@@ -351,15 +366,19 @@ export class Run {
     return track;
   }
 
-  /** Drops to the next floor (the trapdoor keeps the track, the grate goes to the alt one). */
-  private descend(track: FloorTrack, x: number, y: number, via: string): void {
+  /**
+   * Drops to `floor` (default the next one; the trapdoor keeps the track, the grate goes to the alt one). Only a
+   * drop to a deeper floor clears one: the start-room grate (via 'startGrate') restarts floor 1 on the alt track,
+   * which the tracker doesn't count as a finished floor either.
+   */
+  private descend(track: FloorTrack, x: number, y: number, via: string, floor = this.data.floor + 1): void {
     const w = this.host.world;
     const d = this.data;
-    d.stats.floorsCleared++;
+    if (floor > d.floor) d.stats.floorsCleared++;
     w.events.emit('trapdoor', x, y, 1, d.floor, via);
     w.events.emit('sfx', x, y, 0, 0, 'trapdoor');
     this.saveRoom();
-    this.startFloor(d.floor + 1, track);
+    this.startFloor(floor, track);
   }
 
   /** The run is won with an ending (a final boss fell / the skylight). */
@@ -415,6 +434,11 @@ export class Run {
 
     w.trapdoor.reset();
     if (st.trapdoor) this.placeTrapdoor(TRAPDOOR_OPEN_TIME);
+    if (side === ENTRY_NO_DOOR) {
+      // A teleport into a room without a door: now that its pedestals, plate and exits are in, a safe spot.
+      this.placeClearOfThings();
+      respawnFamiliars(w);
+    }
 
     this.fighting = false;
     this.pendingWaveT = 0;
@@ -442,22 +466,78 @@ export class Run {
 
   /** The player in the middle of the room (the nearest walkable tile to the centre). */
   private placeNearCentre(): void {
+    const c = this.centreCell();
+    this.host.world.player.placeAt(cellX(c), cellY(c));
+  }
+
+  /**
+   * The free Floor cell nearest the middle that is no marker (pedestal, shop slot, chest, loot, boss, enemy), no
+   * pedestal, not the arena's plate or a floor exit, and at least 48 px from the boss / enemy markers (relaxed
+   * only when no cell qualifies). For teleports into a room without a door.
+   */
+  private placeClearOfThings(): void {
+    const w = this.host.world;
+    const pr = w.props;
+    const clear = (x: number, y: number, t: FloorThing | { active: boolean; x: number; y: number }, r: number) =>
+      !t.active || (x - t.x) * (x - t.x) + (y - t.y) * (y - t.y) >= r * r;
+    for (let pass = 0; pass < 2; pass++) {
+      let best = Infinity;
+      let bx = -1;
+      let by = -1;
+      for (let row = 0; row < ROOM_ROWS; row++) {
+        for (let col = 0; col < ROOM_COLS; col++) {
+          if (w.room.get(col, row) !== Tile.Floor) continue;
+          const x = cellCenterX(col);
+          const y = cellCenterY(row);
+          let ok = true;
+          for (const m of this.markers) {
+            if ('iScBeEp'.includes(m.ch) && m.col === col && m.row === row) ok = false;
+            if (pass === 0 && (m.ch === 'B' || m.ch === 'e' || m.ch === 'E')) {
+              const dx = cellCenterX(m.col) - x;
+              const dy = cellCenterY(m.row) - y;
+              if (dx * dx + dy * dy < 48 * 48) ok = false;
+            }
+          }
+          for (let i = 0; i < w.pedestals.count && ok; i++) {
+            const p = w.pedestals.items[i]!;
+            if (Math.abs(p.x - x) < TILE && Math.abs(p.y - y) < TILE) ok = false;
+          }
+          const reach = RUN_TUNING.trapdoorReach + 10;
+          ok &&= clear(x, y, pr.plate, RUN_TUNING.plateReach + 10) && clear(x, y, w.trapdoor, reach) && clear(x, y, pr.grate, reach);
+          ok &&= clear(x, y, pr.whirlpool, reach) && clear(x, y, pr.skylight, reach);
+          if (!ok) continue;
+          const dd = Math.abs(col - 6) + Math.abs(row - 3) * 1.2;
+          if (dd < best) {
+            best = dd;
+            bx = x;
+            by = y;
+          }
+        }
+      }
+      if (bx >= 0) {
+        w.player.placeAt(bx, by);
+        return;
+      }
+    }
+    this.placeNearCentre();
+  }
+
+  /** The Floor cell nearest the room's centre (where a floor start puts her). */
+  private centreCell(): number {
     const w = this.host.world;
     let best = Infinity;
-    let bx = cellCenterX(6);
-    let by = cellCenterY(3);
+    let cell = ROOM_COLS * 3 + 6;
     for (let row = 0; row < ROOM_ROWS; row++) {
       for (let col = 0; col < ROOM_COLS; col++) {
         if (w.room.get(col, row) !== Tile.Floor) continue;
         const dd = Math.abs(col - 6) + Math.abs(row - 3) * 1.2;
         if (dd < best) {
           best = dd;
-          bx = cellCenterX(col);
-          by = cellCenterY(row);
+          cell = row * ROOM_COLS + col;
         }
       }
     }
-    w.player.placeAt(bx, by);
+    return cell;
   }
 
   /** First visit: pickups, chests, pedestals, shop stock and the room's props from the pre-rolls. */
@@ -561,11 +641,20 @@ export class Run {
 
   private placeGrate(st: RoomState): void {
     const w = this.host.world;
-    // Never under the trapdoor or a pedestal (the boss reward): the same cells on every visit.
-    const taken = [ROOM_COLS * 3 + 6];
+    // Never under the trapdoor or a pedestal (the boss reward), never where the player spawns (the start room's),
+    // never on a cell whose floor already shows a decorative drain grate (the cracked one must read as different):
+    // the same cells on every visit.
+    const taken = [ROOM_COLS * 3 + 6, this.centreCell()];
     for (let i = 0; i < w.pedestals.count; i++) {
       const p = w.pedestals.items[i]!;
       taken.push(Math.floor(p.y / TILE) * ROOM_COLS + Math.floor(p.x / TILE));
+    }
+    const g = w.room;
+    for (let r = 0; r < ROOM_ROWS; r++) {
+      for (let c = 0; c < ROOM_COLS; c++) {
+        const i = r * ROOM_COLS + c;
+        if (floorLookAt(g.styleSeed, c, r, g.tiles[i]!, g.deco[i]!) === FLOOR_LOOK.grate) taken.push(i);
+      }
     }
     const cell = floorCell(w, this.markers, GRATE_PREFS, taken);
     if (cell < 0) return;
@@ -629,10 +718,14 @@ export class Run {
     }
   }
 
-  /** Remembers the room being left: tiles, pickups, pedestals. */
+  /**
+   * Remembers the room being left: tiles, pickups, pedestals. Leaving the start room (a door, a teleport) seals
+   * its hidden-route grate for good: main floor 1 can't be looted first and then replayed on the alt track.
+   */
   private saveRoom(): void {
     const w = this.host.world;
     const st = this.state;
+    if (this.room.type === 'start') st.grate = 0;
     st.grid = encodeGrid(w.room);
     st.pickups = [];
     for (let i = 0; i < w.pickups.count; i++) {
@@ -1037,7 +1130,7 @@ export class Run {
     let dest = slot.to;
     let destSide = DIR_OPPOSITE[side]!;
     if (dest < 0) return false;
-    // Curse of the Maze: now and then a door leads somewhere else you've been.
+    // Curse of the Shifting Pipes ('maze'): now and then a door leads somewhere else you've been.
     if (w.curse === 'maze' && slot.kind !== DK.Secret && w.combatRng.next() < RUN_TUNING.mazeChance) {
       const options: number[] = [];
       for (let i = 0; i < d.rooms.length; i++) {
@@ -1047,7 +1140,7 @@ export class Run {
       if (options.length > 0) {
         dest = options[w.combatRng.int(0, options.length - 1)]!;
         destSide = firstDoorSide(d.layout.rooms[dest]!);
-        w.events.emit('say', w.player.x, w.player.y, 0, 0, 'THE MAZE SHIFTS...');
+        w.events.emit('say', w.player.x, w.player.y, 0, 0, 'THE PIPES SHIFT...');
         w.events.emit('sfx', w.player.x, w.player.y, 0, 0, 'teleport');
       }
     }
@@ -1064,13 +1157,19 @@ export class Run {
     return true;
   }
 
-  /** Half a heart for passing a spiked Thorn Room door (i-frames don't help; god mode does). */
+  /**
+   * Half a heart for passing a spiked Thorn Room door (i-frames don't help; god mode does). A burrowed Pip comes
+   * up at the thorns first (damagePlayer refuses everything underground, so tunnelling through was free); the
+   * room change would surface him anyway.
+   */
   private payToll(): void {
     const w = this.host.world;
     if (w.godMode) return;
-    w.player.invuln = 0;
+    const p = w.player;
+    if (p.underground) p.mech.resetRoom();
+    p.invuln = 0;
     w.safeT = 0;
-    damagePlayer(w, 1, DMG_SPIKES);
+    damagePlayer(w, 1, DMG_TOLL);
     w.events.emit('sfx', w.player.x, w.player.y, 0, 0, 'spikes');
   }
 
@@ -1153,13 +1252,16 @@ export class Run {
       this.pendingTeleport = -1;
       return;
     }
-    if (this.pendingTeleport >= 0) {
-      this.teleportNow();
-      return;
-    }
+    // The clear comes first: a teleport on the very tick the last foe falls must not skip it (the boss's
+    // trapdoor, reward and kill would be lost with the room).
     if (this.fighting && !w.arena.active) {
       this.fighting = false;
       this.onWaveCleared();
+    }
+    // (A teleport queued on the tick a boss began to die waits for the death sequence to end.)
+    if (this.pendingTeleport >= 0 && !bossDying(w)) {
+      this.teleportNow();
+      return;
     }
     const st = this.state;
     if (this.pendingWaveT > 0) {
@@ -1185,11 +1287,13 @@ export class Run {
         return;
       }
     }
-    // The hidden-route grate (once blasted open) → the alt track.
+    // The hidden-route grate (once blasted open) → the alt track. The start room's (main floor 1 only) restarts
+    // this floor on the alt track instead of leading one floor down.
     const g = w.props.grate;
     if (g.active && g.state === 1 && !w.arena.active && this.steppedOn(g, RUN_TUNING.trapdoorReach)) {
       w.events.emit('grate', g.x, g.y, 2);
-      this.descend('alt', g.x, g.y, 'grate');
+      if (this.room.type === 'start') this.descend('alt', g.x, g.y, 'startGrate', d.floor);
+      else this.descend('alt', g.x, g.y, 'grate');
       return;
     }
     // After a final boss: the whirlpool (floor 13) or the skylight (the ending).
@@ -1255,6 +1359,9 @@ export class Run {
     const w = this.host.world;
     const d = this.data;
     if (d.won || w.player.dead || this.pendingTeleport >= 0) return false;
+    // Not while a boss is going down: leaving mid death sequence would throw the kill away (the room reloads
+    // with the boss at full health). The item refunds; it works again once the room is clear.
+    if (bossDying(w)) return false;
     const dest = this.teleportDestination(to);
     if (dest < 0) return false;
     this.pendingTeleport = dest;
@@ -1281,7 +1388,12 @@ export class Run {
     return -1;
   }
 
-  /** Moves to the queued teleport room: saved like a door transition, entered in its middle. */
+  /**
+   * Moves to the queued teleport room: saved like a door transition, and entered through one of its doors like a
+   * visitor (a secret room's hidden walls count — from inside they are doors). Landing in the middle used to put
+   * her on the Keepsake pedestal, the arena's plate or the boss. A room without any door (none exist) gets the
+   * free spot nearest the middle instead (`placeClearOfThings`).
+   */
   private teleportNow(): void {
     const w = this.host.world;
     const d = this.data;
@@ -1290,7 +1402,8 @@ export class Run {
     if (!d.rooms[dest] || dest === d.current) return;
     this.saveRoom();
     d.current = dest;
-    d.entrySide = -1;
+    const side = arrivalSide(d.layout.rooms[dest]!);
+    d.entrySide = side >= 0 ? side : ENTRY_NO_DOOR;
     // A secret room found this way is on the map from now on.
     discoverRoom(d.map, d.layout, dest);
     // Locks open from the inside (a keyless teleport into a locked Keepsake Room must not trap her).
@@ -1383,6 +1496,38 @@ function firstDoorSide(r: FloorRoom): number {
   return -1;
 }
 
+/**
+ * Older run saves: the retired curse id 'unknown' reads as the Leaky Roof ('leak', the same FLOOR_CURSES slot), on the
+ * floor and in a forced curse mode; an id this build doesn't know becomes no curse. Additive, so
+ * RUN_SNAPSHOT_VERSION stays 2.
+ */
+export function upgradeRunData(d: RunData): void {
+  if (d.layout.curse !== null) d.layout.curse = migrateCurse(d.layout.curse);
+  if (d.curseMode !== 'roll' && d.curseMode !== 'none') d.curseMode = migrateCurse(d.curseMode) ?? 'none';
+}
+
+/** A boss's death sequence is playing (the fight's, or any boss part's). */
+function bossDying(w: World): boolean {
+  if (w.boss.dying) return true;
+  const pool = w.enemies;
+  for (let i = 0; i < pool.count; i++) {
+    const e = pool.items[i]!;
+    if (!e.dead && e.dying) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a teleport walks her in: the first regular door, else (secret rooms: every wall of theirs is a door you
+ * know about once inside) the first hidden wall of the room; -1 when the room has no door at all.
+ */
+export function arrivalSide(r: FloorRoom): number {
+  const side = firstDoorSide(r);
+  if (side >= 0) return side;
+  for (let s = 0; s < 4; s++) if ((r.doors & DIR_BITS[s]!) !== 0) return s;
+  return -1;
+}
+
 /** May this floor place a hidden-route grate? (The route into chapter 6's alt floors needs Ending 1.) */
 export function altRouteAllowed(floor: number, track: FloorTrack, unlocked: ReadonlySet<string>): boolean {
   if (track !== 'main' || floor >= LAST_FLOOR) return false;
@@ -1399,6 +1544,7 @@ function makeFloor(
   seen: ReadonlySet<string>,
   unlocked: ReadonlySet<string>,
   routeChance?: number,
+  startRouteChance?: number,
 ) {
   const chapter = chapterFor(floor, track);
   const opts: FloorGenOptions = { allowAltNext: altRouteAllowed(floor, track, unlocked) };
@@ -1412,5 +1558,11 @@ function makeFloor(
   const layout = generateFloor(seed, floor, track, opts);
   pickTemplates(layout, ROOM_TEMPLATES, chapter.id, templateRng(seed, floor, track));
   const { rooms, nook } = rollFloorContents(layout, chapter.id, { locked, seen, challengeWaves: RUN_TUNING.challengeWaves });
+  // Main floor 1: on half the runs a cracked grate in the start room is the way to the alt floor 1. Its own fork,
+  // so no other roll moves.
+  if (floor === 1 && track === 'main' && opts.allowAltNext) {
+    const roll = floorRng(seed, 1, 'main').fork('startRoute').next();
+    if (roll < (startRouteChance ?? START_ROUTE_CHANCE)) rooms[layout.start]!.grate = 1;
+  }
   return { chapter: chapter.id, layout, map: createMinimap(layout), rooms, nook };
 }

@@ -7,7 +7,7 @@
  * a padlock). Kinds follow sim/doors.ts DK: normal, boss (storm-red frame, horns, glowing studs),
  * treasure (gilded, gems), shop (Magpie's striped awning), challenge (rain barrels), cursed (thorns),
  * miniboss (studded iron, little horns), nook (dusty moth wings), secret (a blasted hole in the wall).
- * Plus: the secret-wall hint crack, the trapdoor and the '?' icon the Curse of the Blind puts on items.
+ * Plus: the secret-wall hint crack, the trapdoor and the '?' icon the Curse of the Fogged Glass puts on items.
  */
 
 import type { SpriteDef } from '../../sim/types';
@@ -320,7 +320,7 @@ export const TRAPDOOR_SPRITE: SpriteDef = {
   ],
 };
 
-/** Curse of the Blind: what every pedestal shows instead of its item (14×14). */
+/** Curse of the Fogged Glass ('blind'): what a pedestal shows instead of its item until she is close (14×14). */
 export const BLIND_ITEM_SPRITE: SpriteDef = {
   id: 'item.blind',
   w: 14,

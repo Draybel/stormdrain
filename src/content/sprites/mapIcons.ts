@@ -83,14 +83,15 @@ export const CURSE_ICON_BLIND = icon('curse.blind', { w: '#e9edf7', k: '#0d0b14'
   '.wrww..',
   'r......',
 ]);
-export const CURSE_ICON_UNKNOWN = icon('curse.unknown', { h: '#e0515a', w: '#ffffff' }, [
+/** The Leaky Roof: a cracked heart with a drop falling from its tip (every hit costs an extra half heart). */
+export const CURSE_ICON_LEAK = icon('curse.leak', { h: '#e0515a', H: '#ff9a9a', k: '#0d0b14', b: '#8ec8ff' }, [
   '.hh.hh.',
-  'hwwhwhh',
-  'hhhhwhh',
-  'hhhwhhh',
-  '.hhhhh.',
-  '..hwh..',
+  'hHhhhhh',
+  'hhhkhhh',
+  '.hhkhh.',
+  '..hkh..',
   '...h...',
+  '...b...',
 ]);
 export const CURSE_ICON_DELUGE = icon('curse.deluge', { b: '#6d9ac0', B: '#bfe0ff' }, [
   '.B...B.',
@@ -107,16 +108,36 @@ export const CURSE_ICONS: Readonly<Record<FloorCurse, SpriteDef>> = {
   lostMap: CURSE_ICON_LOSTMAP,
   maze: CURSE_ICON_MAZE,
   blind: CURSE_ICON_BLIND,
-  unknown: CURSE_ICON_UNKNOWN,
+  leak: CURSE_ICON_LEAK,
   deluge: CURSE_ICON_DELUGE,
 };
 
-/** Curse names for the floor card and the HUD. */
+/** Curse names for the floor card and the map (original names; the ids are internal). */
 export const CURSE_NAMES: Readonly<Record<FloorCurse, string>> = {
-  darkness: 'CURSE OF DARKNESS',
-  lostMap: 'CURSE OF THE LOST MAP',
-  maze: 'CURSE OF THE MAZE',
-  blind: 'CURSE OF THE BLIND',
-  unknown: 'CURSE OF THE UNKNOWN',
+  darkness: 'CURSE OF THE BLACKOUT',
+  lostMap: 'CURSE OF THE SOGGY MAP',
+  maze: 'CURSE OF THE SHIFTING PIPES',
+  blind: 'CURSE OF THE FOGGED GLASS',
+  leak: 'CURSE OF THE LEAKY ROOF',
   deluge: 'CURSE OF THE DELUGE',
+};
+
+/** Short names where space is tight (the pause menu, the debug menu). */
+export const CURSE_SHORT: Readonly<Record<FloorCurse, string>> = {
+  darkness: 'BLACKOUT',
+  lostMap: 'SOGGY MAP',
+  maze: 'SHIFTING PIPES',
+  blind: 'FOGGED GLASS',
+  leak: 'LEAKY ROOF',
+  deluge: 'DELUGE',
+};
+
+/** What each curse does, in a line (the pause menu under the name). */
+export const CURSE_HINTS: Readonly<Record<FloorCurse, string>> = {
+  darkness: 'THE LIGHTS ARE OUT',
+  lostMap: 'ONLY ROOMS YOU VISITED STAY ON THE MAP',
+  maze: 'SOME DOORS LEAD ELSEWHERE',
+  blind: 'ITEMS SHOW ONLY UP CLOSE',
+  leak: 'EVERY HIT COSTS HALF A HEART MORE',
+  deluge: 'SLIPPERY FLOORS',
 };

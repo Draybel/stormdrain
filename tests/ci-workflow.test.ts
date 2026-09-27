@@ -86,3 +86,46 @@ describe('.github/workflows/deploy.yml', () => {
     expect(config).toMatch(/trace: process\.env\.CI \? 'retain-on-failure'/);
   });
 });
+
+describe('README.md (the beginner guide) matches the workflow and the scripts', () => {
+  const README = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> };
+
+  it('is LF-only and names the workflow, its jobs, the branch and the one-time Pages setting', () => {
+    expect(README.includes('\r')).toBe(false);
+    const name = /^name: (.+)$/m.exec(TEXT)![1]!;
+    expect(README).toContain(`**${name}**`);
+    for (const j of ['build', 'deploy', 'e2e']) {
+      const jobName = /^ {4}name: (.+)$/m.exec(job(j))![1]!;
+      expect(README, j).toContain(jobName);
+    }
+    // The workflow runs on pushes to main, so the guide makes the branch main.
+    expect(TEXT).toMatch(/branches: \[main\]/);
+    expect(README).toContain('git branch -M main');
+    expect(README).toContain('git push -u origin main');
+    expect(README).toContain('Source** to **GitHub Actions**');
+    // Node: the build uses the current LTS.
+    expect(TEXT).toMatch(/node-version: lts\/\*/);
+    expect(README).toMatch(/current LTS/);
+  });
+
+  it('every npm command it mentions exists (and the e2e browser install matches the workflow)', () => {
+    const runs = [...README.matchAll(/npm run ([\w:-]+)/g)].map((m) => m[1]!);
+    expect(runs.length).toBeGreaterThanOrEqual(4);
+    for (const r of runs) expect(PKG.scripts[r], `npm run ${r}`).toBeDefined();
+    expect(README).toContain('npm ci');
+    expect(README).toContain('npm test');
+    expect(PKG.scripts.test).toBeDefined();
+    expect(README).toContain('npx playwright install webkit');
+  });
+
+  it('warns that Safari and the home-screen app keep separate saves, with the Settings export / import labels', () => {
+    expect(README).toMatch(/SEPARATE saves/);
+    const panel = readFileSync(new URL('../src/ui/settingsPanel.ts', import.meta.url), 'utf8');
+    for (const label of ['EXPORT SAVE', 'IMPORT SAVE']) {
+      expect(panel).toContain(`'${label}'`);
+      expect(README).toContain(label);
+    }
+    expect(README).toMatch(/7 days/);
+  });
+});

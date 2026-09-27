@@ -26,7 +26,7 @@ import { ROOM_TEMPLATES, generateFloor, pickTemplates, templateRng, templateGrid
 
 const layout = generateFloor(run.seed, floor, track, { allowAltNext, curses: true });
 pickTemplates(layout, ROOM_TEMPLATES, chapter.id, templateRng(run.seed, floor, track));
-const map = createMinimap(layout);              // start room visited, Lost Map curse picked up from layout.curse
+const map = createMinimap(layout);              // start room visited, Soggy Map curse picked up from layout.curse
 
 const room = layout.rooms[layout.start];
 const tpl = templateById.get(room.templateId!)!;  // build the id → template map once (content registry)
@@ -63,14 +63,14 @@ chapter 6 only after Ending 1 → pass `allowAltNext: false` on floor 10 until t
 
 | field | meaning |
 |---|---|
-| `version` | `FLOORGEN_VERSION` (1) — bump when generation changes on purpose (a pinned fingerprint test enforces it) |
+| `version` | `FLOORGEN_VERSION` (2 since polish batch 1: shops lock from floor 2, no floor-1 miniboss, curse `unknown` → `leak`) — bump when generation changes on purpose (a pinned fingerprint test enforces it) |
 | `seed, floorIndex, track, chapter` | inputs; `chapter` = 1..6 (two floors each), 7 for floor 13 |
 | `width, height` | 11 × 11 grid; `cells[gy*11+gx]` = room index or −1 |
 | `rooms` | `FloorRoom[]`; index 0 is the start room at (5,5); then growth order; then the secret and deep secret rooms |
 | `start, boss, secret, deepSecret` | room indices |
 | `bossDist` | door distance start → boss (= the farthest room) |
 | `nook` | `{ gx, gy, side, templateId, flip, room }` reserved free cell for the Broker's Nook (see below) |
-| `curse` | `'darkness' \| 'lostMap' \| 'maze' \| 'blind' \| 'unknown' \| 'deluge' \| null` |
+| `curse` | `'darkness' \| 'lostMap' \| 'maze' \| 'blind' \| 'leak' \| 'deluge' \| null` — shown as the Blackout, the Soggy Map, the Shifting Pipes, the Fogged Glass, the Leaky Roof and the Deluge; `migrateCurse` reads the retired `'unknown'` as `'leak'` |
 | `finalBoss` | `'thunderhead'` (12 main), `'nestmother'` (12 alt), `'undertow'` (13), else `null` |
 | `hiddenRoute` | room index holding the cracked grate, or −1 |
 | `attempts` | growth attempts used (diagnostics) |
@@ -83,8 +83,8 @@ chapter 6 only after Ending 1 → pass `allowAltNext: false` on floor 10 until t
 | `doors` | 4-bit mask of every connection: `DOOR_N=1, DOOR_E=2, DOOR_S=4, DOOR_W=8` (side index 0..3 = N,E,S,W; `DIR_DX/DIR_DY/DIR_OPPOSITE`) |
 | `secretDoors` | subset of `doors` that are hidden bombable walls (always both sides of a wall touching a secret room) |
 | `hints` | subset of `secretDoors` showing a subtle hint (cracked tile, drips) on THIS room's side |
-| `lockedDoors` | subset of `doors` needing a key (both sides of the treasure door from floor 3) |
-| `locked` | entering this room needs a key (treasure rooms from floor 3 = chapter 2) |
+| `lockedDoors` | subset of `doors` needing a key (both sides of the shop door from floor 2 and of the treasure door from floor 3) |
+| `locked` | entering this room needs a key (`lockedOnFloor`: shops from `SHOP_LOCK_FLOOR` = 2, treasure rooms from `TREASURE_LOCK_FLOOR` = 3) |
 | `secret` | secret or deep secret room (hidden on the map until discovered) |
 | `dist` | steps from the start through regular doors; secret rooms: nearest neighbour + 1 |
 | `templateId, flip` | set by `pickTemplates`; `flip` bit 1 mirrors left/right, bit 2 top/bottom |
@@ -100,8 +100,12 @@ chapter 6 only after Ending 1 → pass `allowAltNext: false` on floor 10 until t
 - **Boss**: at a dead end at the maximum distance from the start (the farthest room of the floor), distance ≥ 3
   (≥ 4 on floors with 13+ rooms).
 - **Dead-end specials** (exactly one regular door): boss, treasure (every floor), shop (every floor except 12/13),
-  miniboss (35 %), challenge arena (30 %, floor ≥ 2), cursed room (25 %). Remaining dead ends stay normal rooms.
+  miniboss (35 %, floor ≥ 2 — `MINIBOSS_MIN_FLOOR`; the roll is still made on floor 1 so the stream keeps its shape),
+  challenge arena (30 %, floor ≥ 2), cursed room (25 %). Remaining dead ends stay normal rooms.
   A secret room may add a *hidden* second entrance to a special room (bomb in from the Hidey-Hole).
+- **Locks**: the shop's single regular door is locked from floor 2, the treasure room's from floor 3 (both sides of
+  the door). A lock never gates another room (both are dead ends); only a secret room whose every neighbour is locked
+  needs a key to reach (tested over 200 seeds × floors 1-12 × both tracks).
 - **Secret room**: empty cell touching ≥ 2 rooms — 3+ whenever such a cell exists — never the boss room, never next to
   the nook cell. Every neighbour gets a bombable wall (`secretDoors`) to it.
 - **Deep secret room**: empty cell touching exactly one room, which is a normal room; not next to the secret room or
@@ -170,7 +174,8 @@ cell without allocating.
    `room.doors`:
    - bit in `secretDoors` → solid wall (`Tile.SecretWall`-style) until bombed; show a crack/drip if the bit is in
      `hints`. From inside a secret room the walls look like doors (you know they are there).
-   - bit in `lockedDoors` → key door (treasure from floor 3).
+   - bit in `lockedDoors` → key door (the shop from floor 2, treasure from floor 3: the padlocked leaf of the door's
+     own frame).
    - otherwise a normal door, styled by the neighbour's type (`neighborRoom(layout, i, side)`): boss, treasure, shop,
      challenge, cursed (spiky, ½ heart on entry/exit), miniboss, nook.
 5. **Transitions**: leaving room `a` through side `d` enters `neighborRoom(layout, a, d)` at the door front of side
@@ -182,14 +187,20 @@ cell without allocating.
    `const n = openNook(layout)` (adds a `nook` room with a regular door off the boss room, template already chosen)
    and `discoverRoom(map, layout, n)`.
 8. **Hidden route**: `room.hiddenRoute` → a cracked, bombable drain grate in that room (boss room: only after the boss
-   dies); falling in starts floor+1 with `track = 'alt'`. The drip hint is the renderer's.
+   dies); falling in starts floor+1 with `track = 'alt'`. The drip hint is the renderer's. The run adds one more on
+   MAIN floor 1 (not the generator: `makeFloor` in run.ts, on its own fork `floorRng(seed, 1, 'main').fork('startRoute')`,
+   50 %): a cracked grate in the START room whose drop restarts floor 1 on the alt track — the way into the Drowned
+   Nursery I. It seals for good once the player leaves the start room. No grate sits on a cell whose floor shows a
+   decorative grate (`sim/floorLook.ts`).
 9. **Finals**: `layout.finalBoss` picks the final boss for the boss room; floors 12/13 have no shop.
-10. **Curses**: `layout.curse` — darkness (light radius), lostMap (the minimap state starts with `lostMap = true`),
-    maze (runtime door shuffling), blind (`?` pedestals), unknown (hide hearts), deluge (slippery floor).
+10. **Curses**: `layout.curse` — darkness (the Blackout: light radius), lostMap (the Soggy Map: the minimap state starts
+    with `lostMap = true` and shows only the visited rooms), maze (the Shifting Pipes: runtime door shuffling), blind
+    (the Fogged Glass: `?` pedestals until the player is close), leak (the Leaky Roof: hits from foes and hazards cost
+    half a heart more), deluge (slippery floor). No curse hides any part of the HUD.
 11. **Minimap rendering**: for each room, `roomVis(map, i)` (Unknown = skip, Mapped = outline, Seen = dim,
     Visited = filled) and `roomIcon(map, layout, i)`; cache the drawn map by `map.version`; centre with
     `layoutBounds(layout)`. Map items: `revealMap(map, layout, 'layout' | 'icons' | 'secrets' | 'full')`;
-    items that lift the Lost Map curse: `setLostMap(map, false)`.
+    items that lift the Soggy Map curse: `setLostMap(map, false)`.
 12. **Saving**: the layout and minimap state are plain JSON. Recommended: store the whole `FloorLayout` (≈ 3–5 KB) plus
     the minimap state and per-room runtime state (cleared, opened secret walls, pickups left) in `stormdrain.run`,
     so generator or template-content updates never reshuffle a floor mid-run. Regenerating from
@@ -207,9 +218,9 @@ cell without allocating.
 | 5 | Transitions | done: door front of the opposite side, `enterRoom(map…)`, camera slide in the run scene |
 | 6 | Secret walls | done: bombs open both sides (`RoomState.opened`), `discoverRoom` |
 | 7 | Broker's Nook | done: `fork('nook')` roll after the boss (25 %, 60 % after a clean floor), two heart-priced deals, the Moth Broker (3B) |
-| 8 | Hidden route | done (3B): `allowAltNext = altRouteAllowed(floor, track, unlocked)` (floors 10-11 need 'ending1'); a cracked grate (bomb it) → floor + 1 on the alt track; the alt track rejoins main at chapter 6 without Ending 1 |
+| 8 | Hidden route | done (3B): `allowAltNext = altRouteAllowed(floor, track, unlocked)` (floors 10-11 need 'ending1'); a cracked grate (bomb it) → floor + 1 on the alt track; the alt track rejoins main at chapter 6 without Ending 1. Polish batch 1: main floor 1's start room (50 %, fork 'startRoute') → floor 1 on the alt track (not a cleared floor), sealed once she leaves the start room |
 | 9 | Finals | done (3B): `layout.finalBoss` → the final BossDef (sim/bosses); its kill ends the run with ending 1 / 2 / 3, or raises the whirlpool (floor 13) + skylight when Endings 1 and 2 are unlocked |
-| 10 | Curses | done: all six (sim: maze, deluge, lostMap; render: darkness, blind, unknown) |
+| 10 | Curses | done: all six (sim: maze, deluge, lostMap, leak; render: darkness, blind) — original names and no hidden HUD since polish batch 1 |
 | 11 | Minimap rendering | done: `render/minimap.ts` (compact HUD map + the big map overlay), cached by `version` |
 | 12 | Saving | `Sim.snapshot()` stores the whole layout + minimap + room states; the localStorage wiring is Phase 4 |
 

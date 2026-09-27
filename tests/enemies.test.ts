@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CHAPTERS, ENEMIES, enemiesInChapter } from '../src/content/registry';
+import { CHAPTERS, CHARACTERS, ENEMIES, enemiesInChapter } from '../src/content/registry';
+import { ROOM_TEMPLATES } from '../src/sim/floor/library';
 import { validateContent } from '../src/content/validate';
 import { MOVES, ATTACKS, DEATHS } from '../src/sim/enemies/behaviors/index';
 import { FlowField, UNREACHABLE } from '../src/sim/enemies/pathfield';
@@ -231,5 +232,64 @@ describe('caps and load', () => {
     expect(sim.world.enemyShots.refused).toBeGreaterThan(0);
     // 5 s of a maxed-out room (64 enemies, 400 shots): well under a frame per tick.
     expect(ms / 300).toBeLessThan(perfBudget(2));
+  });
+});
+
+describe('burrowers never stay underground for good', () => {
+  // cellar.normal.pantry has a barrel on the room's middle cell (6, 3): an overdue mole that used to steer for the
+  // middle of the room sat under it forever, untouchable, with the doors shut (play-bot soft-lock, floors 3-4).
+  const pantry = ROOM_TEMPLATES.find((t) => t.id === 'cellar.normal.pantry')!;
+  const grid = pantry.grid.map((row) => row.replace(/[^.#$MO^fxu]/g, '.'));
+  const players: [number, number][] = [
+    [6.5, 1.5],
+    [2, 5.5],
+    [11, 3.5],
+  ];
+  const cases = ['wren', 'pip'].flatMap((ch) => players.map((pos) => [ch, pos] as const));
+
+  it('the pantry keeps its solid middle cell (the regression needs it)', () => {
+    expect(grid[3]![6]).toBe('x');
+  });
+
+  it.each(cases)('an overdue grumblemole under the middle barrel surfaces within 3 s (%s, player at %j)', (ch, [pc, pr]) => {
+    const sim = makeSim(`mole-${ch}-${pc}-${pr}`, { room: grid, character: CHARACTERS.get(ch)! });
+    godMode(sim);
+    sim.world.player.placeAt(pc * TILE, pr * TILE);
+    const e = sim.spawnEnemy('grumblemole', 6.5 * TILE, 3.5 * TILE, { champion: false })!;
+    e.spawnT = 0;
+    e.mode = 0;
+    e.modeT = -1;
+    e.burrowed = true;
+    const input = makeInput();
+    let t = 0;
+    while (t < 180 && (e.burrowed || !e.hittable)) {
+      sim.step(input);
+      t++;
+    }
+    expect(e.burrowed, `still underground at ${e.x.toFixed(1)},${e.y.toFixed(1)}`).toBe(false);
+    expect(e.hittable).toBe(true);
+    expect(t).toBeLessThanOrEqual(180);
+  });
+
+  it('a burrower still down 4 s past its time is put on open floor and surfaces (hard cap)', () => {
+    // Straight to the cap (as if it had been shoved back under the barrels again and again).
+    const sim = makeSim('mole-cap', { room: grid });
+    godMode(sim);
+    const e = sim.spawnEnemy('grumblemole', 6.5 * TILE, 3.5 * TILE, { champion: false })!;
+    e.spawnT = 0;
+    e.mode = 0;
+    e.modeT = -4.2;
+    e.burrowed = true;
+    const input = makeInput();
+    const seen: number[] = [];
+    sim.step(input);
+    for (let i = 0; i < sim.events.count; i++) {
+      const ev = sim.events.at(i);
+      if (ev.type === 'burrow') seen.push(ev.a);
+    }
+    expect(e.mode).toBe(1);
+    expect(seen).toContain(1);
+    // On a cell it can come up on, one ring out from the barrel.
+    expect(Math.abs(e.x - 6.5 * TILE) + Math.abs(e.y - 3.5 * TILE)).toBe(TILE);
   });
 });

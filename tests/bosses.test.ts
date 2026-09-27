@@ -434,8 +434,9 @@ describe('boss rooms in a run', () => {
   });
 
   it('minibosses have their own intro and reward', () => {
+    // (Floor 2: floor 1 never has a miniboss.)
     for (let seed = 1; seed < 60; seed++) {
-      const sim = Sim.newRun(seed, { curse: null });
+      const sim = Sim.newRun(seed, { floor: 2, curse: null });
       const run = sim.run!;
       const room = run.data.layout.rooms.find((r) => r.type === 'miniboss');
       if (!room) continue;

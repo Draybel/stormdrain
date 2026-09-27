@@ -16,7 +16,7 @@ import { drawText, drawTextCentered, measureText, type TextStyle } from '../rend
 import { drawPanel } from '../render/pixel';
 import { getFrame } from '../render/sprites';
 import { itemIcon } from '../render/worldRenderer';
-import { DMG_EXPLOSION, DMG_FIRE, DMG_SPIKES } from '../sim/combat';
+import { DMG_EXPLOSION, DMG_FIRE, DMG_SPIKES, DMG_TOLL } from '../sim/combat';
 import type { RunSeedInfo } from '../sim/run/types';
 import type { SpriteDef } from '../sim/types';
 import type { App, RunEndInfo } from './app';
@@ -75,7 +75,13 @@ export class GameOverScene implements Scene {
       onActivate: () => {
         if (!d) return;
         app.audio.play('menu_select');
-        app.nav.startRun({ character: d.character, seed: retrySeed(d.seedInfo, code || numericSeedLabel(d.seed)), simSeed: d.seedInfo ? undefined : d.seed });
+        // The same seed AND the same unlock snapshot as the run that just ended: the same run again.
+        app.nav.startRun({
+          character: d.character,
+          seed: retrySeed(d.seedInfo, code || numericSeedLabel(d.seed)),
+          simSeed: d.seedInfo ? undefined : d.seed,
+          unlocked: d.unlocked,
+        });
       },
     });
     const newRun = uiButton({
@@ -127,6 +133,9 @@ export class GameOverScene implements Scene {
       }
     } else if (w.killedBy === DMG_SPIKES) {
       this.killerName = 'SHARP SPIKES';
+      this.killerSprite = SPIKES_SPRITE;
+    } else if (w.killedBy === DMG_TOLL) {
+      this.killerName = 'A THORNY DOOR';
       this.killerSprite = SPIKES_SPRITE;
     } else if (w.killedBy === DMG_FIRE) {
       this.killerName = 'A BRAZIER';

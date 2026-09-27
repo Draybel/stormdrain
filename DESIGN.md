@@ -25,8 +25,9 @@ chunky silhouettes, soft humor in item text. Violence is cartoony (puffs, splats
 - **Trinkets**: hold 1 (2 with the right item); dropping swaps.
 
 ## Rooms (types)
-normal · treasure ("Keepsake Room", locked with a key from chapter 2 on) · shop ("Magpie's Stall", keeper: Magpie
-the shopkeeper bird) · boss · miniboss · secret ("Hidey-Hole") · deep secret ("Forgotten Pocket", harder to find)
+normal · treasure ("Keepsake Room", locked with a key from chapter 2 = floor 3 on) · shop ("Magpie's Stall", keeper:
+Magpie the shopkeeper bird; locked with a key from floor 2 on) · boss · miniboss (from floor 2 on; never on floor 1)
+· secret ("Hidey-Hole") · deep secret ("Forgotten Pocket", harder to find)
 · challenge arena ("Rain Barrel Arena" — waves; reward on clear) · cursed room ("Thorn Room", costs ½ heart to
 enter/exit, better rewards) · risk-reward "**Broker's Nook**" (after a boss; the Moth Broker trades powerful items
 for max health; more likely with no damage taken that floor) · start room.
@@ -45,6 +46,8 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
 
 - **Hidden routes**: a cracked drain grate (bombable, subtle drip hint) that appears in secret rooms or in the boss
   room after the boss — entering it sends you to the ALT track for the next floor. Boss trapdoors keep your track.
+  On half the runs the START room of floor 1 has one too: bomb it open and drop in to begin on the alt track's floor 1
+  (the Drowned Nursery I) instead, same seed and kit. Leave the start room first and it seals for good.
 - Each chapter has its own tile palette, enemy pool, boss pool and **music loop**.
 
 ## Bosses by chapter (every boss changes its look with each phase)
@@ -104,10 +107,15 @@ Merges with everything (see ARCHITECTURE §4): spreads, homing bends, bounce ref
 ring of beams, bomb = explosions along the beam, familiars fire smaller beams.
 
 ## Floor curses (seeded, chance rises with depth)
-Curse of Darkness (light radius), the Lost Map (no minimap), the Maze (doors sometimes shuffle rooms),
-the Blind (item pedestals show "?"), the Unknown (can't see your own hearts), the Deluge (slippery floors).
+Curse of the Blackout (the lights are out: only a small light around you), the Soggy Map (the map keeps only the
+rooms you have visited), the Shifting Pipes (doors sometimes lead to another room you've been in), the Fogged Glass
+(items show as "?" until you're right next to them), the Leaky Roof (every hit from a foe or a hazard costs half a
+heart more), the Deluge (slippery floors). No curse ever hides any part of the HUD (hearts, counters, active charge,
+map): the owner's rule.
 
 ## Economy & unlock philosophy
 - Many items start locked; achievements unlock them (and characters, routes, endings). Collection page tracks
   discovered items; bestiary tracks enemies/bosses met and killed.
 - Daily run: fixed seed from the date (UTC), one attempt per day recorded in stats.
+- A seed always recreates its run: typed codes and dailies are rolled as on a fresh save (only ungated items, no
+  route flags), whatever the player has unlocked; RETRY SEED replays the run that just ended exactly.

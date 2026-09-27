@@ -13,8 +13,10 @@ import { UI } from '../content/sprites/palette';
 import { ICON_LOCK } from '../content/sprites/menuIcons';
 import { EMBER_HEART_SPRITE, HUD_BOMB_ICON, HUD_COIN_ICON, HUD_KEY_ICON, TIN_HEART_SPRITE } from '../content/sprites/pickups';
 import { HEART_SPRITE } from '../content/sprites/ui';
+import type { InputState } from '../engine/inputState';
+import { utcDateKey } from '../meta/metaState';
 import { characterUnlocked } from '../meta/unlocks';
-import { formatSeed, randomSeedCode } from '../meta/seedCode';
+import { formatSeed, randomSeedCode, rolledOverDaily } from '../meta/seedCode';
 import { drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
 import { drawPanel, glowSprite } from '../render/pixel';
 import { drawSprite, getFrame, getSilhouette } from '../render/sprites';
@@ -42,6 +44,12 @@ const STRIP_X = 6;
 const STRIP_Y = 158;
 const STRIP_W = 250;
 
+/** A character's starting (= max) hearts as the card shows them: red containers, Tin and Ember (whole hearts, rounded up). */
+export function maxHearts(c: CharacterDef): { red: number; tin: number; ember: number } {
+  const hs = c.hearts;
+  return { red: hs.redMax >> 1, tin: Math.ceil((hs.tin ?? 0) / 2), ember: Math.ceil((hs.ember ?? 0) / 2) };
+}
+
 /** The last character picked this session (New Run from the debug menu uses it too). */
 let lastPicked = 'wren';
 
@@ -55,7 +63,11 @@ export class CharacterSelectScene extends PageScene {
   private readonly prev: UiButton;
   private readonly next: UiButton;
   private readonly start: UiButton;
-  private readonly seed: RunSeedInfo | null;
+  private seed: RunSeedInfo | null;
+  /** The daily rolled over to a new UTC day while this page was open (the header says so). */
+  private newDay = false;
+  /** Seconds until the next UTC-date check (dailies only). */
+  private dateCheckT = 0;
   private sel = 0;
   private page = 0;
   private perPage = 1;
@@ -138,8 +150,28 @@ export class CharacterSelectScene extends PageScene {
     }
     this.app.audio.play('menu_select');
     lastPicked = c.id;
+    this.checkNewDay();
     const seed: RunSeedInfo = this.seed ?? { code: randomSeedCode(), kind: 'random' };
     this.app.nav.startRun({ character: c.id, seed });
+  }
+
+  override update(dt: number, input: InputState): void {
+    super.update(dt, input);
+    this.dateCheckT -= dt;
+    if (this.dateCheckT <= 0) {
+      this.dateCheckT = 0.5;
+      this.checkNewDay();
+    }
+  }
+
+  /** A daily page left open over UTC midnight switches to the new day's daily (code, scored flag). */
+  private checkNewDay(): void {
+    const s = this.seed;
+    if (!s || s.kind !== 'daily') return;
+    const rolled = rolledOverDaily(s, utcDateKey(Date.now()), (date) => this.app.save.meta.hasDaily(date));
+    if (!rolled) return;
+    this.seed = rolled;
+    this.newDay = true;
   }
 
   override onKey(code: string): boolean {
@@ -179,6 +211,7 @@ export class CharacterSelectScene extends PageScene {
     } else if (s.kind === 'daily') {
       a = `DAILY ${s.date ?? ''} · ${formatSeed(s.code)}`;
       b = s.scored ? "TODAY'S ONE SCORED ATTEMPT" : 'ALREADY PLAYED TODAY · PRACTICE';
+      if (this.newDay) b = `NEW DAY! ${b}`;
     } else {
       a = `SEED ${formatSeed(s.code)}`;
       b = 'PRACTICE: NO RUN FEATS OR ENDINGS';
@@ -238,9 +271,10 @@ export class CharacterSelectScene extends PageScene {
     this.drawLoadout(ctx, c, tx, loadoutY);
   }
 
-  /** Hearts, pickups and starting items on one line. */
+  /** HEALTH (every heart she starts with, i.e. her max: red containers, then Tin / Ember), pickups and starting items. */
   private drawLoadout(ctx: CanvasRenderingContext2D, c: CharacterDef, x: number, y: number): void {
-    let cx = x;
+    drawText(ctx, 'HEALTH', x, y + 2, DIM);
+    let cx = x + measureText('HEALTH') + 4;
     const hs = c.hearts;
     const red = hs.red ?? hs.redMax;
     for (let i = 0; i < hs.redMax >> 1; i++, cx += 10) {
@@ -293,8 +327,10 @@ export class CharacterSelectScene extends PageScene {
     return {
       characters: this.chars.map((d) => ({ id: d.id, unlocked: this.unlocked(d) })),
       selected: c.id,
+      hearts: maxHearts(c),
       canStart: this.start.enabled,
       seed: this.seed ? { ...this.seed } : null,
+      newDay: this.newDay,
       page: this.page,
     };
   }

@@ -360,6 +360,8 @@ function contact(w: World, e: Enemy): void {
   }
   const p = w.player;
   if (p.dead) return;
+  // A boss is harmless while its intro card plays (it stands still; walking into it then is no hit).
+  if (e.boss !== null && (e.boss.introT > 0 || w.boss.introT > 0)) return;
   const dx = p.x - e.x;
   const dy = p.y - e.y;
   const rr = cr + p.r;

@@ -195,7 +195,27 @@ test('settings changes persist after a reload', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('the pause menu shows the stats and the items; tap one to read it', async ({ page }) => {
+type Rect = { id: string; x: number; y: number; w: number; h: number };
+
+/** STATS block pieces that overlap each other or leave the panel (game px, from the pause scene's layout). */
+function statsProblems(info: { statRects: Rect[]; panel: Rect; gridTop: number }): string[] {
+  const out: string[] = [];
+  const { statRects: rects, panel } = info;
+  for (const r of rects) {
+    if (r.x < panel.x + 2 || r.y < panel.y + 2 || r.x + r.w > panel.x + panel.w - 2 || r.y + r.h > panel.y + panel.h - 2) out.push(`${r.id} outside`);
+    if (r.id !== 'items.label' && r.y + r.h > info.gridTop - 8) out.push(`${r.id} too low`);
+  }
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i]!;
+      const b = rects[j]!;
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) out.push(`${a.id} × ${b.id}`);
+    }
+  }
+  return out;
+}
+
+test('the pause menu shows the stats and the items; tap one to read it', async ({ page }, testInfo) => {
   const errors = trackErrors(page);
   await page.goto('./');
   await waitScene(page, 'title');
@@ -212,13 +232,22 @@ test('the pause menu shows the stats and the items; tap one to read it', async (
   const info = await screen<{
     character: string;
     stats: Record<string, number>;
+    health: string;
     items: { id: string; count: number }[];
     itemCells: { id: string; x: number; y: number }[];
     info: string[];
     seed: string;
+    statRects: Rect[];
+    panel: Rect;
+    gridTop: number;
   }>(page);
   expect(info.character).toBe('wren');
+  // HEALTH first, then damage, fire rate, shot speed, range, speed and luck — none overlapping, all in the panel.
+  expect(info.health).toBe('3/3');
   expect(Object.keys(info.stats).sort()).toEqual(['damage', 'fireRate', 'luck', 'moveSpeed', 'range', 'shotSpeed']);
+  expect(statsProblems(info)).toEqual([]);
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: `e2e/__screens__/pause-stats-${testInfo.project.name}.png` });
   for (const v of Object.values(info.stats)) expect(Number.isFinite(v)).toBe(true);
   expect(info.items).toEqual(expect.arrayContaining([{ id: 'twin-straws', count: 2 }, { id: 'brick-chip', count: 1 }]));
   expect(info.info[0]).toContain('FLOOR 1');
@@ -268,6 +297,37 @@ test('daily run: one scored attempt per day, replays are practice', async ({ pag
   const again = await screen<{ seed: { scored: boolean; code: string } }>(page);
   expect(again.seed.scored).toBe(false);
   expect(again.seed.code).toBe(c.seed.code);
+  expect(errors).toEqual([]);
+});
+
+test("a daily picked just before UTC midnight and started after it is the new day's one scored attempt", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.clock.setFixedTime(new Date('2026-09-27T23:59:50Z'));
+  await page.goto('./');
+  await waitScene(page, 'title');
+  await tap(page, 'title.daily');
+  await waitScene(page, 'chars');
+  const before = await screen<{ seed: { date: string; code: string; scored: boolean } }>(page);
+  expect(before.seed.date).toBe('2026-09-27');
+  expect(before.seed.scored).toBe(true);
+  // Midnight passes while the character select is open: the page switches to the new day's daily.
+  await page.clock.setFixedTime(new Date('2026-09-28T00:00:20Z'));
+  await page.waitForFunction(() => (window.__SD.screen().info as { newDay?: boolean } | null)?.newDay === true);
+  const after = await screen<{ seed: { date: string; code: string; scored: boolean } }>(page);
+  expect(after.seed.date).toBe('2026-09-28');
+  expect(after.seed.scored).toBe(true);
+  expect(after.seed.code).not.toBe(before.seed.code);
+  await tap(page, 'chars.start');
+  await waitScene(page, 'run');
+  const info = await page.evaluate(() => window.__SD.sim!.run!.data.seedInfo);
+  expect(info).toMatchObject({ kind: 'daily', date: '2026-09-28', scored: true, code: after.seed.code });
+  // Exactly one scored daily in the save: the new day's (yesterday's was never claimed).
+  await page.waitForFunction(() => {
+    const raw = localStorage.getItem('stormdrain.meta');
+    return !!raw && '2026-09-28' in (JSON.parse(raw).data.stats.daily ?? {});
+  });
+  const days = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('stormdrain.meta')!).data.stats.daily ?? {}));
+  expect(days).toEqual(['2026-09-28']);
   expect(errors).toEqual([]);
 });
 

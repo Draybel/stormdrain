@@ -1,5 +1,5 @@
 /**
- * Curse of Darkness: the room goes dark except for a pool of light around Wren (and the glow of fires,
+ * Curse of the Blackout (darkness): the room goes dark except for a pool of light around Wren (and the glow of fires,
  * the trapdoor and item pedestals). One offscreen canvas the size of the room: fill it dark, punch
  * pre-rendered radial "light" sprites out of it (destination-out), draw it over the world — a handful
  * of drawImage calls per frame, no gradients built per frame.

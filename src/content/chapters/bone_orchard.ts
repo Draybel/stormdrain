@@ -40,7 +40,7 @@ const chapters: ChapterDef[] = [
     bossPool: [],
     minibossPool: [],
     music: 'ch_bone_orchard',
-    curses: ['darkness', 'lostMap', 'unknown'],
+    curses: ['darkness', 'lostMap', 'leak'],
     // Ashen dusk earth and mauve brick, bone-white rocks, dry grass; crow feathers, little lanterns, bone chimes.
     decor: { floor: [ORCHARD_BONE, ORCHARD_FEATHER, ORCHARD_LANTERN], wall: [ORCHARD_CHIME_TRIM], count: [3, 6], ambience: 'motes' },
   },

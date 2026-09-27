@@ -186,6 +186,9 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   attacker's enemy uid (contact, enemy shots / lob splashes, creep and shockwaves keep their owner's uid, boss beams); the
   killing blow sets `world.killer` (the enemy / boss def id, looked up over the whole enemy pool — a dead owner's slot keeps
   its uid until reused — '' when unknown) and `world.killedBy` (the DMG_* source): the game-over screen's "TAKEN BY".
+  Sources: DMG_GENERIC (tonics, debug), DMG_SPIKES, DMG_FIRE, DMG_EXPLOSION, DMG_ENEMY and DMG_TOLL (the Thorn Room door,
+  polish batch 1). Under the Curse of the Leaky Roof (`world.curse === 'leak'`) every hit except DMG_GENERIC / DMG_TOLL
+  costs one extra half heart.
 - Training yard (the Sim built without a `room`; `content/testRoom.ts`): `RoomSpawn` also has `{ kind: 'bell' }` and
   pedestal spawns take `pool` and `rotate`. ROTATING pedestals (`Pedestal.rotate` = an `ItemFilter`,
   `pedestals.updateRotation`, run with the Sim's room stream) offer a new item every `YARD_TUNING.rotatePeriod` s while
@@ -323,7 +326,9 @@ placed bombs and novas hurt everything in reach.
 - Movement kinds: `idle, wander, chase, chasePath` (shared per-room Dijkstra flow field `world.flow`, refreshed every
   few ticks, straight line when the way is clear), `hop` (crouch → airborne arc over pits/rocks → land, validated
   landing spot), `dash` (line up → wind-up → straight charge → bonk + daze on walls; `axis` 1/2 = sideways/vertical
-  only), `orbitPlayer, keepDistance` (kiter), `burrow` (tunnels under everything, rumbles, surfaces only on open floor),
+  only), `orbitPlayer, keepDistance` (kiter), `burrow` (tunnels under everything, rumbles, surfaces only on open floor;
+  0.75 s overdue under a prop it heads for the nearest cell it can surface on — a ring BFS cached in `Enemy.surfCell` —
+  and 4 s overdue it is put there and surfaces),
   `teleport` (fade + destination marker → blink → fade in), `wallCrawl` (slides along the room edge), `float` (flying
   sine drift; flyers only meet the walls), `turret` (pinned). Phase 6 extensions (`behaviors/ext-a.ts`,
   `behaviors/ext-b.ts`; guides docs/content-enemies-a.md / -b.md): `bounce` (straight ricochets off walls / rocks /
@@ -755,13 +760,13 @@ Module done and tested (side track, merged after Phase 2); floor runs use it sin
 - `generateFloor(seed, floorIndex 1..13, track 'main'|'alt', opts?) → FloorLayout` — pure, deterministic, ≈ 0.03 ms.
   Randomness only from `floorRng(seed, floor, track)` forks `plan, layout, curse, hints, route, templates`; every roll
   is always made, so an option (`curses`, `cursePool`, `forceCurse`, `allowAltNext`) only changes its own field.
-  `FLOORGEN_VERSION` (1) is stored in the layout; a test pins a fingerprint of 650 layouts.
+  `FLOORGEN_VERSION` (2 since polish batch 1) is stored in the layout; a test pins a fingerprint of 650 layouts.
 - Map: 11×11 cells, start in the middle, breadth-first growth that only fills a cell touching exactly one room →
   always a tree (no loops, no 2×2 blobs). Rooms = 8 + ⌊(floor − 1)·10/12⌋ + 0..1 (≥ special rooms + 6), single
   size (13×7). Failed attempts retry; every 400 failures add a room, then drop optional rooms, so it always finishes.
 - Special rooms on dead ends (one regular door): boss at the farthest (≥ 3 rooms from the start, ≥ 4 with 13+ rooms),
-  treasure every floor (locked from floor 3), shop (not floors 12-13), miniboss 35 %, challenge 30 % from floor 2,
-  cursed 25 %.
+  treasure every floor (locked from floor 3), shop (not floors 12-13; locked from floor 2 — `lockedOnFloor`), miniboss
+  35 % from floor 2 (`MINIBOSS_MIN_FLOOR`), challenge 30 % from floor 2, cursed 25 %.
 - **Secret room**: an empty cell touching ≥ 2 rooms (3+ whenever possible), never the boss room; a bombable wall to
   EVERY neighbour (special rooms too). **Deep secret room**: touches exactly one normal room and nothing special.
   Hint walls (cracked tile, drips) on 40 % of secret walls (25 % deep secret), per side.
@@ -780,7 +785,8 @@ Module done and tested (side track, merged after Phase 2); floor runs use it sin
   floor; candidates sorted by id; random mirroring.
 - Minimap model (`minimap.ts`): per room Unknown / Mapped (outline only, map items) / Seen / Visited; `enterRoom`,
   `discoverRoom`, `revealMap('layout'|'icons'|'secrets'|'full')`, `setLostMap`; special icons once Seen; a secret
-  room is never revealed through its hidden wall; the Lost Map curse only hides the drawing.
+  room is never revealed through its hidden wall; the Soggy Map curse (`lostMap`) makes `roomVis` show only VISITED
+  rooms (knowledge keeps growing underneath; lifting it restores the map).
 - Tests: tests/floorgen.test.ts (every rule over 5000 seeds × 13 floors × 2 tracks: reachability, secrets only by
   bombing, boss on the farthest dead end, special rooms, symmetric doors, locks, flags; determinism; template
   validation and picking; speed), tests/floorminimap.test.ts.
@@ -797,7 +803,8 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   alt route into chapter 6; `'ending1'` + `'ending2'` open the whirlpool to floor 13). `locked` = every
   `unlock`-flagged item not unlocked ∪ `lockedItems` (`lockedItemIds`, `run/pools.ts`). Debug / tests (Phase 5):
   `hiddenRouteChance` (1 forces a grate on every floor that may have one; stored as the optional `RunData.routeChance`,
-  so a restore regenerates the same floors).
+  so a restore regenerates the same floors), `startRouteChance` (polish batch 1: the start-room grate on main floor 1;
+  default 0.5, 1 / 0 force it on / off; only `Run.start` generates that floor, so it is not stored).
 - **Floor start** (`startFloor`): `chapterFor(floor, track)` (floors 1-12 → chapters by `ChapterDef.floors` + `track`;
   13 borrows the Eye of the Storm) → `generateFloor(seed, floor, track, { curses, cursePool: chapter.curses, forceCurse,
   allowAltNext: altRouteAllowed(floor, track, unlocked) })` → `pickTemplates` (chapter id, `templateRng`) →
@@ -831,13 +838,13 @@ The Sim steps it at the end of every tick (`run.update(input)`).
 - **Doors** (`world.doors`, `sim/doors.ts`: 4 `DoorSlot { kind, state, to, hint, deep, anim }`): kind = the
   neighbour's special type else this room's (boss / treasure / shop / challenge / cursed / miniboss / nook / normal;
   `Secret` = a blasted hole); state HIDDEN (secret wall not opened — `hint` from `FloorRoom.hints` or the
-  `seeSecrets` flag), LOCKED (`lockedDoors`, treasure from floor 3; the shop is never locked), OPEN (barred while
+  `seeSecrets` flag), LOCKED (`lockedDoors`, treasure from floor 3, the shop from floor 2), OPEN (barred while
   `arena.active` or `arena.locked`). Walking into an open doorway (stick > 0.3 toward the wall — the direction she WALKS,
   so mirrored while the Dizzy Tonic's `confused` lasts —, feet within 10 px of the door centre, touching the wall) =
   `goThroughDoor(side)`: a locked door takes a key and opens for good on both
   sides (`RoomState.opened` bits, 'doorUnlock'); an open one transitions. An explosion reaching a wall slot
   (`World.onSecretWallBombed`) opens a hidden wall on both sides ('secretFound', `discoverRoom`). Thorn Room doors
-  (kind cursed) cost ½ heart per pass (i-frames reset, god mode exempt).
+  (kind cursed) cost ½ heart per pass (i-frames reset, a burrowed Pip surfaces, `DMG_TOLL`, god mode exempt).
 - **Transition**: destination (Curse of the Maze: 20 % of regular doors lead to a random visited room, combatRng) →
   toll → save the room being left (grid, pickups, pedestals) → `data.current` = destination → **checkpoint** →
   `enterCurrent()`.
@@ -853,10 +860,14 @@ The Sim steps it at the end of every tick (`run.update(input)`).
 - **Loot never rests on a floor exit** (`clearExits`, every tick): pickups on or sliding onto the open trapdoor, an open
   grate, the whirlpool or the skylight get an outward push (`RUN_TUNING.hatchShove`), so going for loot never drops her.
 - **Trapdoor**: usable 0.8 s after it appears and only once the player has stepped off it; stepping on → 'trapdoor'
-  a = 1 (id 'trapdoor' / 'grate' / 'whirlpool' / 'debug', x,y = where she fell), the next floor on `trackAfter(floor,
+  a = 1 (id 'trapdoor' / 'grate' / 'whirlpool' / 'debug' / 'startGrate' — the last restarts floor 1 on the alt track
+  and is no cleared floor, see §6d), x,y = where she fell), the next floor on `trackAfter(floor,
   track)` (the same track, except the alt track rejoins the main one at chapter 6 without Ending 1).
-- **Curses** (`layout.curse` → `world.curse`): darkness (render: light pools, `darkVision` ignores it), lostMap
-  (`map.lostMap`), maze (above), blind (render: '?' on pedestals / item pickups), unknown (render: hidden hearts),
+- **Curses** (`layout.curse` → `world.curse`; original display names in `mapIcons.ts` CURSE_NAMES / CURSE_SHORT /
+  CURSE_HINTS, none ever hides the HUD): darkness = the Blackout (render: light pools, `darkVision` ignores it), lostMap =
+  the Soggy Map (`map.lostMap`: only visited rooms on the maps), maze = the Shifting Pipes (above), blind = the Fogged
+  Glass (render: '?' on pedestals / item pickups until she is within 26 px), leak = the Leaky Roof (`damagePlayer`: +½
+  heart per hit from foes and hazards; it replaced 'unknown', which `migrateCurse` maps on restore),
   deluge (movement accel × 0.35 / decel × 0.2 unless flying, rain). `RunOptions.curse`: undefined rolled, null none, an
   id forced on every floor; debug `run.setCurse(c)`.
 - **Seeds as players see them** (Phase 4B): `RunOptions.seedInfo` → `RunData.seedInfo` (`RunSeedInfo { code, kind: 'random' |
@@ -880,8 +891,12 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   through a WeakMap — outside a run they answer false and the item refunds): `revealMapBy(level)` (Treasure Map Sticker)
   and `queueTeleport(to)` ('random' = any other room of the floor on the combatRng — Hopscotch Chalk; 'treasure' / 'shop' /
   'secret' / 'start' = the first such room — Keepsake Sticker): the room is picked at once, the move happens at the end of the
-  tick in `update` (`teleportNow`: saved like a door transition, `entrySide` -1 = the middle of the room, checkpoint, a
-  'blink' where she lands); a locked room's locks open from the inside (a keyless teleport never traps her) and a secret room
+  tick in `update` (`teleportNow`: saved like a door transition, entering through a door of the room — `arrivalSide`: the
+  first regular door, else a secret room's first hidden wall; `entrySide` -2 = no door at all: the free cell nearest the
+  middle clear of markers, pedestals, the plate, exits and foes — checkpoint, a 'blink' where she lands). The room clear
+  is handled before a pending teleport, and `FLOOR_LINKS.canTeleport` (→ `ItemsCTools.canTeleport`) is false while a
+  boss is dying: teleport items refuse and refund (`queueTeleport` refuses too; one queued on the tick the death began
+  waits for it to end); a locked room's locks open from the inside (a keyless teleport never traps her) and a secret room
   reached this way goes on the map. Item rerolls (Shaken Snow Globe, Swirly Sticker) skip `world.lockedItems` and, while
   anything else is left, `world.seenItems`; the run marks items shown by a 'pedestalRoll' as seen like taken ones.
 - Debug / tools: `run.goThroughDoor(side)`, `teleport(room)` (walks in through its first door), `skipFloor()` (on a
@@ -1009,7 +1024,13 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
 - **Hidden routes**: `altRouteAllowed(floor, track, unlocked)` = main track, floor < 12, and floors 10-11 (whose next
   floor is chapter 6) only with 'ending1'. The generator's `hiddenRoute` room holds a cracked drain grate (drip hint;
   in the boss room only after the boss); a blast opens it ('grate' a = 1); stepping in drops to floor + 1 on the ALT
-  track ('grate' a = 2, iris). Trapdoors keep the track (`trackAfter`).
+  track ('grate' a = 2, iris). Trapdoors keep the track (`trackAfter`). Polish batch 1: on MAIN floor 1 `makeFloor`
+  gives the START room a cracked grate (`RoomState.grate` = 1) with `START_ROUTE_CHANCE` 0.5 from its own fork
+  `floorRng(seed, 1, 'main').fork('startRoute')` (`RunOptions.startRouteChance` for tests); its drop is
+  `descend('alt', …, 'startGrate', floor)` — floor 1 again on the alt track, same seed and kit, no `floorsCleared`; the
+  tracker skips 'startGrate'. `saveRoom()` seals a start room's grate (0) whenever she leaves it. No grate ever sits on
+  the spawn cell or on a cell whose floor frame is a decorative grate (`sim/floorLook.ts` `floorLookAt`, shared with
+  render/roomBg.ts).
 - **Endings**: a final boss (floor 12 main Old Thunderhead → 1, 12 alt The Nestmother → 2, 13 The Undertow → 3) ends
   the run: `data.won` = 1, `data.ending`, 'runEnd' (a 1, b = ending). With 'ending1' + 'ending2' unlocked, beating a
   floor-12 final instead raises a WHIRLPOOL (→ floor 13, The Undertow) and a SKYLIGHT (→ that final's ending);
@@ -1110,8 +1131,11 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   reward lines) joins `earned`; main.ts drains it into toasts (+ the 'achievement' sfx). `syncRewards()` at boot re-applies
   rewards of earned achievements (content added later), then `checkCounters()`.
 - **Unlocks** (`meta/unlocks.ts`): an item / character with `unlock` is unlocked when its id is in the unlock set OR its
-  achievement is earned. `runUnlocks(meta)` = unlocked `unlock`-flagged items + endings + routes: the snapshot a NEW run takes
-  (`RunOptions.unlocked` — RunScene.makeSim / restartRun); a continued run keeps the one it started with.
+  achievement is earned. `runUnlocks(meta)` = unlocked `unlock`-flagged items + endings + routes: the player's snapshot.
+  A NEW run takes `unlocksForRun(meta, seedInfo, fixed)` (`GameSave.unlockedForRun(seed, fixed)` in RunScene.makeSim):
+  random runs the player's own; typed codes ('custom') and dailies the canonical fresh-save snapshot `[]` (a code is the
+  same run on every save); `fixed` = `RunStart.unlocked` (RETRY SEED passes the finished run's `RunData.unlocked`).
+  Debug starts (restartRun) keep the player's own; a continued run keeps the one it started with.
 - Characters pass: the tracker also reports 'chapterBossKilled' (a kind-0 boss: id = chapter id, value = chapter number
   1-6), counts 'robbed' events as `shopsDestroyed` and a claimed scored daily as `dailyRuns`. Reward lines put a new
   character first (the toast shows the first line), then routes / endings, then items, then the `reward` text.
@@ -1171,8 +1195,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   aimed at the modal and lets its gestures through.
 - Pause (`ui/pause.ts`): left — PAUSED (the secret 5-tap `pause.title`), the character, floor + chapter, the seed (DAILY /
   PRACTICE tag), the curse, the run time; RESUME / SETTINGS / QUIT TO TITLE (`pause.resume` / `pause.settings` /
-  `pause.quit`; Esc / P resume, S settings, Q quit). Right — the six stats with icons (`ui/statRows.ts`; green above the
-  character's base, red below), every held passive as a grid (×N for copies; scrolls), the active with its charge, trinkets,
+  `pause.quit`; Esc / P resume, S settings, Q quit). Right — HEALTH across the panel (`healthParts`: red now / max, '+N TIN',
+  '+N EMBER'; Tin-only characters show only Tin), then the six stats with icons in two columns of three (`ui/statRows.ts`;
+  green above the character's base, red below; `describe()` adds `health` and the layout rects for tests), every held passive as a grid (×N for copies; scrolls), the active with its charge, trinkets,
   the consumable ("POCKET"), transformations; one tap area `pause.items` — tap anything for its name, kind, quality and
   description underneath (this run's names: `itemName` / `itemDesc`, so an unidentified tonic stays '???').
 - Settings (`ui/settingsPanel.ts`, overlay 'settings', from the title or the pause menu): MASTER / MUSIC / EFFECTS / SHAKE
@@ -1270,10 +1295,10 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   trapdoor, drawn over the world — a handful of drawImage calls. `render/minimap.ts`: the compact HUD map (6 × 5 px
   cells, centred on the current room, special rooms as dots) and the big map (15 × 11 cells, 5 × 5 icons from
   `content/sprites/mapIcons.ts`, door connectors), each cached in a canvas keyed by the model's version (no strings
-  per frame); the Lost Map shows '?'. `render/transitions.ts`: the iris (a 64 × 64 hole mask scaled nearest-neighbour
+  per frame); under the Soggy Map both draw only the visited rooms (the model decides). `render/transitions.ts`: the iris (a 64 × 64 hole mask scaled nearest-neighbour
   + four rects) and the floor card. WorldFx adds chapter ambience (drips, spores, embers, snow, motes, wind), rain for
-  the Deluge, drips from hinted walls, rubble for blasted walls, key sparkles, trapdoor dust. The HUD hides hearts
-  under the Curse of the Unknown; a 7 × 7 curse icon sits left of the minimap.
+  the Deluge, drips from hinted walls, rubble for blasted walls, key sparkles, trapdoor dust. No curse hides any part
+  of the HUD; a 7 × 7 curse icon sits left of the minimap, and the floor card shows the curse's name and a one-line hint.
 - Bosses & special rooms (Phase 3B): the world renderer clips everything it draws to the room's outer rect (a big boss
   near a wall never spills over the HUD). `EnemyRenderer` draws a boss's `enemy.sprite` (the phase look its hook swapped
   in — §6c; `prepare()` rasterises every `BossHook.looks` sprite with the enemy and boss sprites, so a phase change never

@@ -40,7 +40,7 @@ const chapters: ChapterDef[] = [
     bossPool: [],
     minibossPool: [],
     music: 'ch_eye_of_storm',
-    curses: ['darkness', 'lostMap', 'deluge', 'unknown'],
+    curses: ['darkness', 'lostMap', 'deluge', 'leak'],
     // Slate storm stone and cloud-grey blocks, lightning yellow; scorch marks, cloud wisps, wind.
     decor: { floor: [STORM_SCORCH, STORM_WISP, STORM_BOLT], wall: [STORM_WIND_TRIM], count: [3, 6], streak: '#c4cad8', ambience: 'wind' },
   },

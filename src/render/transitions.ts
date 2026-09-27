@@ -3,10 +3,10 @@
  * - the iris: a black screen with a circular hole (a pre-rendered 64×64 mask scaled with nearest
  *   neighbour, so the edge stays pixelly) closing on Wren as she drops through the trapdoor and
  *   opening on the next floor;
- * - the floor card: 'CHAPTER N · NAME', the floor number and the floor's curse.
+ * - the floor card: 'CHAPTER N · NAME', the floor number and the floor's curse (its name and what it does).
  */
 
-import { CURSE_ICONS, CURSE_NAMES } from '../content/sprites/mapIcons';
+import { CURSE_HINTS, CURSE_ICONS, CURSE_NAMES } from '../content/sprites/mapIcons';
 import type { FloorCurse } from '../sim/floor/types';
 import { ctx2d, makeCanvas } from './canvas';
 import { drawTextCentered, measureText, type TextStyle } from './font';
@@ -55,6 +55,7 @@ export function drawIris(ctx: CanvasRenderingContext2D, cx: number, cy: number, 
 const CARD_TITLE: TextStyle = { color: '#ffe9a8', shadow: '#2a1a08', outline: '#07080d', scale: 2 };
 const CARD_SUB: TextStyle = { color: '#c9d3f0', shadow: '#07080d' };
 const CARD_CURSE: TextStyle = { color: '#e08ad8', shadow: '#07080d' };
+const CARD_HINT: TextStyle = { color: '#9a86a8', shadow: '#07080d' };
 
 const DOT_PAST = '#c98a1e';
 const DOT_NEXT = '#2a3350';
@@ -78,7 +79,7 @@ export function drawFloorCard(
   alt = false,
 ): void {
   if (alpha <= 0) return;
-  const fullH = (curse ? 44 : 34) + (floor > 0 ? 8 : 0);
+  const fullH = (curse ? 52 : 34) + (floor > 0 ? 8 : 0);
   const yc = 74 + fullH / 2;
   const open = Math.min(1, t / 0.22);
   const h = Math.max(2, Math.round(fullH * open * (2 - open)));
@@ -129,6 +130,7 @@ export function drawFloorCard(
     const x = Math.round((GAME_W - w) / 2);
     drawSprite(ctx, CURSE_ICONS[curse], 0, x, ry);
     drawTextCentered(ctx, name, GAME_W / 2 + 5, ry + 1, CARD_CURSE);
+    drawTextCentered(ctx, CURSE_HINTS[curse], GAME_W / 2, ry + 10, CARD_HINT);
   }
   ctx.globalAlpha = 1;
 }

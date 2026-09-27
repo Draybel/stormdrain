@@ -803,7 +803,7 @@ export interface CharacterDef {
 // ── Chapters ─────────────────────────────────────────────────────────────────
 
 export type Track = 'main' | 'alt';
-export type CurseId = 'darkness' | 'lostMap' | 'maze' | 'blind' | 'unknown' | 'deluge';
+export type CurseId = 'darkness' | 'lostMap' | 'maze' | 'blind' | 'leak' | 'deluge';
 
 export interface ChapterDef {
   id: ChapterId;

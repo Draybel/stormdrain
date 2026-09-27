@@ -30,6 +30,10 @@ import {
   pickTemplates,
   regularDoorCount,
   roomAt,
+  lockedOnFloor,
+  SHOP_LOCK_FLOOR,
+  TREASURE_LOCK_FLOOR,
+  MINIBOSS_MIN_FLOOR,
   templateChar,
   templateGrid,
   templateRng,
@@ -85,6 +89,7 @@ function checkLayout(L: FloorLayout, allowAltNext: boolean): string | null {
   if (count.secret !== 1 || count.deepSecret !== 1) return 'needs one secret and one deep secret room';
   if ((count.miniboss ?? 0) > 1 || (count.challenge ?? 0) > 1 || (count.cursed ?? 0) > 1) return 'optional room twice';
   if (f < 2 && count.challenge) return 'challenge room before floor 2';
+  if (f < 2 && count.miniboss) return 'miniboss room on floor 1';
   if (count.nook) return 'nook present before openNook';
   if (rooms[L.boss]?.type !== 'boss' || rooms[L.secret]?.type !== 'secret' || rooms[L.deepSecret]?.type !== 'deepSecret') {
     return 'boss/secret/deepSecret indices wrong';
@@ -214,14 +219,16 @@ function checkLayout(L: FloorLayout, allowAltNext: boolean): string | null {
 
   // Locks.
   for (const r of rooms) {
-    const shouldLock = r.type === 'treasure' && f >= 3;
+    const shouldLock = (r.type === 'treasure' && f >= 3) || (r.type === 'shop' && f >= 2);
     if (r.locked !== shouldLock) return `${r.type} locked=${r.locked} on floor ${f}`;
-    if (shouldLock && r.lockedDoors !== (r.doors & ~r.secretDoors)) return 'treasure door not locked';
+    if (r.locked !== lockedOnFloor(r.type, f)) return 'lockedOnFloor disagrees';
+    if (shouldLock && r.lockedDoors !== (r.doors & ~r.secretDoors)) return `${r.type} door not locked`;
     if (r.lockedDoors !== 0 && !shouldLock) {
-      // The treasure room's parent carries the matching lock bit.
+      // The locked room's parent carries the matching lock bit.
       for (let d = 0; d < 4; d++) {
         if ((r.lockedDoors & DIR_BITS[d]!) === 0) continue;
-        if (rooms[neighborRoom(L, r.index, d)]!.type !== 'treasure') return 'locked door not leading to treasure';
+        const t = rooms[neighborRoom(L, r.index, d)]!.type;
+        if (t !== 'treasure' && t !== 'shop') return `locked door leading to a ${t} room`;
       }
     }
   }
@@ -380,6 +387,85 @@ describe(`generateFloor over ${SEEDS} seeds`, () => {
   });
 });
 
+// ── Locks (owner requirement: keys open locked doors, shops and lockboxes) ─────────────────────
+
+describe('locked shops and treasure rooms, no floor-1 miniboss', () => {
+  it('pins the floors: shops lock from 2, treasure rooms from 3, minibosses from 2', () => {
+    expect(SHOP_LOCK_FLOOR).toBe(2);
+    expect(TREASURE_LOCK_FLOOR).toBe(3);
+    expect(MINIBOSS_MIN_FLOOR).toBe(2);
+    expect(lockedOnFloor('shop', 1)).toBe(false);
+    expect(lockedOnFloor('shop', 2)).toBe(true);
+    expect(lockedOnFloor('treasure', 2)).toBe(false);
+    expect(lockedOnFloor('treasure', 3)).toBe(true);
+    expect(lockedOnFloor('normal', 9)).toBe(false);
+  });
+
+  it('over 200 seeds × floors 1-12 × both tracks: shops locked on both sides from floor 2, every room reachable with keys', () => {
+    const failures: string[] = [];
+    let lockedShops = 0;
+    for (const track of TRACKS) {
+      for (let f = 1; f <= 12; f++) {
+        for (let seed = 1; seed <= 200 && failures.length < 5; seed++) {
+          const L = generateFloor(seed * 7477 + f, f, track, { allowAltNext: true });
+          const fail = (msg: string) => failures.push(`seed ${seed * 7477 + f} floor ${f} ${track}: ${msg}`);
+          if (f === 1 && L.rooms.some((r) => r.type === 'miniboss')) fail('miniboss on floor 1');
+          for (const r of L.rooms) {
+            if (r.type !== 'shop') continue;
+            const regular = r.doors & ~r.secretDoors;
+            if (f === 1) {
+              if (r.locked || r.lockedDoors !== 0) fail('floor-1 shop locked');
+              continue;
+            }
+            lockedShops++;
+            if (!r.locked || r.lockedDoors !== regular || regular === 0) fail(`shop lock bits ${r.lockedDoors} vs doors ${regular}`);
+            for (let d = 0; d < 4; d++) {
+              if ((regular & DIR_BITS[d]!) === 0) continue;
+              const nb = L.rooms[neighborRoom(L, r.index, d)]!;
+              if ((nb.lockedDoors & DIR_BITS[DIR_OPPOSITE[d]!]!) === 0) fail(`the ${nb.type} room outside the shop has no lock bit`);
+            }
+          }
+          // With keys every room (secret walls bombed) is reachable; without keys, only the locked rooms are cut off
+          // (a lock never gates anything behind it).
+          for (const withKeys of [true, false]) {
+            const seen = new Set<number>([L.start]);
+            const q = [L.start];
+            while (q.length) {
+              const i = q.shift()!;
+              const r = L.rooms[i]!;
+              for (let d = 0; d < 4; d++) {
+                const bit = DIR_BITS[d]!;
+                if ((r.doors & bit) === 0) continue;
+                if (!withKeys && (r.lockedDoors & bit) !== 0) continue;
+                const nb = neighborRoom(L, i, d);
+                if (nb >= 0 && !seen.has(nb)) {
+                  seen.add(nb);
+                  q.push(nb);
+                }
+              }
+            }
+            for (const r of L.rooms) {
+              if (seen.has(r.index)) continue;
+              // Without keys only a locked room, or a secret room whose every neighbour is locked, may be cut off.
+              let behindLocks = r.locked;
+              if (r.secret) {
+                behindLocks = true;
+                for (let d = 0; d < 4; d++) {
+                  const nb = neighborRoom(L, r.index, d);
+                  if (nb >= 0 && !L.rooms[nb]!.locked) behindLocks = false;
+                }
+              }
+              if (withKeys || !behindLocks) fail(`room ${r.index} (${r.type}) unreachable ${withKeys ? 'with' : 'without'} keys`);
+            }
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+    expect(lockedShops).toBeGreaterThan(2 * 10 * 200 * 0.99);
+  });
+});
+
 // ── Determinism & streams ─────────────────────────────────────────────────────────────────────
 
 describe('determinism', () => {
@@ -436,7 +522,7 @@ describe('determinism', () => {
         }
       }
     }
-    expect({ version: FLOORGEN_VERSION, fingerprint: h }).toEqual({ version: 1, fingerprint: FINGERPRINT });
+    expect({ version: FLOORGEN_VERSION, fingerprint: h }).toEqual({ version: 2, fingerprint: FINGERPRINT });
   });
 
   it('rejects bad arguments', () => {
@@ -460,8 +546,11 @@ describe('determinism', () => {
   });
 });
 
-/** Pinned hash of 650 layouts (seeds 1..25 × 13 floors × 2 tracks) for FLOORGEN_VERSION 1. */
-const FINGERPRINT = 418574008;
+/**
+ * Pinned hash of 650 layouts (seeds 1..25 × 13 floors × 2 tracks) for FLOORGEN_VERSION 2 (polish batch 1: shops
+ * locked from floor 2, no floor-1 miniboss, the 'unknown' curse renamed 'leak'). Version 1 was 418574008.
+ */
+const FINGERPRINT = 2509534770;
 
 // ── Queries & the Broker's Nook ───────────────────────────────────────────────────────────────
 

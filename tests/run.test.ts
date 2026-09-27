@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { clearEdges, type InputState } from '../src/engine/inputState';
+import { DMG_ENEMY, DMG_GENERIC, DMG_SPIKES, DMG_TOLL, damagePlayer } from '../src/sim/combat';
 import { DK, DOOR_X, DOOR_Y, DS, TRAPDOOR_OPEN_TIME } from '../src/sim/doors';
 import { DIR_OPPOSITE, FLOOR_CURSES, type FloorCurse } from '../src/sim/floor/types';
 import { MapVis, roomVis } from '../src/sim/floor/minimap';
@@ -467,13 +468,55 @@ describe('curses', () => {
     expect(Sim.newRun(21, { curse: null }).world.curse).toBeNull();
   });
 
-  it('Lost Map hides every room but the current one', () => {
+  it('Soggy Map (lostMap): the map shows only the rooms already visited', () => {
     const sim = forCurse('lostMap');
     const run = sim.run!;
     expect(run.data.map.lostMap).toBe(true);
     for (const r of run.data.layout.rooms) {
       if (r.index !== run.data.current) expect(roomVis(run.data.map, r.index)).toBe(MapVis.Unknown);
     }
+    // Walk into a neighbour and back: both rooms stay on the map, nothing else.
+    sim.world.godMode = true;
+    const start = run.data.current;
+    const side = sim.world.doors.slots.findIndex((s) => s.kind !== DK.None && s.state === DS.Open);
+    expect(run.goThroughDoor(side)).toBe(true);
+    const next = run.data.current;
+    clearHere(sim);
+    expect(run.goThroughDoor(DIR_OPPOSITE[side]!)).toBe(true);
+    for (const r of run.data.layout.rooms) {
+      expect(roomVis(run.data.map, r.index)).toBe(r.index === start || r.index === next ? MapVis.Visited : MapVis.Unknown);
+    }
+  });
+
+  it('Leaky Roof: a hit from a foe or a hazard costs half a heart more; the Thorn toll does not', () => {
+    const hit = (curse: FloorCurse | null, source: number): number => {
+      const sim = Sim.newRun(21, { curse });
+      const w = sim.world;
+      w.safeT = 0;
+      const before = w.player.health.red;
+      damagePlayer(w, 1, source);
+      return before - w.player.health.red;
+    };
+    expect(hit(null, DMG_ENEMY)).toBe(1);
+    expect(hit('leak', DMG_ENEMY)).toBe(2);
+    expect(hit('leak', DMG_SPIKES)).toBe(2);
+    expect(hit('leak', DMG_TOLL)).toBe(1);
+    expect(hit('leak', DMG_GENERIC)).toBe(1);
+    expect(hit('darkness', DMG_ENEMY)).toBe(1);
+    // A real enemy shot / contact under the curse.
+    const sim = Sim.newRun(21, { curse: 'leak' });
+    const w = sim.world;
+    w.safeT = 0;
+    const foe = sim.spawnEnemy('scurrier', w.player.x + 4, w.player.y, { champion: false, spawnT: 0 })!;
+    expect(foe).not.toBeNull();
+    const before = w.player.health.red;
+    let halves = 0;
+    for (let t = 0; t < 30 && halves === 0; t++) {
+      sim.step(makeInput());
+      for (let i = 0; i < sim.events.count; i++) if (sim.events.at(i).type === 'hurt') halves = sim.events.at(i).a;
+    }
+    expect(halves).toBe(2);
+    expect(before - w.player.health.red).toBe(2);
   });
 
   it('Deluge: slippery floors (slow to start, long slide)', () => {

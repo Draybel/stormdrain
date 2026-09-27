@@ -118,6 +118,7 @@ export function spawnEnemy(w: World, def: EnemyDef, x: number, y: number, opts: 
   e.burstA = null;
   e.volleys = 0;
   e.burrowed = e.hidden = e.faded = false;
+  e.surfCell = -1;
   e.stun = 0;
   e.flash = 0;
   e.hurtT = 9;

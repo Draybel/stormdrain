@@ -40,7 +40,7 @@ const chapters: ChapterDef[] = [
     bossPool: [],
     minibossPool: [],
     music: 'ch_hollow_nest',
-    curses: ['darkness', 'maze', 'blind', 'unknown'],
+    curses: ['darkness', 'maze', 'blind', 'leak'],
     // Wasp-paper cells and layered paper walls, amber plugs; amber drops, scraps, sleepy larvae.
     decor: { floor: [NEST_AMBER, NEST_SCRAP, NEST_LARVA], wall: [NEST_PAPER_TRIM], count: [3, 6], ambience: 'motes' },
   },

@@ -9,6 +9,7 @@
  */
 
 import { allAchievements, allCharacters, allItems } from '../content/registry';
+import type { RunSeedInfo } from '../sim/run/types';
 import type { CharacterDef, ItemDef } from '../sim/types';
 import type { MetaState, MetaStore } from './metaState';
 
@@ -59,6 +60,20 @@ export function runUnlocks(m: MetaState): string[] {
   for (const id of m.unlocks.endings) out.add(id);
   for (const id of m.unlocks.routes) out.add(id);
   return [...out].sort();
+}
+
+/**
+ * The unlock snapshot a run starts with (`RunOptions.unlocked`) — the rule that makes a seed recreate its run:
+ * - a typed code ('custom') or a daily: the CANONICAL snapshot of a fresh save (nothing unlocked: only ungated items
+ *   roll, no route / ending flags), so the same code gives the same floors, items and bosses on every save and
+ *   before or after any unlock (and every player's daily is the same run);
+ * - a random run: the player's own unlocks (`runUnlocks`);
+ * - `fixed` (RETRY SEED): the finished run's stored `RunData.unlocked`, so the retry is the same run as the original.
+ */
+export function unlocksForRun(m: MetaState, seed: RunSeedInfo | null | undefined, fixed?: readonly string[]): string[] {
+  if (fixed) return [...new Set(fixed)].sort();
+  if (seed && seed.kind !== 'random') return [];
+  return runUnlocks(m);
 }
 
 /**

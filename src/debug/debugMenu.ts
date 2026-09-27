@@ -17,6 +17,7 @@
 
 import type { InputState } from '../engine/inputState';
 import { GAME_H, GAME_W } from '../engine/screen';
+import { CURSE_SHORT } from '../content/sprites/mapIcons';
 import { UI } from '../content/sprites/palette';
 import { drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
@@ -207,7 +208,11 @@ export class DebugMenu implements Scene {
       { label: () => 'GO TO BOSS', run: () => (a.teleport() ? 'BOSS ROOM' : 'NOT IN A RUN') },
       {
         label: () => 'NEXT CURSE',
-        run: () => (a.sim?.run ? `CURSE: ${(a.nextCurse() ?? 'none').toUpperCase()}` : 'NOT IN A RUN'),
+        run: () => {
+          if (!a.sim?.run) return 'NOT IN A RUN';
+          const c = a.nextCurse();
+          return `CURSE: ${c ? CURSE_SHORT[c] : 'NONE'}`;
+        },
       },
       { label: () => 'TRAINING YARD', run: () => (a.yard(), 'TO THE YARD') },
       { label: () => 'NEW RUN', run: () => (a.newRun(), 'NEW RUN') },

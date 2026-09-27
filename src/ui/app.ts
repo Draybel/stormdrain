@@ -19,6 +19,11 @@ export interface RunStart {
   seed: RunSeedInfo;
   /** The sim seed when it isn't the code's hash (retrying a debug run that has no code). */
   simSeed?: number;
+  /**
+   * The unlock snapshot to start with instead of the one the seed kind picks (meta/unlocks.ts `unlocksForRun`):
+   * RETRY SEED passes the finished run's own `RunData.unlocked`, so the retry is the same run as the original.
+   */
+  unlocked?: readonly string[];
 }
 
 /** A finished run for the game-over / ending screens. */
