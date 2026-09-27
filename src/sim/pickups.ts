@@ -139,9 +139,14 @@ export function spawnDrops(w: World, tableId: string, x: number, y: number): num
 
 /** Would touching this pickup take it right now? (Chests are opened, not taken.) */
 export function wouldCollect(w: World, pk: Pickup): boolean {
+  return canTakeKind(w, pk.kind);
+}
+
+/** Could the player take a pickup of this kind right now (room for it, something to heal…)? */
+export function canTakeKind(w: World, kind: PickupKind): boolean {
   const p = w.player;
   const inv = p.inv;
-  switch (pk.kind) {
+  switch (kind) {
     case PK.Coin:
     case PK.SilverCoin:
     case PK.GoldCoin:
@@ -172,11 +177,27 @@ export function wouldCollect(w: World, pk: Pickup): boolean {
   }
 }
 
+/**
+ * Gives the player a pickup of this kind directly (shop goods): applied like touching one, with the
+ * 'pickup' event and trigger. Returns the amount gained.
+ */
+export function collectKind(w: World, kind: PickupKind, x: number, y: number): number {
+  const amount = applyKind(w, kind);
+  w.counters.pickups++;
+  w.events.emit('pickup', x, y, kind, amount);
+  fireTrigger(w, 'pickup', x, y);
+  return amount;
+}
+
 /** Applies a collectible pickup. Returns the amount gained (for the event / HUD). */
 function applyPickup(w: World, pk: Pickup): number {
+  return applyKind(w, pk.kind);
+}
+
+function applyKind(w: World, kind: PickupKind): number {
   const p = w.player;
   const inv = p.inv;
-  switch (pk.kind) {
+  switch (kind) {
     case PK.Coin:
       return addCounter(inv, 'coins', 1);
     case PK.SilverCoin:
@@ -198,7 +219,7 @@ function applyPickup(w: World, pk: Pickup): number {
       return addCounter(inv, 'keys', 2);
     case PK.HalfHeart:
     case PK.Heart: {
-      const n = pk.kind === PK.Heart ? 2 : 1;
+      const n = kind === PK.Heart ? 2 : 1;
       inv.version++;
       return p.flags.noRedHearts ? addBonus(p.health, BONUS_TIN, n) : heal(p.health, n);
     }

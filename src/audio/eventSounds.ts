@@ -168,7 +168,7 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
       if (e.a === 1) audio.play('eshot_pop', pan);
       break;
     case 'lobLand':
-      audio.play('eshot_pop', pan, 1);
+      audio.play(e.id === 'bolt' ? 'thunder' : e.id === 'rock' ? 'rock_break' : 'eshot_pop', pan, e.id === 'bolt' ? 0.6 : 1);
       break;
     case 'status': {
       const s = STATUS_SOUND[e.a];
@@ -248,6 +248,56 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
       break;
     case 'say':
       audio.play('surge', pan);
+      break;
+    // ── Bosses & special rooms (Phase 3B) ──
+    case 'bossIntro':
+    case 'bossPhase':
+      audio.play('boss_roar', pan);
+      break;
+    case 'bossTell':
+      audio.play('foe_windup', pan, 1);
+      break;
+    case 'bossSlam':
+      audio.play('foe_quake', pan);
+      break;
+    case 'bossBeam':
+      audio.play(e.a === 1 ? (e.b === 1 ? 'thunder' : 'laser_zap') : 'foe_windup', pan);
+      break;
+    case 'bossSplit':
+      audio.play('enemy_die_squish', pan);
+      break;
+    case 'bossDying':
+      audio.play('boss_hurt', pan);
+      break;
+    case 'bossBoom':
+      audio.play('explosion_small', pan, 0.7);
+      break;
+    case 'bossDefeated':
+      audio.play('boss_death', pan);
+      break;
+    case 'bossBlock':
+      audio.play('tink', pan, 0.6);
+      break;
+    case 'plate':
+      audio.play('door_lock', pan);
+      break;
+    case 'donate':
+      audio.play('donation', pan, e.b === 1 ? 1 : 0.7);
+      break;
+    case 'slots':
+      audio.play(e.a === 0 ? 'slot_spin' : e.a === 2 ? 'crate_break' : e.b === 1 ? 'slot_win' : 'slot_lose', pan);
+      break;
+    case 'trade':
+      audio.play('item_pickup', pan);
+      break;
+    case 'grate':
+      if (e.a === 2) audio.play('puddle_splash', pan);
+      break;
+    case 'whirlpool':
+      audio.play(e.a === 0 ? 'teleport' : 'puddle_splash', pan);
+      break;
+    case 'pedestalVanish':
+      audio.play('foe_blink', pan);
       break;
     default:
       break;

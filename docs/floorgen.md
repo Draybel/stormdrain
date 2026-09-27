@@ -196,7 +196,7 @@ cell without allocating.
     `(seed, floor, track, opts)` also works while `layout.version === FLOORGEN_VERSION` and the template set is
     unchanged. `loadMinimap(json, layout)` sanitizes saved minimap data.
 
-### Status (Phase 3A, `src/sim/run` — ARCHITECTURE §6b)
+### Status (Phases 3A + 3B, `src/sim/run` — ARCHITECTURE §6b-§6d)
 
 | # | Item | Status |
 |---|---|---|
@@ -206,9 +206,9 @@ cell without allocating.
 | 4 | Doors | done: `world.doors` (secret walls + hints, key doors, styled by neighbour type, Thorn Room toll) |
 | 5 | Transitions | done: door front of the opposite side, `enterRoom(map…)`, camera slide in the run scene |
 | 6 | Secret walls | done: bombs open both sides (`RoomState.opened`), `discoverRoom` |
-| 7 | Broker's Nook | done: `fork('nook')` roll after the boss (0.55 clean floor / 0.2 hurt), heart-priced items |
-| 8 | Hidden route | not yet (track switching is M2's): runs pass `allowAltNext: false` |
-| 9 | Finals | boss rooms hold a placeholder boss until the boss framework (M2); floor 12's boss ends the run |
+| 7 | Broker's Nook | done: `fork('nook')` roll after the boss (25 %, 60 % after a clean floor), two heart-priced deals, the Moth Broker (3B) |
+| 8 | Hidden route | done (3B): `allowAltNext = altRouteAllowed(floor, track, unlocked)` (floors 10-11 need 'ending1'); a cracked grate (bomb it) → floor + 1 on the alt track; the alt track rejoins main at chapter 6 without Ending 1 |
+| 9 | Finals | done (3B): `layout.finalBoss` → the final BossDef (sim/bosses); its kill ends the run with ending 1 / 2 / 3, or raises the whirlpool (floor 13) + skylight when Endings 1 and 2 are unlocked |
 | 10 | Curses | done: all six (sim: maze, deluge, lostMap; render: darkness, blind, unknown) |
 | 11 | Minimap rendering | done: `render/minimap.ts` (compact HUD map + the big map overlay), cached by `version` |
 | 12 | Saving | `Sim.snapshot()` stores the whole layout + minimap + room states; the localStorage wiring is Phase 4 |

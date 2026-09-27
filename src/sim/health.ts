@@ -171,6 +171,30 @@ export function damageHealth(h: Health, halves: number, out: DamageResult): Dama
   return out;
 }
 
+/**
+ * Removes `halves` half hearts of one bonus kind (a price paid in Tin hearts), the last gained first;
+ * emptied hearts leave the stack (the others keep their order). Returns the half hearts removed.
+ */
+export function removeBonus(h: Health, kind: BonusKind, halves: number): number {
+  let left = Math.max(0, Math.floor(halves));
+  let removed = 0;
+  for (let i = h.bonusCount - 1; i >= 0 && left > 0; i--) {
+    if (h.bonusKind[i] !== kind) continue;
+    const take = Math.min(left, h.bonusHalves[i]!);
+    h.bonusHalves[i] = h.bonusHalves[i]! - take;
+    left -= take;
+    removed += take;
+    if (h.bonusHalves[i] === 0) {
+      for (let j = i; j < h.bonusCount - 1; j++) {
+        h.bonusKind[j] = h.bonusKind[j + 1]!;
+        h.bonusHalves[j] = h.bonusHalves[j + 1]!;
+      }
+      h.bonusCount--;
+    }
+  }
+  return removed;
+}
+
 /** Resets `h` from a character's HeartSpec-like numbers. */
 export function initHealth(h: Health, redMax: number, red: number, tin: number, ember: number): void {
   h.redMax = Math.max(0, Math.min(HEART_CAP * 2, Math.floor(redMax / 2) * 2));

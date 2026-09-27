@@ -1,20 +1,24 @@
 /**
  * Pre-rolled room contents: everything a floor offers is decided when the floor is generated, from the
- * floor stream only — floorRng(seed, floor, track).fork('contents') plus the meta snapshot (locked
- * items) — so two runs with the same seed see the same enemies, items, chests and shop stock whatever
- * they do (ARCHITECTURE §3). Only drops (lootRng) and in-room randomness (combatRng) depend on play.
+ * floor stream only — floorRng(seed, floor, track).fork('contents') (one fork per room, so adding a roll
+ * to one room type never shifts another) plus the run's meta snapshot (locked items) and the items it
+ * has seen so far (never offered twice) — so two runs with the same seed and the same route see the
+ * same enemies, bosses, items, chests, shop stock, gamblers and traders. Only drops (lootRng) and
+ * in-room randomness (combatRng) depend on play inside the rooms.
  *
  * Marker order = the order parseRoomLayout returns markers in on the MIRRORED grid (row-major), so a
  * room's i-th 'i' marker always gets items[i].
  */
 
 import { floorRng, type Rng } from '../../engine/rng';
-import { allChampions, allItems, findEnemy } from '../../content/registry';
+import { allChampions, findEnemy, findItem } from '../../content/registry';
+import { bossHpFor, finalBossDef, pickBoss } from '../bosses/select';
 import { ROOM_TEMPLATES } from '../floor/library';
 import { templateChar } from '../floor/templates';
 import type { FloorLayout, RoomTemplate, RoomType } from '../floor/types';
-import type { ItemDef, PickupName, PoolId } from '../types';
-import { chapterEnemies } from './chapters';
+import type { PickupName, PoolId } from '../types';
+import { chapterEnemies, chapterFor } from './chapters';
+import { itemPrice, rollItem } from './pools';
 import type { RoomState } from './types';
 
 const TEMPLATE_BY_ID = new Map<string, RoomTemplate>();
@@ -97,7 +101,14 @@ export function emptyRoomState(): RoomState {
     prices: [],
     hearts: [],
     boss: '',
+    bossHp: 0,
     reward: '',
+    goods: [],
+    alts: [],
+    bonus: [],
+    choice: false,
+    slots: false,
+    trader: '',
     visited: false,
     cleared: false,
     wave: 0,
@@ -106,6 +117,9 @@ export function emptyRoomState(): RoomState {
     pickups: null,
     pedestals: null,
     trapdoor: false,
+    plate: 0,
+    grate: 0,
+    exits: 0,
   };
 }
 
@@ -141,6 +155,27 @@ const CHEST_RICH: Weighted<PickupName> = [
   ['satchel', 40],
   ['lockbox', 60],
 ];
+/** Magpie's Stall pickups for sale and their prices (coins). */
+const SHOP_GOODS: Weighted<PickupName> = [
+  ['heart', 30],
+  ['key', 20],
+  ['bomb', 20],
+  ['tinHeart', 10],
+  ['doubleBomb', 6],
+  ['sparkFull', 6],
+  ['emberHeart', 4],
+];
+export const GOODS_PRICE: Readonly<Partial<Record<PickupName, number>>> = {
+  halfHeart: 2,
+  heart: 3,
+  key: 5,
+  bomb: 5,
+  tinHeart: 5,
+  doubleBomb: 7,
+  sparkFull: 6,
+  emberHeart: 7,
+  keyRing: 7,
+};
 
 /** Where each room type's pedestal items come from, most specific pool first. */
 const ITEM_POOLS: Partial<Record<RoomType, readonly PoolId[]>> = {
@@ -153,11 +188,16 @@ const ITEM_POOLS: Partial<Record<RoomType, readonly PoolId[]>> = {
 };
 const BOSS_POOLS: readonly PoolId[] = ['boss', 'treasure'];
 const SHOP_POOLS: readonly PoolId[] = ['shop', 'treasure'];
+const TRADER_POOLS: readonly PoolId[] = ['trader', 'treasure'];
 
-/** Treasure-style rolls make the best items rarer (quality 0-4). */
-const QUALITY_WEIGHT = [1, 1, 1, 0.7, 0.35] as const;
-/** Shop prices (coins) by quality for passives / actives; trinkets and consumables are cheap. */
-const ITEM_PRICE = [10, 12, 15, 20, 25] as const;
+/** Magpie's Stall uses at most this many 'S' slots. */
+export const SHOP_SLOTS_MAX = 5;
+/** Chance per normal room of a Gumball Gambler; chance per floor of Old Pell. */
+export const SLOTS_CHANCE = 0.12;
+export const TRADER_CHANCE = 0.15;
+/** Thorn Room: chance an 'i' holds a curse-pool item (else a lockbox). Forgotten Pocket: better item vs big loot. */
+export const CURSED_ITEM_CHANCE = 0.55;
+export const DEEP_ITEM_CHANCE = 0.5;
 
 function pickWeighted<T>(rng: Rng, table: Weighted<T>): T {
   let total = 0;
@@ -170,67 +210,12 @@ function pickWeighted<T>(rng: Rng, table: Weighted<T>): T {
   return table[table.length - 1]![0];
 }
 
-function isPedestalKind(d: ItemDef): boolean {
-  return d.kind === 'passive' || d.kind === 'active';
-}
-
-/**
- * One item from the first pool that still has candidates (not used on this floor, not locked);
- * `anyKind` also allows trinkets / consumables (shops). Falls back to repeats before giving up ('').
- */
-function rollItem(
-  rng: Rng,
-  pools: readonly PoolId[],
-  used: Set<string>,
-  locked: ReadonlySet<string>,
-  anyKind: boolean,
-  minQuality = 0,
-): string {
-  const roll = rng.next();
-  const items = allItems();
-  for (let pass = 0; pass < 2; pass++) {
-    for (const pool of pools) {
-      let total = 0;
-      const list: ItemDef[] = [];
-      for (const d of items) {
-        if (!d.pools.includes(pool) || d.tags.includes('test') || locked.has(d.id)) continue;
-        if (!anyKind && !isPedestalKind(d)) continue;
-        if (pass === 0 && (used.has(d.id) || d.quality < minQuality)) continue;
-        list.push(d);
-        total += QUALITY_WEIGHT[d.quality] ?? 1;
-      }
-      if (list.length === 0) continue;
-      let r = roll * total;
-      let chosen = list[list.length - 1]!;
-      for (const d of list) {
-        const w = QUALITY_WEIGHT[d.quality] ?? 1;
-        if (r < w) {
-          chosen = d;
-          break;
-        }
-        r -= w;
-      }
-      used.add(chosen.id);
-      return chosen.id;
-    }
-  }
-  return '';
-}
-
-function priceOf(id: string): number {
-  const d = allItems().find((x) => x.id === id);
-  if (!d) return 15;
-  if (d.kind === 'trinket') return 8;
-  if (d.kind === 'consumable') return 5 + d.quality;
-  return ITEM_PRICE[d.quality] ?? 15;
-}
-
 /** Movement kinds that make a dull placeholder boss (it would never come for you). */
 const STATIC_MOVES = new Set(['idle', 'turret', 'wallCrawl']);
 
 /**
- * The strongest enemy of a pool that actually moves (placeholder bosses until the boss framework
- * exists); the strongest of all when none moves.
+ * The strongest enemy of a pool that actually moves — the placeholder boss used only when no BossDef
+ * of the kind exists at all.
  */
 function strongest(ids: readonly string[]): string {
   let best = '';
@@ -248,27 +233,53 @@ function strongest(ids: readonly string[]): string {
   return best;
 }
 
+/** What the floor rolls need from the run. */
+export interface ContentsCtx {
+  /** Items that never roll (the run's meta snapshot). */
+  locked: ReadonlySet<string>;
+  /** Items seen earlier this run (left out of the pools). */
+  seen: ReadonlySet<string>;
+  /** Rain Barrel Arena waves. */
+  challengeWaves: number;
+}
+
+/**
+ * The boss of a floor's boss / miniboss room: a final boss by the layout's key, else a seeded pick of
+ * the chapter's pool that avoids the previous floor's boss of the same chapter.
+ */
+export function bossFor(layout: FloorLayout, chapterId: string, type: 'boss' | 'miniboss'): { id: string; hp: number } | null {
+  const floor = layout.floorIndex;
+  if (type === 'boss' && layout.finalBoss) {
+    const f = finalBossDef(layout.finalBoss);
+    if (f) return { id: f.id, hp: f.hp };
+  }
+  const kind = type === 'boss' ? 'boss' : 'miniboss';
+  let avoid = '';
+  if (floor > 1) {
+    const prev = chapterFor(floor - 1, layout.track);
+    if (prev.id === chapterId) avoid = pickBoss(layout.seed, floor - 1, layout.track, chapterId, kind)?.id ?? '';
+  }
+  const def = pickBoss(layout.seed, floor, layout.track, chapterId, kind, avoid);
+  return def ? { id: def.id, hp: bossHpFor(def, floor) } : null;
+}
+
 /**
  * Rolls every room of a floor (and the Broker's Nook reserve). Deterministic for (layout, chapter,
- * locked items, content set).
+ * locked + seen items, content set).
  */
-export function rollFloorContents(
-  layout: FloorLayout,
-  chapterId: string,
-  locked: ReadonlySet<string>,
-  challengeWaves: number,
-): { rooms: RoomState[]; nook: RoomState } {
-  const rng = floorRng(layout.seed, layout.floorIndex, layout.track).fork('contents');
+export function rollFloorContents(layout: FloorLayout, chapterId: string, ctx: ContentsCtx): { rooms: RoomState[]; nook: RoomState } {
+  const base = floorRng(layout.seed, layout.floorIndex, layout.track).fork('contents');
   const pool = chapterEnemies(chapterId);
   const poolIds = pool.map((d) => d.id);
   const champs = allChampions();
-  const used = new Set<string>();
+  const used = new Set<string>(ctx.seen);
+  const locked = ctx.locked;
 
-  const rollRoom = (type: RoomType, templateId: string | null, flip: number): RoomState => {
+  const rollRoom = (rng: Rng, type: RoomType, templateId: string | null, flip: number): RoomState => {
     const st = emptyRoomState();
     const plan = markerPlan(templateById(templateId), flip);
     // Enemies (one list per wave; E markers get a forced champion).
-    const waves = type === 'challenge' ? Math.max(1, challengeWaves) : 1;
+    const waves = type === 'challenge' ? Math.max(1, ctx.challengeWaves) : 1;
     for (let wv = 0; wv < waves && plan.enemies > 0; wv++) {
       const ids: string[] = [];
       const ch: string[] = [];
@@ -284,31 +295,92 @@ export function rollFloorContents(
     for (let i = 0; i < plan.loot; i++) st.loot.push(pickWeighted(rng, rich ? LOOT_SECRET : LOOT_COMMON));
     const richChest = rich || type === 'cursed' || type === 'challenge';
     for (let i = 0; i < plan.chests; i++) st.chests.push(pickWeighted(rng, richChest ? CHEST_RICH : CHEST_COMMON));
+
+    // Pedestal items ('i').
     const pools = ITEM_POOLS[type] ?? ['treasure'];
+    // Forgotten Pocket: a better item, or a big pile of loot instead.
+    const deepLoot = type === 'deepSecret' && rng.next() >= DEEP_ITEM_CHANCE;
+    const nItems = type === 'nook' ? Math.min(2, plan.items) : plan.items;
     for (let i = 0; i < plan.items; i++) {
-      const id = rollItem(rng, pools, used, locked, false, type === 'nook' ? 2 : 0);
+      let id = '';
+      let alt = '';
+      if (i >= nItems) {
+        // Extra nook markers stay empty (the Moth Broker offers two deals).
+      } else if (deepLoot) {
+        alt = 'lockbox';
+      } else if (type === 'cursed' && rng.next() >= CURSED_ITEM_CHANCE) {
+        alt = 'lockbox';
+      } else {
+        const minQ = type === 'nook' ? 2 : type === 'deepSecret' ? 3 : 0;
+        id = rollItem(rng, pools, used, locked, false, minQ);
+      }
       st.items.push(id);
-      if (type === 'nook') {
-        const d = allItems().find((x) => x.id === id);
+      st.alts.push(alt);
+      if (type === 'nook' && id) {
+        const d = findItem(id);
         st.hearts.push(d && d.quality >= 4 ? 2 : 1);
       } else {
         st.hearts.push(0);
       }
     }
+    st.choice = type === 'nook';
+    if (deepLoot) {
+      const n = 5 + rng.int(0, 3);
+      for (let i = 0; i < n; i++) st.bonus.push(pickWeighted(rng, LOOT_SECRET));
+    }
+
+    // Magpie's Stall: 3-5 slots, a few items (priced by quality) and pickups for sale.
+    const slots = Math.min(SHOP_SLOTS_MAX, plan.shop);
+    const shopItems = slots >= 3 ? 2 + (rng.next() < 0.4 ? 1 : 0) : Math.max(1, slots - 1);
+    let lastGoods = '';
     for (let i = 0; i < plan.shop; i++) {
-      const id = rollItem(rng, SHOP_POOLS, used, locked, true);
-      st.shop.push(id);
-      st.prices.push(priceOf(id));
+      if (i >= slots) {
+        st.shop.push('');
+        st.goods.push('');
+        st.prices.push(0);
+      } else if (i < shopItems) {
+        const id = rollItem(rng, SHOP_POOLS, used, locked, true);
+        st.shop.push(id);
+        st.goods.push('');
+        st.prices.push(itemPrice(id));
+      } else {
+        let g = pickWeighted(rng, SHOP_GOODS);
+        if (g === lastGoods) g = pickWeighted(rng, SHOP_GOODS);
+        lastGoods = g;
+        st.shop.push('');
+        st.goods.push(g);
+        st.prices.push(GOODS_PRICE[g] ?? 5);
+      }
     }
-    if (plan.boss > 0) {
-      if (type === 'boss') st.boss = strongest(poolIds);
-      else st.boss = pool.length ? rng.weightedPick(pool, (d) => d.weight).id : '';
+
+    // Boss / miniboss ('B'): a BossDef (sim/bosses), else the old placeholder enemy.
+    if (plan.boss > 0 && (type === 'boss' || type === 'miniboss')) {
+      const b = bossFor(layout, chapterId, type);
+      if (b) {
+        st.boss = b.id;
+        st.bossHp = b.hp;
+      } else {
+        st.boss = type === 'boss' ? strongest(poolIds) : pool.length ? rng.weightedPick(pool, (d) => d.weight).id : '';
+      }
     }
-    if (type === 'boss') st.reward = rollItem(rng, BOSS_POOLS, used, locked, false);
+    if (type === 'boss' && !layout.finalBoss) st.reward = rollItem(rng, BOSS_POOLS, used, locked, false);
     return st;
   };
 
-  const rooms = layout.rooms.map((r) => rollRoom(r.type, r.templateId, r.flip));
-  const nook = rollRoom('nook', layout.nook.templateId, layout.nook.flip);
+  const rooms = layout.rooms.map((r) => rollRoom(base.fork(`r${r.index}`), r.type, r.templateId, r.flip));
+  const nook = rollRoom(base.fork('nook'), 'nook', layout.nook.templateId, layout.nook.flip);
+
+  // Floor-wide extras: Gumball Gamblers in some normal rooms, Old Pell on some floors.
+  const extra = base.fork('extras');
+  const normals: number[] = [];
+  for (const r of layout.rooms) if (r.type === 'normal') normals.push(r.index);
+  let pell = -1;
+  if (normals.length > 0 && extra.next() < TRADER_CHANCE) {
+    pell = normals[extra.int(0, normals.length - 1)]!;
+    rooms[pell]!.trader = rollItem(extra, TRADER_POOLS, used, locked, false);
+  }
+  for (const i of normals) if (extra.next() < SLOTS_CHANCE && i !== pell) rooms[i]!.slots = true;
+  // The hidden-route grate (a cracked drain in the secret room, or in the boss room after the boss).
+  if (layout.hiddenRoute >= 0 && rooms[layout.hiddenRoute]) rooms[layout.hiddenRoute]!.grate = 1;
   return { rooms, nook };
 }

@@ -4,7 +4,7 @@
  * runs in node exactly as in the browser.
  */
 
-import { allChampions, allItems, ENEMIES } from '../content/registry';
+import { allChampions, allItems, BOSSES, ENEMIES } from '../content/registry';
 import type { Sim } from '../sim/sim';
 import { FLOOR_CURSES, type FloorCurse } from '../sim/floor/types';
 import type { EnemyDef, ItemDef } from '../sim/types';
@@ -211,6 +211,36 @@ export class DebugActions {
     if (!run) return false;
     run.teleport(room ?? run.data.layout.boss);
     return true;
+  }
+
+  /** Every boss id (registry order): bosses, minibosses and finals. */
+  bosses(): string[] {
+    return [...BOSSES.keys()];
+  }
+
+  private bossIndex = 0;
+
+  /** The boss the menu's FIGHT BOSS button starts. */
+  bossName(): string {
+    const ids = this.bosses();
+    const def = ids.length ? BOSSES.get(ids[this.bossIndex % ids.length]!) : undefined;
+    return def ? def.name.toUpperCase() : 'NONE';
+  }
+
+  /** Selects the next boss; returns its name. */
+  nextBoss(): string {
+    this.bossIndex = (this.bossIndex + 1) % Math.max(1, this.bosses().length);
+    return this.bossName();
+  }
+
+  /** Starts a boss fight in the current room (the selected boss, or `id`). False if one can't start. */
+  bossFight(id?: string): boolean {
+    const sim = this.sim;
+    if (!sim) return false;
+    const ids = this.bosses();
+    const pick = id ?? ids[this.bossIndex % Math.max(1, ids.length)];
+    if (!pick || !BOSSES.has(pick)) return false;
+    return !!sim.startBossFight(pick);
   }
 
   /** Perf overlay: set, or toggle when omitted. Returns the new state (false without a host overlay). */

@@ -94,7 +94,7 @@ export type GameEventType =
   | 'shockwave'
   /** an enemy shot ended: x,y; a = 1 hit something, 0 fizzled; b = shot style index */
   | 'eshotPop'
-  /** a lob landed: x,y; a = splash radius; b = shot style index */
+  /** a lob landed: x,y; a = splash radius; b = shot style index; id = '' glob, 'rock' debris, 'bolt' lightning */
   | 'lobLand'
   /** a status took hold: x,y; a = status (sim/enemies/status ST_*); b = source; id = def id or 'dummy' */
   | 'status'
@@ -158,10 +158,49 @@ export type GameEventType =
   | 'secretFound'
   /** the trapdoor: x,y; a = 0 it appeared, 1 the player dropped through it */
   | 'trapdoor'
-  /** the run ended: a = 1 won (the last floor's boss fell), 0 died */
+  /** the run ended: a = 1 won (a final boss fell), 0 died; b = the ending id (1-3, 0 none) */
   | 'runEnd'
-  /** a shop / nook item was paid for: x,y; a = coins; b = heart containers; id = item id */
-  | 'buy';
+  /** a shop / nook / trader offer was paid for: x,y; a = coins; b = heart containers; id = item id or
+   *  pickup name */
+  | 'buy'
+  // ── Bosses (Phase 3B, sim/bosses) — id = boss id ──
+  /** a boss fight began (intro card): x,y; a = 0 boss, 1 miniboss, 2 final; b = intro seconds */
+  | 'bossIntro'
+  /** a new phase (roar, flash, brief invulnerability): x,y; a = phase index; b = phase count */
+  | 'bossPhase'
+  /** a pattern's telegraph began: x,y; a = pattern kind index (BOSS_PATTERN_KINDS) */
+  | 'bossTell'
+  /** a heavy landing / wall slam: x,y; a = radius */
+  | 'bossSlam'
+  /** an enemy beam: x,y = origin; a = 0 telegraph, 1 firing; b = look (0 water, 1 lightning, 2 ink) */
+  | 'bossBeam'
+  /** the boss split into parts: x,y; a = parts */
+  | 'bossSplit'
+  /** the last part fell: the death sequence starts (slow-mo, chain explosions): x,y; a = radius */
+  | 'bossDying'
+  /** one blast of the death sequence: x,y; a = size */
+  | 'bossBoom'
+  /** the death sequence ended (big flash): x,y; a = radius; b = 0 boss, 1 miniboss, 2 final */
+  | 'bossDefeated'
+  /** a hit bounced off an invulnerable boss (phase change): x,y */
+  | 'bossBlock'
+  // ── Special rooms (Phase 3B) ──
+  /** the Rain Barrel Arena's pressure plate was stepped on: x,y */
+  | 'plate'
+  /** coins went into the donation jar: x,y; a = total donated this run; b = 1 a luck threshold was reached */
+  | 'donate'
+  /** the Gumball Gambler: x,y; a = 0 spin, 1 result, 2 broken by a blast; b = outcome (1 win, 0 nothing) */
+  | 'slots'
+  /** Old Pell traded: x,y; id = item id */
+  | 'trade'
+  /** an NPC line for the top band (no burst): x,y; id = the text */
+  | 'npcSay'
+  /** the hidden-route drain grate: x,y; a = 0 appeared, 1 blasted open, 2 entered */
+  | 'grate'
+  /** after a final boss: x,y; a = 0 the whirlpool (and skylight) appeared, 1 whirlpool entered, 2 skylight */
+  | 'whirlpool'
+  /** a choice pedestal vanished because another was taken (Broker's Nook): x,y; id = item id */
+  | 'pedestalVanish';
 
 export interface GameEvent {
   type: GameEventType;

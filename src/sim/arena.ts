@@ -39,9 +39,15 @@ export class Arena {
    * charge, triggers). The floor run turns it off for the first waves of a challenge room.
    */
   reward = true;
+  /**
+   * The doors stay shut even between waves (the floor run's Rain Barrel Arena holds them from the
+   * pressure plate to the last wave).
+   */
+  locked = false;
 
   reset(): void {
     this.active = false;
+    this.locked = false;
     this.wave = 0;
     this.doors = 0;
     this.sinceClear = 99;
@@ -193,7 +199,8 @@ function startFixedWave(w: World, list: readonly FixedSpawn[]): number {
   return spawned;
 }
 
-function beginWave(w: World): void {
+/** Marks a wave as started (doors shut, Lucky Marble armed) — for enemies spawned by other means (bosses). */
+export function beginWave(w: World): void {
   const a = w.arena;
   a.active = true;
   a.wave++;
@@ -206,7 +213,7 @@ function beginWave(w: World): void {
 export function updateArena(w: World, dt: number): void {
   const a = w.arena;
   a.sinceClear += dt;
-  const target = a.active ? 1 : 0;
+  const target = a.active || a.locked ? 1 : 0;
   if (a.doors !== target) {
     const step = dt / DOOR_TIME;
     a.doors = a.doors < target ? Math.min(target, a.doors + step) : Math.max(target, a.doors - step);

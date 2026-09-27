@@ -59,6 +59,11 @@ export class EnemyShot implements Poolable {
   splash = 0;
   creep = 0;
   split = 0;
+  /** Lob: 0 an arcing glob, 1 debris falling straight down, 2 a lightning strike (boss patterns). */
+  fall = 0;
+  /** Lob creep puddle: seconds it lasts and radius (0 = the defaults: 3 s, 0.8 × splash). */
+  creepLife = 0;
+  creepR = 0;
 }
 
 export class Creep implements Poolable {
@@ -128,6 +133,8 @@ export function spawnEnemyShot(
   s.owner = owner;
   s.lob = false;
   s.splash = s.creep = s.split = 0;
+  s.fall = 0;
+  s.creepLife = s.creepR = 0;
   w.counters.enemyShots++;
   return s;
 }
@@ -246,9 +253,11 @@ function popShot(w: World, s: EnemyShot, hit: number): void {
 function landLob(w: World, s: EnemyShot): void {
   s.x = s.tx;
   s.y = s.ty;
-  w.events.emit('lobLand', s.x, s.y, s.splash, s.style);
+  w.events.emit('lobLand', s.x, s.y, s.splash, s.style, s.fall === 2 ? 'bolt' : s.fall === 1 ? 'rock' : '');
   splashAt(w, s.x, s.y, s.splash, s.dmg, s.allied, s.owner);
-  if (s.creep > 0) spawnCreep(w, s.x, s.y, Math.max(6, s.splash * 0.8), 3, 1, s.style, s.allied);
+  if (s.creep > 0) {
+    spawnCreep(w, s.x, s.y, s.creepR > 0 ? s.creepR : Math.max(6, s.splash * 0.8), s.creepLife > 0 ? s.creepLife : 3, 1, s.style, s.allied);
+  }
   const n = s.split;
   if (n > 0) {
     const off = w.combatRng.next() * Math.PI * 2;
@@ -278,7 +287,8 @@ export function updateEnemyShots(w: World, dt: number): void {
       const t = Math.min(1, s.age / s.air);
       s.x = s.sx + (s.tx - s.sx) * t;
       s.y = s.sy + (s.ty - s.sy) * t;
-      s.z = T.shotHeight * (1 - t) + 4 * s.height * t * (1 - t);
+      // Debris / lightning drop straight down from the ceiling (accelerating); globs arc.
+      s.z = s.fall > 0 ? s.height * (1 - t * t) : T.shotHeight * (1 - t) + 4 * s.height * t * (1 - t);
       if (t >= 1) landLob(w, s);
       continue;
     }

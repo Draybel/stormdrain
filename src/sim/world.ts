@@ -4,6 +4,7 @@ import { EventQueue } from '../engine/events';
 import { Pool } from '../engine/pool';
 import type { Rng } from '../engine/rng';
 import { Arena } from './arena';
+import { BossFight } from './bosses/state';
 import { AttackWorld } from './attack/attackWorld';
 import { Shot } from './attack/shot';
 import { Bomb } from './bombs';
@@ -32,6 +33,7 @@ import { Pedestal } from './pedestals';
 import { Pickup } from './pickups';
 import { Player } from './player';
 import { RoomGrid } from './room';
+import { RoomProps } from './roomProps';
 import type { CharacterDef } from './types';
 
 export interface WorldCounters {
@@ -52,6 +54,11 @@ export interface WorldCounters {
   enemiesSpawned: number;
   kills: number;
   enemyShots: number;
+  /** Bosses and minibosses defeated. */
+  bossKills: number;
+  /** Coins put in donation jars (luck thresholds, unlocks later) and Gumball Gambler plays. */
+  donated: number;
+  slotPlays: number;
 }
 
 export class World {
@@ -102,12 +109,17 @@ export class World {
     enemiesSpawned: 0,
     kills: 0,
     enemyShots: 0,
+    bossKills: 0,
+    donated: 0,
+    slotPlays: 0,
   };
   /**
    * Floor code hook: an explosion reached a secret wall tile or a wall's door slot at (x, y)
    * (room px; door slots are the four wall centres). The floor decides whether a secret room is there.
    */
   onSecretWallBombed: ((x: number, y: number) => void) | null = null;
+  /** Floor code hook: an explosion that breaks tiles went off (slot machines, the hidden-route grate). */
+  onExplosion: ((x: number, y: number, radius: number) => void) | null = null;
   /** Debug god mode: the player takes no damage. */
   godMode = false;
   /**
@@ -116,6 +128,10 @@ export class World {
    */
   readonly doors = new RoomDoors();
   readonly trapdoor = new Trapdoor();
+  /** The room's boss fight (intro card, HP bar, phases; sim/bosses). */
+  readonly boss = new BossFight();
+  /** Floor objects and wall NPCs of special rooms (plate, grate, whirlpool, skylight, Magpie…). */
+  readonly props = new RoomProps();
   chapter = 'gutterways';
   curse: FloorCurse | null = null;
   /** Seconds of spawn protection after entering a room: damagePlayer refuses all damage meanwhile. */

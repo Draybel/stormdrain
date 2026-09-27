@@ -85,6 +85,10 @@ export function spawnEnemy(w: World, def: EnemyDef, x: number, y: number, opts: 
   e.wallNX = e.wallNY = 0;
   e.gen = opts.gen ?? 0;
   e.parent = 0;
+  e.boss = null;
+  e.dying = false;
+  e.anchor = 0;
+  e.anchorR = e.anchorA = e.anchorW = 0;
   e.spawnT = opts.spawnT ?? ENEMY_TUNING.spawnTime;
   e.age = 0;
   e.mode = 0;

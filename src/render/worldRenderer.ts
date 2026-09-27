@@ -13,10 +13,9 @@ import { findItem } from '../content/registry';
 import type { World } from '../sim/world';
 import type { Player } from '../sim/player';
 import { PK } from '../sim/pickupKinds';
-import type { Pickup } from '../sim/pickups';
 import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import { Tile } from '../sim/tiles';
-import { PLAYER_TUNING } from '../sim/tuning';
+import { PLAYER_TUNING, SHOP_TUNING } from '../sim/tuning';
 import type { SpriteDef } from '../sim/types';
 import { WREN_FRAME } from '../content/sprites/wren';
 import { DUMMY_SPRITE } from '../content/sprites/props';
@@ -40,15 +39,31 @@ import {
 } from '../content/sprites/pickups';
 import { ICON_CONSUMABLE } from '../content/sprites/ui';
 import { BLIND_ITEM_SPRITE, TRAPDOOR_SPRITE } from '../content/sprites/doors';
-import { HUD_COIN_ICON } from '../content/sprites/pickups';
+import { HUD_COIN_ICON, HUD_KEY_ICON } from '../content/sprites/pickups';
 import { HEART_SPRITE } from '../content/sprites/ui';
+import {
+  DONATION_JAR_SPRITE,
+  DRAIN_GRATE_SPRITE,
+  GUMBALL_GAMBLER_SPRITE,
+  MAGPIE_SPRITE,
+  MOTH_BROKER_SPRITE,
+  OLD_PELL_SPRITE,
+  PRESSURE_PLATE_SPRITE,
+  WHIRLPOOL_SPRITE,
+} from '../content/sprites/specialRooms';
 import { TRAPDOOR_OPEN_TIME } from '../sim/doors';
+import { containers } from '../sim/health';
+import { haggled, type Pedestal } from '../sim/pedestals';
+import { Pickup } from '../sim/pickups';
+import { NPC_BROKER, NPC_MAGPIE } from '../sim/roomProps';
+import { PROP_JAR, PROP_SLOTS, PROP_TRADER } from '../sim/shopProps';
+import { ctx2d, makeCanvas } from './canvas';
 import { drawText, measureText, type TextStyle } from './font';
 import { DarknessLayer } from './lighting';
 import { drawDoors, prepareDoors } from './doors';
 import { AttackRenderer } from './attackRenderer';
 import { EnemyRenderer } from './enemyRenderer';
-import { ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
+import { ROOM_OUTER_H, ROOM_OUTER_W, ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
 import { drawShadow, glowSprite } from './pixel';
 import { RoomBackground } from './roomBg';
 import { drawSpriteAnchored, getFlash, getFrame } from './sprites';
@@ -78,6 +93,12 @@ export class WorldRenderer {
   private readonly sparkGlow = glowSprite(6, '120,210,255', 0.6);
   private readonly fuseGlow = glowSprite(4, '255,200,90', 0.9);
   private readonly trapGlow = glowSprite(12, '120,150,255', 0.35);
+  private readonly skyGlow = glowSprite(14, '255,236,170', 0.6);
+  private readonly whirlGlow = glowSprite(16, '90,150,220', 0.4);
+  /** The skylight's shaft of sun (cached). */
+  private shaft: HTMLCanvasElement | null = null;
+  /** Shop goods are drawn with the pickup art (a scratch pickup, never simulated). */
+  private readonly goods = new Pickup();
   /** Curse of Darkness. */
   readonly darkness = new DarknessLayer();
 
@@ -102,13 +123,20 @@ export class WorldRenderer {
    */
   draw(ctx: CanvasRenderingContext2D, world: World, alpha: number, time: number, sx: number, sy: number): void {
     ctx.drawImage(this.bg.get(world.room, world.chapter), ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy);
+    // Everything stays inside the room's outer rect (big bosses near a wall never spill over the HUD).
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy, ROOM_OUTER_W, ROOM_OUTER_H);
+    ctx.clip();
     drawDoors(ctx, world.doors, world.arena.doors, sx, sy, time);
     const ox = ROOM_X + sx;
     const oy = ROOM_Y + sy;
     const p = world.player;
     const px = lerp(p.prevX, p.x, alpha) + ox;
     const py = lerp(p.prevY, p.y, alpha) + oy;
+    this.drawWallNpc(ctx, world, ox, oy, time);
     this.drawTrapdoor(ctx, world, ox, oy, time);
+    this.drawFloorProps(ctx, world, ox, oy, time);
     this.enemies.drawFloor(ctx, world, alpha, ox, oy, time);
 
     // Shadows first so everything stands on the ground.
@@ -149,9 +177,12 @@ export class WorldRenderer {
     this.attack.drawSwipes(ctx, world, ox, oy);
     this.attack.drawShots(ctx, world, alpha, ox, oy);
     this.attack.drawBeams(ctx, world, ox, oy, time);
+    this.enemies.drawBeams(ctx, world, alpha, ox, oy, time);
     this.enemies.drawShots(ctx, world, alpha, ox, oy, time);
+    if (world.props.skylight.active) this.drawSkylight(ctx, world, ox, oy, time);
     this.attack.drawChargeMeter(ctx, p, px, py, time);
     if (world.curse === 'darkness' && !p.flags.darkVision) this.darkness.draw(ctx, world, px, py, sx, sy, time);
+    ctx.restore();
   }
 
   /** The trapdoor to the next floor (swings open, then a dark hole with a faint blue glow). */
@@ -170,6 +201,95 @@ export class WorldRenderer {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
+  }
+
+  /** Magpie / the Moth Broker perched on the top wall's ledge (they react to sales and empty purses). */
+  private drawWallNpc(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
+    const pr = world.props;
+    if (pr.npc === 0) return;
+    const def = pr.npc === NPC_MAGPIE ? MAGPIE_SPRITE : pr.npc === NPC_BROKER ? MOTH_BROKER_SPRITE : null;
+    if (!def) return;
+    const anims = def.anims!;
+    const anim = pr.npcMood === 1 ? anims.happy : pr.npcMood === 2 ? anims.no : anims.idle;
+    const frames = (anim ?? anims.idle)!.frames;
+    const frame = frames[Math.floor(time * (anim?.fps ?? 2)) % frames.length]!;
+    const hop = pr.npcMood === 1 && pr.npcT < 0.3 ? -2 : 0;
+    drawSpriteAnchored(ctx, def, frame, pr.npcX + ox, oy - 1 + hop);
+  }
+
+  /** Floor objects: the arena's pressure plate, the drain grate, the whirlpool. */
+  private drawFloorProps(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
+    const pr = world.props;
+    const plate = pr.plate;
+    if (plate.active) {
+      const x = Math.round(plate.x + ox);
+      const y = Math.round(plate.y + oy);
+      ctx.drawImage(getFrame(PRESSURE_PLATE_SPRITE, plate.state), x - 8, y - 8);
+      if (plate.state === 0) {
+        // A gentle pulse invites a step.
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.25 + 0.2 * Math.sin(time * 4);
+        ctx.drawImage(this.whirlGlow, x - 16, y - 16);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    const g = pr.grate;
+    if (g.active) {
+      const x = Math.round(g.x + ox);
+      const y = Math.round(g.y + oy);
+      ctx.drawImage(getFrame(DRAIN_GRATE_SPRITE, g.state), x - 8, y - 8);
+    }
+    const wp = pr.whirlpool;
+    if (wp.active) {
+      const x = Math.round(wp.x + ox);
+      const y = Math.round(wp.y + oy);
+      const grow = Math.min(1, wp.t / 0.8);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.5 + 0.2 * Math.sin(time * 3);
+      ctx.drawImage(this.whirlGlow, x - 16, y - 16);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const img = getFrame(WHIRLPOOL_SPRITE, Math.floor(time * 8) & 3);
+      const s = Math.max(4, Math.round(24 * grow));
+      ctx.drawImage(img, x - (s >> 1), y - (s >> 1), s, s);
+    }
+    const sk = pr.skylight;
+    if (sk.active) {
+      // The sunny patch on the floor (the shaft itself is drawn over everything).
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, sk.t / 0.8) * (0.7 + 0.2 * Math.sin(time * 2));
+      ctx.drawImage(this.skyGlow, Math.round(sk.x + ox) - 14, Math.round(sk.y + oy) - 14);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  /** The skylight after a final boss: a shaft of sun from the ceiling onto its spot. */
+  private drawSkylight(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
+    const sk = world.props.skylight;
+    if (!this.shaft) {
+      const h = 120;
+      const c = makeCanvas(18, h);
+      const g = ctx2d(c);
+      for (let y = 0; y < h; y++) {
+        const a = 0.08 + 0.3 * (y / h);
+        for (let x = 0; x < 18; x++) {
+          const edge = 1 - Math.abs(x - 8.5) / 9;
+          g.fillStyle = `rgba(255,240,190,${(a * edge * edge).toFixed(3)})`;
+          g.fillRect(x, y, 1, 1);
+        }
+      }
+      this.shaft = c;
+    }
+    const x = Math.round(sk.x + ox);
+    const y = Math.round(sk.y + oy);
+    const k = Math.min(1, sk.t / 0.8);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = k * (0.85 + 0.15 * Math.sin(time * 3));
+    ctx.drawImage(this.shaft, x - 9, y - 120);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   private drawFires(ctx: CanvasRenderingContext2D, world: World, ox: number, oy: number, time: number): void {
@@ -210,8 +330,61 @@ export class WorldRenderer {
         drawSpriteAnchored(ctx, BELL_SPRITE, swing > 0.3 ? 2 : swing < -0.3 ? 1 : 0, x, y + 5);
         continue;
       }
+      if (ped.prop === PROP_JAR) {
+        // Fuller with every luck threshold passed; a little jolt when a coin drops in.
+        const n = world.counters.donated;
+        const frame = n >= SHOP_TUNING.jarThresholds[2]! ? 2 : n >= SHOP_TUNING.jarThresholds[0]! ? 1 : 0;
+        const jolt = ped.changedT < 0.12 ? -1 : 0;
+        drawSpriteAnchored(ctx, DONATION_JAR_SPRITE, frame, x, y + 6 + jolt);
+        continue;
+      }
+      if (ped.prop === PROP_SLOTS) {
+        const frame = ped.broken ? 3 : ped.spinT > 0 ? 1 + (Math.floor(time * 14) & 1) : 0;
+        const shake = ped.spinT > 0 ? ((time * 40) | 0) % 2 : 0;
+        drawSpriteAnchored(ctx, GUMBALL_GAMBLER_SPRITE, frame, x + shake, y + 7);
+        if (!ped.broken && ped.spinT <= 0) drawPrice(ctx, world, 1, PRICE_COINS, x, y + 9);
+        continue;
+      }
+      if (ped.prop === PROP_TRADER) {
+        drawSpriteAnchored(ctx, OLD_PELL_SPRITE, Math.floor(time * 1.5) & 1, x, y + 7);
+        if (ped.item) {
+          this.drawOffer(ctx, world, ped, x, y - 12, time, i);
+          drawPrice(ctx, world, haggled(world, ped.keys), PRICE_KEYS, x, y + 9);
+        }
+        continue;
+      }
+      if (ped.goods >= 0) {
+        // Goods on a little striped cushion, the price tag in front.
+        ctx.fillStyle = '#5a2a3a';
+        ctx.fillRect(Math.round(x) - 6, Math.round(y) + 1, 12, 4);
+        ctx.fillStyle = '#8a3a4a';
+        ctx.fillRect(Math.round(x) - 6, Math.round(y) + 1, 12, 1);
+        ctx.fillRect(Math.round(x) - 3, Math.round(y) + 2, 2, 3);
+        ctx.fillRect(Math.round(x) + 2, Math.round(y) + 2, 2, 3);
+        const g = this.goods;
+        g.kind = ped.goods as Pickup['kind'];
+        g.opened = false;
+        g.z = 0;
+        g.phase = (i * 0.37) % 1;
+        drawPickup(ctx, g, Math.round(x), Math.round(y + 1), time, this.sparkGlow, false);
+        drawPrice(ctx, world, haggled(world, ped.price), PRICE_COINS, x, y + 7);
+        continue;
+      }
       drawSpriteAnchored(ctx, PEDESTAL_SPRITE, 0, x, y + 5);
       if (!ped.item) continue;
+      this.drawOffer(ctx, world, ped, x, y, time, i);
+      // Price tag (shop: coins, Broker's Nook: heart containers — or Tin hearts — ) on the plinth's front.
+      if (ped.price > 0) drawPrice(ctx, world, haggled(world, ped.price), PRICE_COINS, x, y + 7);
+      else if (ped.hearts > 0) {
+        const tin = containers(world.player.health) === 0;
+        drawPrice(ctx, world, tin ? ped.hearts * SHOP_TUNING.tinPerContainer : ped.hearts, tin ? PRICE_TIN : PRICE_HEARTS, x, y + 7);
+      } else if (ped.keys > 0) drawPrice(ctx, world, haggled(world, ped.keys), PRICE_KEYS, x, y + 7);
+    }
+  }
+
+  /** The item floating over a pedestal / trader: glow, bob, flash-in, dimmed while blocked. */
+  private drawOffer(ctx: CanvasRenderingContext2D, world: World, ped: Pedestal, x: number, y: number, time: number, i: number): void {
+    {
       const bob = Math.round(Math.sin(time * 2.6 + i * 1.3) * 1.5);
       const icon = world.curse === 'blind' ? BLIND_ITEM_SPRITE : itemIcon(ped.item);
       const img = getFrame(icon, 0);
@@ -232,8 +405,6 @@ export class WorldRenderer {
         ctx.drawImage(getFlash(icon, 0), ix, iy);
         ctx.globalAlpha = 1;
       }
-      // Price tag (shop: coins, Broker's Nook: heart containers) on the plinth's front.
-      if (ped.price > 0 || ped.hearts > 0) drawPrice(ctx, ped.price > 0 ? ped.price : ped.hearts, ped.price <= 0, x, y + 7);
     }
   }
 
@@ -437,17 +608,33 @@ function drawPickup(ctx: CanvasRenderingContext2D, k: Pickup, x: number, y: numb
 
 const PRICE: TextStyle = { color: '#ffe9a8', shadow: '#07080d' };
 const PRICE_HEART: TextStyle = { color: '#ffb0b8', shadow: '#07080d' };
+const PRICE_TIN_TEXT: TextStyle = { color: '#e4ebf7', shadow: '#07080d' };
+const PRICE_POOR: TextStyle = { color: '#ff6a6a', shadow: '#07080d' };
 const priceText: string[] = [];
 
-/** A small price tag centred under (x, y): an icon and the number. */
-function drawPrice(ctx: CanvasRenderingContext2D, n: number, hearts: boolean, x: number, y: number): void {
+const PRICE_COINS = 0;
+const PRICE_HEARTS = 1;
+const PRICE_TIN = 2;
+const PRICE_KEYS = 3;
+
+/**
+ * A small price tag centred under (x, y): an icon (coin, heart container, Tin heart, key) and the
+ * number — red when the player can't pay it right now.
+ */
+function drawPrice(ctx: CanvasRenderingContext2D, world: World, n: number, kind: number, x: number, y: number): void {
   const text = (priceText[n] ??= String(n));
-  const iconW = hearts ? 9 : HUD_COIN_ICON.w;
+  const inv = world.player.inv;
+  const h = world.player.health;
+  const poor =
+    kind === PRICE_COINS ? inv.coins < n : kind === PRICE_KEYS ? inv.keys < n : kind === PRICE_HEARTS ? containers(h) < n : false;
+  const iconW = kind === PRICE_COINS ? HUD_COIN_ICON.w : kind === PRICE_KEYS ? HUD_KEY_ICON.w : 9;
   const w = iconW + 2 + measureText(text);
   const left = Math.round(x - w / 2);
   ctx.fillStyle = 'rgba(7,8,13,0.7)';
   ctx.fillRect(left - 2, y - 1, w + 4, 8);
-  if (hearts) drawSpriteAnchored(ctx, HEART_SPRITE, 0, left + 4, y + 7);
-  else ctx.drawImage(getFrame(HUD_COIN_ICON, 0), left, y + 1);
-  drawText(ctx, text, left + iconW + 2, y + 1, hearts ? PRICE_HEART : PRICE);
+  if (kind === PRICE_HEARTS) drawSpriteAnchored(ctx, HEART_SPRITE, 0, left + 4, y + 7);
+  else if (kind === PRICE_TIN) drawSpriteAnchored(ctx, TIN_HEART_SPRITE, 0, left + 4, y + 7);
+  else ctx.drawImage(getFrame(kind === PRICE_KEYS ? HUD_KEY_ICON : HUD_COIN_ICON, 0), left, y + 1);
+  const style = poor ? PRICE_POOR : kind === PRICE_HEARTS ? PRICE_HEART : kind === PRICE_TIN ? PRICE_TIN_TEXT : PRICE;
+  drawText(ctx, text, left + iconW + 2, y + 1, style);
 }

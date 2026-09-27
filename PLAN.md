@@ -85,14 +85,20 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       toll, camera-slide transitions with spawn safety, challenge waves, clears + seeded rewards)
 - [x] HUD (hearts, coins/bombs/keys, active + charge, consumable/trinket, minimap w/ tap-to-expand)
       (3A: compact minimap in its slot, tap / Tab → the big map overlay (pauses), Lost Map '?', curse icon)
-- [ ] Boss framework (phases ≥2, patterns, HP bar, intro card) + 1 boss + 1 miniboss; trapdoor to next floor
-      (3A: the trapdoor and a placeholder boss / miniboss — a big sturdy chapter enemy — are in; the framework is M2's)
-- [ ] Shop, treasure room, secret rooms, challenge arena, cursed room, Broker's Nook, donation jar, slot machine, trader
-      (3A: treasure, secret / deep secret, challenge (2 waves → reward), cursed (toll), the nook (heart deals) and the
-      shop's priced item stock work; Magpie, pickups for sale, donation jar, slot machine and trader to do)
-- [ ] Floor progression through chapter list (main/alt tracks), floor transition effect
-      (3A: trapdoor → next floor on the same track, floors 1-12 → chapters, iris + floor card, floor 12's boss wins;
-      switching to the alt track (hidden-route grate) is M2's)
+- [x] Boss framework (phases ≥2, patterns, HP bar, intro card) + 1 boss + 1 miniboss; trapdoor to next floor
+      (3A: the trapdoor; 3B: `src/sim/bosses` — BossDef phases with thresholds, a 15-kind pattern library composed by
+      data + per-boss hooks, roar / invulnerability / colour shift on phase changes, split parts, orbiting shields,
+      enemy beams, the death sequence (chain explosions, slow motion, flash) → pedestal + heart + trapdoor, seeded
+      selection per chapter (union rule); HP bar + intro card; content: Sodden Snarl, Brimwell, Pipewhip (miniboss)
+      and placeholder-but-playable Old Thunderhead / The Nestmother / The Undertow)
+- [x] Shop, treasure room, secret rooms, challenge arena, cursed room, Broker's Nook, donation jar, slot machine, trader
+      (3A: treasure, secret / deep secret, challenge, cursed (toll), the nook and priced shop items; 3B: Magpie + goods
+      for sale + haggler + the donation jar, the Gumball Gambler, Old Pell (3 keys), the arena's pressure plate + 3
+      waves, Thorn Room chest-or-item, the Forgotten Pocket's better item or big loot, the Moth Broker's two-deal choice
+      with the Tin-heart price; seen / locked items leave the pools)
+- [x] Floor progression through chapter list (main/alt tracks), floor transition effect
+      (3A: trapdoor → next floor on the same track, iris + floor card; 3B: the hidden-route grate → the alt track, the
+      alt route into chapter 6 behind Ending 1, final bosses → endings 1 / 2, the whirlpool → floor 13 → ending 3)
 - [x] Unit tests: floor generation over thousands of seeds (reachability + special rooms)
       (tests/floorgen.test.ts: 5000 seeds × 13 floors × 2 tracks, determinism, pinned fingerprint, templates;
       tests/floorminimap.test.ts)
@@ -134,6 +140,7 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] Active items → 25+ (charge bars), trinkets → 30+, consumables → 20+ (incl. 10 mystery Tonics)
 - [ ] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
 - [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
+      (3B: the framework + 2 Gutterways bosses, 1 miniboss and placeholder versions of the 3 finals)
 - [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
       (25 generic templates so far; 3A: the 12 chapter looks and all six curse effects are done — templates to go)
 - [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)
@@ -143,6 +150,8 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
       top of the Phase 2 sounds; wired into the title / runs / pause in Phase 3A
 - [ ] Hidden routes to alt chapters; endings 1–3 with ending screens
+      (3B: routes, whirlpool and endings flow done with run options standing in for the meta unlocks; ending screens are
+      stubs — the ending's title card — for M4, and M3 wires 'ending1' / 'ending2' / item unlocks from the meta save)
 
 ## Phase 7 — Integration, balance & performance
 - [ ] Merge all content; full test suite green; bot clears every floor/track

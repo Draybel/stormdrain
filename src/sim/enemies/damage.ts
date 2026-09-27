@@ -5,6 +5,7 @@
  */
 
 import { allChampions } from '../../content/registry';
+import { bossDamage, bossLethal } from '../bosses/damage';
 import { fireTrigger } from '../effects';
 import { SRC_STATUS, creditsPlayer } from '../hittable';
 import { PK } from '../pickupKinds';
@@ -53,13 +54,22 @@ export function damageEnemy(w: World, e: Enemy, dmg: number, source: number, kx:
     addKnock(e, kx, ky);
   }
   if (!(dmg > 0)) return true;
+  if (e.boss !== null) {
+    // Phase changes absorb hits; one blow never skips a phase.
+    dmg = bossDamage(w, e, dmg);
+    if (!(dmg > 0)) return true;
+  }
   e.hp -= dmg;
   e.hurtT = 0;
   // Damage over time ticks don't flash (the status tint + particles show it).
   if (source !== SRC_STATUS) e.flash = ENEMY_TUNING.hitFlash;
   w.counters.hits++;
   w.events.emit('enemyHit', e.x, e.y - e.r, dmg, source, e.def.id);
-  if (e.hp <= 0) killEnemy(w, e, source);
+  if (e.hp <= 0) {
+    // The last part of a boss plays its death sequence first (sim/bosses/brain.ts kills it after).
+    if (e.boss !== null && bossLethal(w, e)) return true;
+    killEnemy(w, e, source);
+  }
   return true;
 }
 

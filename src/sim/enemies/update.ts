@@ -8,12 +8,13 @@ import { vec2 } from '../../engine/math';
 import { PHASE_MODE, WALK_MODE, resolveCircleVsCircle, resolveCircleVsGrid } from '../collision';
 import { DMG_ENEMY, damagePlayer } from '../combat';
 import { ROOM_H, ROOM_W } from '../constants';
-import { SRC_ALLY, SRC_STATUS } from '../hittable';
+import { SRC_ALLY, SRC_HAZARD, SRC_STATUS } from '../hittable';
 import { ENEMY_TUNING, ITEM_TUNING, STATUS_TUNING } from '../tuning';
 import type { World } from '../world';
 import { updateAttacks } from './attackRunner';
 import { feared } from './behaviors/common';
-import { damageEnemy } from './damage';
+import { damageEnemy, killEnemy } from './damage';
+import { updateBoss, updateBossFight } from '../bosses/brain';
 import type { Enemy } from './enemy';
 import { ST_CHARM, ST_FREEZE, ST_SLOW, hasStatus, statusSpeedMul, tickStatuses } from './status';
 
@@ -31,6 +32,7 @@ function aloft(e: Enemy): boolean {
 
 export function updateEnemies(w: World, dt: number): void {
   const pool = w.enemies;
+  updateBossFight(w, dt);
   if (pool.count === 0) return;
   separation(w);
   // Forward: enemies spawned during the loop (minions, splits) are appended and updated this tick too.
@@ -126,9 +128,21 @@ function updateEnemy(w: World, e: Enemy, dt: number): void {
   }
 
   acquireTarget(w, e);
+  const spd = e.speed * statusSpeedMul(e.status);
+  const rate = hasStatus(e.status, ST_SLOW) ? STATUS_TUNING.slowAttackRate : 1;
+  if (e.boss !== null) {
+    // Bosses: phases, patterns, the death sequence (sim/bosses/brain.ts), then the shared integrator.
+    updateBoss(w, e, dt, spd, rate);
+    integrate(w, e, dt, false);
+    if (!e.dead) contact(w, e);
+    return;
+  }
+  if (e.anchor !== 0) {
+    tethered(w, e, dt, rate);
+    return;
+  }
   if (e.stun > 0) e.stun = Math.max(0, e.stun - dt);
   const mv = e.cfg.move;
-  const spd = e.speed * statusSpeedMul(e.status);
 
   if (frozen) {
     // Frozen solid mid-hop: drop to the floor.
@@ -157,7 +171,40 @@ function updateEnemy(w: World, e: Enemy, dt: number): void {
   }
 
   integrate(w, e, dt, frozen);
-  updateAttacks(w, e, dt, hasStatus(e.status, ST_SLOW) ? STATUS_TUNING.slowAttackRate : 1);
+  updateAttacks(w, e, dt, rate);
+  if (!e.dead) contact(w, e);
+}
+
+/** The enemy an anchored one orbits (by uid), or null when it is gone. */
+function anchorOf(w: World, uid: number): Enemy | null {
+  const pool = w.enemies;
+  for (let i = 0; i < pool.count; i++) {
+    const o = pool.items[i]!;
+    if (o.uid === uid) return o.dead || o.dying ? null : o;
+  }
+  return null;
+}
+
+/**
+ * Tethered enemies (boss shield orbs): ride their orbit around the anchor, hide when it hides, die
+ * with it. They still attack (their own attacks) and hurt on contact.
+ */
+function tethered(w: World, e: Enemy, dt: number, rate: number): void {
+  const a = anchorOf(w, e.anchor);
+  if (!a) {
+    killEnemy(w, e, SRC_HAZARD);
+    return;
+  }
+  e.anchorA += e.anchorW * dt;
+  const x = a.x + Math.cos(e.anchorA) * e.anchorR;
+  const y = a.y + Math.sin(e.anchorA) * e.anchorR * 0.8;
+  e.x = x < e.r ? e.r : x > ROOM_W - e.r ? ROOM_W - e.r : x;
+  e.y = y < e.r ? e.r : y > ROOM_H - e.r ? ROOM_H - e.r : y;
+  e.vx = e.vy = 0;
+  e.moving = true;
+  e.hidden = a.hidden || a.burrowed;
+  if (e.hidden) return;
+  updateAttacks(w, e, dt, rate);
   if (!e.dead) contact(w, e);
 }
 

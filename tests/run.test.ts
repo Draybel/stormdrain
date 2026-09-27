@@ -108,11 +108,14 @@ describe('starting a run', () => {
     expect(CHAPTERS.size).toBe(12);
   });
 
-  it('floor contents depend only on the seed, not on play', () => {
-    const strip = (rooms: RoomState[]) => rooms.map((r) => [r.waves, r.champs, r.loot, r.chests, r.items, r.shop, r.prices, r.hearts, r.boss, r.reward]);
+  it('floor contents depend only on the seed (and the items already seen), not on play', () => {
+    // Items seen earlier in the run leave the pools (Phase 3B), so only item picks may differ.
+    const strip = (rooms: RoomState[]) => rooms.map((r) => [r.waves, r.champs, r.loot, r.chests, r.boss, r.bossHp, r.goods, r.slots, r.grate, r.alts]);
+    const items = (rooms: RoomState[]) => rooms.map((r) => [r.items, r.shop, r.prices, r.hearts, r.reward, r.trader]);
     const a = Sim.newRun('same-seed');
     const b = Sim.newRun('same-seed');
     expect(strip(a.run!.data.rooms)).toEqual(strip(b.run!.data.rooms));
+    expect(items(a.run!.data.rooms)).toEqual(items(b.run!.data.rooms));
     // Play b a bit (hurt, bombs, walking through doors) before both drop to floor 2.
     b.world.godMode = false;
     b.hurtPlayer(1);
@@ -125,6 +128,10 @@ describe('starting a run', () => {
     expect(b.run!.data.floor).toBe(2);
     expect(JSON.stringify(a.run!.data.layout)).toBe(JSON.stringify(b.run!.data.layout));
     expect(strip(a.run!.data.rooms)).toEqual(strip(b.run!.data.rooms));
+    // b saw floor 1's items: none of them is offered again on floor 2.
+    const seen = new Set(b.run!.data.seen);
+    expect(seen.size).toBeGreaterThan(1);
+    for (const r of b.run!.data.rooms) for (const id of [...r.items, ...r.shop, r.reward, r.trader]) if (id) expect(seen.has(id)).toBe(false);
   });
 
   it('rooms load from their templates with enemies on the markers of normal rooms', () => {
@@ -609,7 +616,7 @@ describe('room details', () => {
     expect(run.data.floor).toBe(2);
   });
 
-  it('challenge rooms fight two waves, then their reward appears', () => {
+  it('the Rain Barrel Arena: a pressure plate starts three waves behind locked doors, then the reward', () => {
     for (let seed = 1; seed < 60; seed++) {
       const sim = Sim.newRun(seed, { floor: 2, curse: null });
       const run = sim.run!;
@@ -617,18 +624,36 @@ describe('room details', () => {
       if (!room) continue;
       sim.world.godMode = true;
       run.teleport(room.index);
-      expect(run.state.waves.length).toBe(2);
+      expect(run.state.waves.length).toBe(3);
+      // Calm until the plate is pressed: no enemies, doors open, the plate in the middle.
+      expect(sim.world.arena.active).toBe(false);
+      expect(sim.world.enemies.count).toBe(0);
       expect(sim.world.pedestals.count).toBe(0);
+      const plate = sim.world.props.plate;
+      expect(plate.active).toBe(true);
+      expect(plate.state).toBe(0);
       const cleared = sim.world.counters.roomsCleared;
-      sim.clearRoom();
+      sim.world.player.placeAt(plate.x, plate.y);
       stepN(sim, makeInput(), 2);
-      // Wave two is on, no reward yet, the room doesn't count as cleared.
+      expect(plate.state).toBe(1);
+      expect(run.state.plate).toBe(1);
       expect(sim.world.arena.active).toBe(true);
-      expect(sim.world.counters.roomsCleared).toBe(cleared);
-      expect(run.state.cleared).toBe(false);
-      sim.clearRoom();
-      stepN(sim, makeInput(), 2);
+      for (let wave = 1; wave <= 3; wave++) {
+        expect(run.state.cleared).toBe(false);
+        // The doors stay locked between waves too.
+        expect(run.goThroughDoor(sim.world.doors.slots.findIndex((s) => s.kind !== DK.None))).toBe(false);
+        sim.clearRoom();
+        stepN(sim, makeInput(), 2);
+        if (wave < 3) {
+          expect(sim.world.arena.locked).toBe(true);
+          expect(sim.world.counters.roomsCleared).toBe(cleared);
+          stepN(sim, makeInput(), 70);
+          expect(sim.world.arena.active).toBe(true);
+        }
+      }
       expect(run.state.cleared).toBe(true);
+      expect(run.state.plate).toBe(2);
+      expect(sim.world.arena.locked).toBe(false);
       expect(sim.world.counters.roomsCleared).toBe(cleared + 1);
       expect(sim.world.pedestals.count + sim.world.pickups.count).toBeGreaterThan(0);
       return;
@@ -652,7 +677,7 @@ describe('room details', () => {
     }
   });
 
-  it('placeholder bosses are big, sturdy and move', () => {
+  it('boss rooms hold real bosses (sim/bosses), sturdier deeper down', () => {
     for (let floor = 1; floor <= 11; floor += 2) {
       const sim = Sim.newRun(7, { floor, curse: null });
       const run = sim.run!;
@@ -660,9 +685,12 @@ describe('room details', () => {
       run.teleport(run.data.layout.boss);
       const e = sim.world.enemies.items[0]!;
       expect(sim.world.enemies.count).toBe(1);
-      expect(e.maxHp).toBeGreaterThanOrEqual(90);
-      expect(e.scale).toBeGreaterThan(1.2);
-      expect(['idle', 'turret', 'wallCrawl']).not.toContain(e.def.move.kind);
+      expect(e.boss).not.toBeNull();
+      expect(sim.world.boss.active).toBe(true);
+      const def = e.boss!.def;
+      expect(e.maxHp).toBeGreaterThanOrEqual(def.hp);
+      // Met below its home chapter (fallback pools), it's tougher.
+      if (floor >= 3 && def.chapters[0] === 'gutterways') expect(e.maxHp).toBeGreaterThan(def.hp);
     }
   });
 

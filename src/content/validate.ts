@@ -4,6 +4,7 @@
  * sprites must be well-formed, and kinds must carry their required fields.
  */
 
+import { validateBossDef } from '../sim/bosses/validate';
 import { validateChampionDef, validateEnemyDef } from '../sim/enemies/validate';
 import { hasHook } from '../sim/hooks';
 import { CHAPTER_PALETTE_KEYS, costumeList, type Effect, type SpriteDef } from '../sim/types';
@@ -95,11 +96,13 @@ export function validateContent(): string[] {
 
   for (const b of BOSSES.values()) {
     const at = `boss ${b.id}`;
-    need(b.phases.length >= 2, `${at}: needs at least 2 phases`);
     for (const ch of b.chapters) need(CHAPTERS.has(ch), `${at}: unknown chapter "${ch}"`);
-    for (const ph of b.phases) if (ph.summon) need(ENEMIES.has(ph.summon.enemy), `${at}: unknown summon "${ph.summon.enemy}"`);
     if (b.drops) need(DROP_TABLES.has(b.drops), `${at}: unknown drop table "${b.drops}"`);
-    sprite(b.sprite, at);
+    for (const err of validateBossDef(b, (id) => ENEMIES.has(id))) errs.push(err);
+  }
+  // Every final boss key has a boss (the endings need them).
+  for (const key of ['thunderhead', 'nestmother', 'undertow']) {
+    need([...BOSSES.values()].some((b) => b.kind === 'final' && b.final === key), `no final boss for "${key}"`);
   }
 
   for (const c of CHAPTERS.values()) {

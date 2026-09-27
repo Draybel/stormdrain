@@ -16,6 +16,17 @@ import type { DebugActions } from './actions';
 import type { FloorCurse } from '../sim/floor/types';
 import type { RunOptions } from '../sim/run/types';
 
+/** The run scene's presentation state (window.__SD.presentation()). */
+export interface Presentation {
+  slide: boolean;
+  iris: number;
+  card: boolean;
+  ending: string;
+  bossCard: boolean;
+  slowmo: boolean;
+  endingId: number;
+}
+
 export interface CssRect {
   x: number;
   y: number;
@@ -111,11 +122,22 @@ export interface SDHooks {
     curse(c: FloorCurse | null): void;
     /** Opens the big map overlay. */
     map(): void;
-    /** Restarts the run scene on any floor / track (curse: undefined rolled, null none); returns false without a run scene. */
-    runAt(floor: number, track?: 'main' | 'alt', curse?: FloorCurse | null, seed?: number | string): boolean;
+    /**
+     * Restarts the run scene on any floor / track (curse: undefined rolled, null none; unlocked: item ids /
+     * 'ending1' / 'ending2'); returns false without a run scene.
+     */
+    runAt(floor: number, track?: 'main' | 'alt', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[]): boolean;
+    // ── Bosses (Phase 3B) ──
+    /** Every boss id. */
+    bosses(): string[];
+    /** Starts a boss fight in the current room (default: the debug menu's selection). */
+    boss(id?: string): boolean;
   };
-  /** Run-scene presentation: camera slide, iris phase (1 closing, 2 opening), floor card, ending. */
-  presentation(): { slide: boolean; iris: number; card: boolean; ending: string } | null;
+  /**
+   * Run-scene presentation: camera slide, iris phase (1 closing, 2 opening), floor card, ending (and the
+   * ending id), the boss intro card, boss-death slow motion.
+   */
+  presentation(): Presentation | null;
 }
 
 declare global {
@@ -136,7 +158,7 @@ export interface SdDeps {
   /** The debug actions (shared with the debug menu). */
   actions: DebugActions;
   /** The run scene's transition state (null without a run scene). */
-  getPresentation(): { slide: boolean; iris: number; card: boolean; ending: string } | null;
+  getPresentation(): Presentation | null;
   /** Restarts the run scene's run (debug). */
   restartRun(opts: RunOptions, seed?: number | string): boolean;
 }
@@ -303,8 +325,14 @@ export function installSdHooks(d: SdDeps): SDHooks {
       map() {
         app.nav.map();
       },
-      runAt(floor: number, track: 'main' | 'alt' = 'main', curse?: FloorCurse | null, seed?: number | string) {
-        return d.restartRun({ floor, track, curse }, seed);
+      runAt(floor: number, track: 'main' | 'alt' = 'main', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[]) {
+        return d.restartRun({ floor, track, curse, unlocked }, seed);
+      },
+      bosses() {
+        return d.actions.bosses();
+      },
+      boss(id?: string) {
+        return d.actions.bossFight(id);
       },
     },
     presentation() {

@@ -9,7 +9,7 @@ import type { MinimapState } from '../floor/minimap';
 import type { WorldCounters } from '../world';
 
 /** Bump when RunSnapshot changes shape (the run save migrates or drops older snapshots). */
-export const RUN_SNAPSHOT_VERSION = 1;
+export const RUN_SNAPSHOT_VERSION = 2;
 
 export interface RunOptions {
   /** First floor (debug / tests; default 1). */
@@ -20,6 +20,12 @@ export interface RunOptions {
   curse?: FloorCurse | null;
   /** Meta snapshot taken at run start: items that are not unlocked yet (never rolled this run). */
   lockedItems?: readonly string[];
+  /**
+   * Meta snapshot: what is unlocked — item ids (items flagged `unlock` only roll when listed here) and
+   * route / ending flags: 'ending1' opens the alt route into chapter 6, 'ending1' + 'ending2' open the
+   * whirlpool to floor 13 after a final boss. M3 feeds it from the meta save.
+   */
+  unlocked?: readonly string[];
 }
 
 /** A pickup left lying in a room (kind = sim/pickupKinds PK). */
@@ -40,6 +46,12 @@ export interface SavedPedestal {
   fresh: boolean;
   price: number;
   hearts: number;
+  /** Phase 3B (optional so older rooms load): keys price, goods (pickup kind, -1), choice group, prop, broken. */
+  keys?: number;
+  goods?: number;
+  group?: number;
+  prop?: number;
+  broken?: boolean;
 }
 
 /**
@@ -64,10 +76,26 @@ export interface RoomState {
   prices: number[];
   /** Heart containers per 'i' (Broker's Nook deals; 0 = free). */
   hearts: number[];
-  /** Enemy placed on the 'B' marker (placeholder boss / miniboss; '' = none). */
+  /**
+   * The 'B' marker's boss / miniboss / final: a BossDef id (sim/bosses) — or, only when no boss content
+   * exists at all, an enemy id for a placeholder — and its HP ('' = none).
+   */
   boss: string;
+  bossHp: number;
   /** Boss reward item (appears with the trapdoor). */
   reward: string;
+  /** Magpie's Stall: a pickup name for sale per 'S' slot ('' = the slot sells the item in `shop`). */
+  goods: string[];
+  /** 'i' markers that hold a chest instead of an item ('' = the item): Thorn Room / Forgotten Pocket. */
+  alts: string[];
+  /** Extra loot scattered on the first visit (a Forgotten Pocket's "big loot"). */
+  bonus: string[];
+  /** The room's items are a choice (Broker's Nook: take one, the others vanish). */
+  choice: boolean;
+  /** A Gumball Gambler stands here (normal rooms). */
+  slots: boolean;
+  /** Old Pell's offer ('' = he isn't in this room). */
+  trader: string;
   // ── Runtime ──
   visited: boolean;
   cleared: boolean;
@@ -82,6 +110,12 @@ export interface RoomState {
   pedestals: SavedPedestal[] | null;
   /** The boss is dead: the trapdoor is open. */
   trapdoor: boolean;
+  /** Rain Barrel Arena: 0 waiting for the pressure plate, 1 fighting, 2 done. */
+  plate: number;
+  /** Hidden-route drain grate: 0 none, 1 cracked (bomb it), 2 open. */
+  grate: number;
+  /** After a final boss: 1 = the whirlpool (floor 13) and the skylight (the ending) stand here. */
+  exits: number;
 }
 
 export interface RunStats {
@@ -90,6 +124,8 @@ export interface RunStats {
   floorsCleared: number;
   secretsFound: number;
   keysUsed: number;
+  /** Boss / miniboss fights won. */
+  bossesBeaten: number;
 }
 
 /** Everything about the run besides the World / player (JSON). */
@@ -103,8 +139,12 @@ export interface RunData {
   chapter: string;
   /** 'roll' | 'none' | a curse id (RunOptions.curse). */
   curseMode: string;
-  /** Meta snapshot: locked item ids. */
+  /** Meta snapshot: locked item ids (RunOptions.lockedItems + unlock-flagged items not unlocked). */
   locked: string[];
+  /** Meta snapshot: unlocked ids (items, 'ending1', 'ending2'…). */
+  unlocked: string[];
+  /** Items seen this run (pedestals, shops, traders, taken): never rolled again. */
+  seen: string[];
   layout: FloorLayout;
   map: MinimapState;
   rooms: RoomState[];
@@ -124,6 +164,8 @@ export interface RunData {
   stats: RunStats;
   /** 0 running, 1 won. */
   won: number;
+  /** The ending reached (1 Clear Skies, 2 The Quiet Hive, 3 What the Rain Kept; 0 none yet). */
+  ending: number;
 }
 
 /** The player at a room entry (JSON). Derived state (stats, flags, loadout, profile) is recomputed. */

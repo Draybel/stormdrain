@@ -20,8 +20,9 @@ src/
   sim/               PURE game logic. No DOM, no canvas, no audio objects. Runs headless in node.
     attack/          THE attack pipeline (carriers, modifiers, shots, beams, style)
     floor/           floor generator, room template schema / validation / picking, minimap model (§6)
-    run/             a real run: floors, rooms, doors, transitions, clears, curses, snapshots (§6b)
-    ...              world, player, enemies, bosses, items, stats, pickups, run state
+    run/             a real run: floors, rooms, doors, special rooms, routes, endings, snapshots (§6b, §6d)
+    bosses/          the boss framework: phases, the pattern library, the brain, selection (§6c)
+    ...              world, player, enemies, items, stats, pickups, pedestals, coin-operated props
   content/           DATA ONLY (plus small named behaviour hooks): items, enemies, bosses, characters,
                      rooms, chapters, synergies, sets, achievements, familiars, music, sprites
   render/            renderer, sprite cache, pixel font, HUD, minimap, particles, lighting, effects
@@ -122,6 +123,11 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   - `floorRng(seed, floorIndex, track)` → floor layout, room templates, pre-rolled pedestal items/shop stock.
     Floor contents depend ONLY on (seed, floor, track, meta-unlocks snapshot taken at run start) — never on play.
   - `lootRng` (run-level, serialized) → drops; `combatRng` (serialized) → in-room randomness.
+- World state for special rooms: `world.boss` (the room's BossFight: intro, HP over every part, phase — §6c),
+  `world.props` (`sim/roomProps.ts`: the arena's pressure plate, the hidden-route grate, the whirlpool, the
+  skylight, the NPC perched on the top wall), `world.onExplosion(x, y, r)` (a tile-breaking blast went off —
+  called from `explodeTiles`; the run breaks gamblers open and cracks the grate with it) and `arena.locked` (doors
+  stay shut between the Rain Barrel Arena's waves).
 - Entities are pooled classes with an `alive` flag; removal = swap-remove or free-list. Hot loops use scratch vectors,
   no closures/arrays/objects allocated per tick. Collision is circle-vs-circle for actors/shots and circle-vs-grid for tiles.
 - Units: pixels and seconds (dt = 1/60). Room-local coordinates: (0,0) = top-left of the interior floor.
@@ -142,7 +148,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   `floorStarted()`, `loadRoom(layout, spawns)` (returns the layout's non-tile markers), `run` (the floor run, or null),
   `snapshot()` / `Sim.fromSnapshot(snap)` (runs only, §6b), and debug helpers `giveItem`, `spawnPickup`, `placeBomb`, `explode`,
   `hurtPlayer`, `killPlayer`, `spawnItemPedestal(id)` (a pedestal on free floor next to the player; reuses an empty /
-  the farthest pedestal when all 12 are taken), `fullHeal`, `addPickups(coins, bombs, keys)`, `clearRoom` (kills every
+  the farthest pedestal when all 12 are taken), `startBossFight(id, x?, y?, { hp?, intro? })` (a BossDef fight in the
+  current room: intro, HP bar, doors shut — §6c), `fullHeal`, `addPickups(coins, bombs, keys)`, `clearRoom` (kills every
   enemy, clears enemy shots / creep / shockwaves — a running wave then clears normally), `resetItems`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
   generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
   as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)` (without a
@@ -250,12 +257,18 @@ placed bombs and novas hurt everything in reach.
 - Fairness: every attack and sudden move is telegraphed (`teleT`: flash + squash / wind-up frame); fresh enemies are
   inactive and harmless for `ENEMY_TUNING.spawnTime` (0.4 s, spawn poof). Contact damage uses 0.85 × radius; enemies
   high in a hop, underground, blinking or faded can't touch or be touched.
+- Bosses are Enemies too (§6c): `enemy.boss` (a BossState) replaces the movement + attack step; `enemy.dying` (a boss's
+  death sequence: untouchable, harmless, still alive for the room clear); tethered enemies (`anchor` = the uid they
+  orbit, `anchorR/A/W`: boss shield orbs) ride their orbit, hide when it hides and die with it. `damageEnemy` runs a
+  boss hit through `bossDamage` (nothing gets through during a phase change, one blow never skips a threshold) and
+  a boss's killing blow through `bossLethal` (the last part plays the death sequence; the brain kills it after).
 - Kills: `damageEnemy` / `killEnemy` only flag `dead` (released by `sweepEnemies` after the enemy update and at the end
   of the step) so killing inside any loop is safe. A kill emits 'enemyKilled' (flags: frozen / champion / big), runs
   death effects, champion extras and drop tables, and fires the player's 'kill' trigger when credited.
 - Enemy shots (`enemies/shots.ts`, cap 400): walls and rocks stop them unless `phase`, pits don't; they hit the player
   with 0.8 × her radius, pop on contact even during i-frames (`damagePlayer` ignores the damage then). Lobs hurt only
-  where they land. Creep puddles (cap 48, oldest recycled) hurt feet that aren't flying; shockwaves (cap 16) hurt once
+  where they land (`fall` 1 = debris dropping straight onto a marked spot, 2 = a lightning strike; `creepLife` /
+  `creepR` size the puddle a glob leaves). Creep puddles (cap 48, oldest recycled) hurt feet that aren't flying; shockwaves (cap 16) hurt once
   as the ring passes. Allied variants (charmed shooter, ice shards) hurt enemies × `allyDamage` instead of the player.
 - Status effects (`enemies/status.ts`, on enemies AND dummies): poison (DOT every 0.5 s), burn (DOT every 0.3 s),
   freeze (frozen solid: no moves/attacks/contact; a frozen kill shatters into 6 allied ice shards), slow (speed ×(1 −
@@ -274,9 +287,13 @@ placed bombs and novas hurt everything in reach.
   from the 'roomClear' table at the open floor nearest the centre. `arena.reward = false` (a challenge room's first
   waves) skips all of that: the run starts the next wave at once.
 - `world.safeT` — spawn protection after a room entry (0.5 s): `damagePlayer` refuses all damage meanwhile.
-- Priced pedestals (`Pedestal.price` coins, `Pedestal.hearts` containers; `buyFromPedestal`): touching one pays first
-  ('buy' event + 'shop_buy'); can't afford → 'denied' ('poor' / 'noHearts') and it waits until the player steps away.
-  A heart deal never takes the last heart. Events for the bestiary: 'enemySeen' (once per kind
+- Priced pedestals (`Pedestal.price` coins, `hearts` containers, `keys`; `buyFromPedestal`): touching one pays first
+  ('buy' event + 'shop_buy'); can't afford → 'denied' ('poor' / 'noHearts' / 'noKeys' / 'full') and it waits until the
+  player steps away. Coin and key prices get the `haggler` flag's −25 % (`haggled`, at least 1). A heart deal never
+  takes the last heart; with no containers at all it costs 3 Tin hearts per container (never the last bonus heart).
+  Pedestal slots also carry shop GOODS (`goods` = a pickup kind: paid, then handed over by `collectKind`, only when
+  `canTakeKind`), choice GROUPS (`group`: taking one makes the others vanish, 'pedestalVanish') and coin-operated
+  PROPS (`prop`, `sim/shopProps.ts`: PROP_JAR the donation jar, PROP_SLOTS the Gumball Gambler, PROP_TRADER Old Pell). Events for the bestiary: 'enemySeen' (once per kind
   per run), 'enemyKilled'. Full event list in `engine/events.ts`.
 
 ---
@@ -543,7 +560,7 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   `hearts` (containers in whole hearts; red/tin/ember in halves), `pickups` (coins/bombs/keys, charge, spawn[], table),
   `trigger` (`on: 'hurt'|'roomClear'|'kill'|'fire'|'floorStart'|'bomb'|'pickup'|'use'`, chance, luck, maxChance,
   cooldown, `say` (a short notice for the top band, sent as a 'say' event), effects), `flag` (`PLAYER_FLAGS`: flying, spectral, magnet, extraTrinket, extraConsumable,
-  explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision), `hook` (named code in
+  explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision, haggler), `hook` (named code in
   `content/hooks`, params). Persistent kinds accept an optional `duration` for use/trigger contexts.
 - Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
 - `DropTableDef { id, rolls: [min, max], nothing?, luck?, entries: { kind: PickupName, weight, count?, pool? }[] }`.
@@ -560,7 +577,16 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   (optional `windup`, `air`), face right, 8-24 px.
 - `ChampionDef { id, name, color, weight, hpMul?, speedMul?, sizeMul?, cooldownMul?, split?, deathRing?, regen?,
   phantom?, coins?, drops? }`.
-- `BossDef { id, name, kind: 'boss'|'miniboss'|'final', chapters, hp, phases: PhaseSpec[] (≥2), sprite, size, music? }`.
+- `BossDef { id, name, kind: 'boss'|'miniboss'|'final', chapters, hp, phases: PhaseSpec[] (≥2), sprite (32-56 px;
+  minibosses ≥ 24; anims idle + move, optional windup / air / slam / roar / charge / hurt; anchorY in the lower body),
+  size (collision radius), music?, drops?, speed?, contact?, mass?, resist? (< 0.75), flying?, shot?, goo?, title?
+  (the intro card's flavour line), final? ('thunderhead' | 'nestmother' | 'undertow') + ending? (1-3), weight?,
+  bestiary?, hook? }`. `PhaseSpec { at (HP fraction, 1 first, falling), name?, move (baseline movement: idle, wander,
+  chase, chasePath, float, orbitPlayer, keepDistance, hop), attacks (enemy-library AttackSpecs on their timers),
+  speedMul?, summon?, patterns?: BossPatternSpec[], order?: 'cycle'|'random', rest?: [min, max] s, enter?:
+  BossPatternSpec (runs once when the phase begins), tint? (#rrggbb colour shift), pace? (speed-up) }`.
+  `BossPatternSpec { kind: BOSS_PATTERN_KINDS, params?, enemy?, hook?, shot?, weight? }` (§6c). Content lives in
+  `src/content/bosses/*.ts`; `validateBossDef` (sim/bosses/validate.ts, run by validateContent) checks it all.
 - `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7], weight? }`
   (13 chars/row). Owned by `src/sim/floor/types.ts`; `sim/types.ts` re-exports `RoomTemplate`, `RoomType` and
   `ROOM_TYPES` (`start, normal, treasure, shop, boss, miniboss, secret, deepSecret, challenge, cursed, nook` — the
@@ -630,60 +656,163 @@ Module done and tested (side track, merged after Phase 2); floor runs use it sin
 `sim.run` (a `Run`, null in the yard / custom rooms) owns everything about a real run as plain JSON (`RunData`, in
 `run/types.ts`): seed, character, floor, track, chapter, the whole `FloorLayout`, the `MinimapState`, one `RoomState`
 per room, the current room + the side the player came in through, the damage-this-floor flag, time, stats, the
-curse mode and the meta snapshot (locked item ids). The Sim steps it at the end of every tick (`run.update(input)`).
+curse mode, the meta snapshot (`locked` item ids, `unlocked` ids), the items `seen` this run, and `won` / `ending`.
+The Sim steps it at the end of every tick (`run.update(input)`).
+- **Run options** (`RunOptions`): `floor` (1-13), `track`, `curse`, `lockedItems`, and `unlocked` — the meta
+  snapshot M3 feeds: item ids (items flagged `unlock` only roll when listed) and route flags (`'ending1'` opens the
+  alt route into chapter 6; `'ending1'` + `'ending2'` open the whirlpool to floor 13). `locked` = every
+  `unlock`-flagged item not unlocked ∪ `lockedItems` (`lockedItemIds`, `run/pools.ts`).
 - **Floor start** (`startFloor`): `chapterFor(floor, track)` (floors 1-12 → chapters by `ChapterDef.floors` + `track`;
   13 borrows the Eye of the Storm) → `generateFloor(seed, floor, track, { curses, cursePool: chapter.curses, forceCurse,
-  allowAltNext: false })` → `pickTemplates` (chapter id, `templateRng`) → `rollFloorContents` → `createMinimap`.
-- **Contents are pre-rolled** from `floorRng(seed, floor, track).fork('contents')` for every room (and the nook
-  reserve) in room order (`run/contents.ts`): enemy ids per e / E marker (forced champion ids for E; challenge
-  rooms get `RUN_TUNING.challengeWaves` = 2 waves), pickup names per 'p', satchel / lockbox per 'c', pedestal items
-  per 'i' (pools by room type: treasure; secret → treasure; deepSecret → secret → treasure; challenge / cursed →
-  their pool → treasure; nook → broker, quality ≥ 2), shop stock + prices per 'S' (shop pool, any kind), the 'B'
-  enemy and the boss reward (boss pool). No item repeats within a floor; locked items never roll. Marker lists
-  follow `parseRoomLayout`'s order on the mirrored grid. Only drops (lootRng) and in-room randomness (combatRng:
-  champion rolls, AI, the maze) depend on play.
-- **Room entry** (`enterCurrent`, the ONE code path for doors, the trapdoor, debug teleports and restores): chapter +
-  curse onto the World, `loadRoom(templateGrid(tpl, flip))`, the saved grid (`encodeGrid`: tiles / hits / debris as
-  3 × 91 chars) if the room was visited, the player at the door front of the entry side (centre for a floor start),
-  familiars rebuilt canonically (`respawnFamiliars`, quiet), 'roomEnter' (first, so presentation resets before the
-  room's own spawn events), a secret room opens all its walls, pickups / pedestals from the pre-rolls on the first
-  visit (else what was left: `SavedPickup` / `SavedPedestal`), the trapdoor, the next wave if not cleared (fixed
-  spawns; boss / miniboss rooms: the 'B' enemy as a placeholder boss — HP clamp(hp × 6, 90, 160), miniboss ×3.5 clamp
-  45-80, both × (1 + 0.12 (floor − 1)), scale 1.5 / 1.3; the strongest non-static pool enemy for bosses), door
-  slots, the minimap (`enterRoom`), `world.safeT` = 0.5 s, a 0.35 s door cooldown, and on a new floor the
+  allowAltNext: altRouteAllowed(floor, track, unlocked) })` → `pickTemplates` (chapter id, `templateRng`) →
+  `rollFloorContents` → `createMinimap`.
+- **Contents are pre-rolled** from `floorRng(seed, floor, track).fork('contents')` — one fork per room (`r<index>`,
+  the nook reserve `nook`, floor-wide extras `extras`), so adding a roll to one room type never shifts another —
+  (`run/contents.ts`): enemy ids per e / E marker (forced champion ids for E; challenge rooms get
+  `RUN_TUNING.challengeWaves` = 3 waves), pickup names per 'p', satchel / lockbox per 'c', pedestal items per 'i'
+  (pools by room type: treasure; secret → treasure; deepSecret → secret → treasure, quality ≥ 3 — or, half the time,
+  a lockbox + 5-8 rich pickups (`bonus`); cursed → its pool → treasure, 45 % a lockbox instead (`alts`); challenge →
+  its pool → treasure; nook → broker, quality ≥ 2, the first two markers only, a choice), shop stock per 'S' (≤ 5
+  slots: 2-3 items at `itemPrice` + pickups for sale at `GOODS_PRICE`), the boss (§6c `bossFor`: a final by the
+  layout's key, else a seeded pick of the chapter pool) and its HP, the boss reward (boss pool), a Gumball Gambler in
+  12 % of normal rooms and Old Pell (15 % of floors, one normal room, his trader-pool item), and the hidden-route
+  grate (`layout.hiddenRoute`). Items never repeat within a floor and never offer anything SEEN earlier in the run
+  (`data.seen`: shown on a pedestal / in a shop / by a trader at a room's first visit, or taken); pools fall back to
+  repeats rather than leaving a pedestal empty; locked items never roll (`rollItem`, quality weights 1/1/1/0.7/0.35).
+  So a seed replays exactly for the same route; which items a later floor offers depends on what was seen before.
+  Only drops (lootRng) and in-room randomness (combatRng: champion rolls, AI, the maze, boss patterns) depend on play.
+- **Room entry** (`enterCurrent`, the ONE code path for doors, the trapdoor, the grate, the whirlpool, debug teleports
+  and restores): chapter + curse onto the World, `loadRoom(templateGrid(tpl, flip))` (which also resets
+  `world.boss` / `world.props`), the saved grid (`encodeGrid`: tiles / hits / debris as 3 × 91 chars) if the room was
+  visited, the player at the door front of the entry side (centre for a floor start), familiars rebuilt canonically
+  (`respawnFamiliars`, quiet), 'roomEnter' (first, so presentation resets before the room's own spawn events), a
+  secret room opens all its walls, pickups / pedestals / props from the pre-rolls on the first visit (else what was
+  left: `SavedPickup` / `SavedPedestal` incl. keys, goods, group, prop, broken), the room's fixtures (§6d: wall NPC,
+  plate, grate, exits; the NPC's greeting on the first visit), the trapdoor, the next wave if not cleared (fixed
+  spawns; boss / miniboss rooms: the BossDef fight at the 'B' marker — §6c; the Rain Barrel Arena waits for its
+  plate), door slots, the minimap (`enterRoom`), `world.safeT` = 0.5 s, a 0.35 s door cooldown, and on a new floor the
   'floorStart' trigger + event. Rooms without anything to fight are cleared on entry.
 - **Doors** (`world.doors`, `sim/doors.ts`: 4 `DoorSlot { kind, state, to, hint, deep, anim }`): kind = the
   neighbour's special type else this room's (boss / treasure / shop / challenge / cursed / miniboss / nook / normal;
   `Secret` = a blasted hole); state HIDDEN (secret wall not opened — `hint` from `FloorRoom.hints` or the
   `seeSecrets` flag), LOCKED (`lockedDoors`, treasure from floor 3; the shop is never locked), OPEN (barred while
-  `arena.active`). Walking into an open doorway (stick > 0.3 toward the wall, feet within 10 px of the door centre,
-  touching the wall) = `goThroughDoor(side)`: a locked door takes a key and opens for good on both sides
-  (`RoomState.opened` bits, 'doorUnlock'); an open one transitions. An explosion reaching a wall slot
+  `arena.active` or `arena.locked`). Walking into an open doorway (stick > 0.3 toward the wall, feet within 10 px of
+  the door centre, touching the wall) = `goThroughDoor(side)`: a locked door takes a key and opens for good on both
+  sides (`RoomState.opened` bits, 'doorUnlock'); an open one transitions. An explosion reaching a wall slot
   (`World.onSecretWallBombed`) opens a hidden wall on both sides ('secretFound', `discoverRoom`). Thorn Room doors
   (kind cursed) cost ½ heart per pass (i-frames reset, god mode exempt).
 - **Transition**: destination (Curse of the Maze: 20 % of regular doors lead to a random visited room, combatRng) →
   toll → save the room being left (grid, pickups, pedestals) → `data.current` = destination → **checkpoint** →
   `enterCurrent()`.
-- **Clears**: the wave dying out (`arena.active` false) → the next challenge wave, or the room is cleared (the
-  arena already dropped the 'roomClear' reward, charged actives, fired triggers): challenge rewards appear; boss rooms
-  get the trapdoor (centre, 'trapdoor' a = 0, 'stairs'), the reward pedestal nearby, and maybe the Broker's Nook
-  (`floorRng(...).fork('nook')` < 0.55 after a clean floor, 0.2 otherwise → `openNook`, 'secretFound' b = 2). The nook's
-  items cost heart containers (1, quality 4: 2).
+- **Clears**: the wave dying out (`arena.active` false) → the next challenge wave (after `challengeGap` = 1 s, doors
+  still locked), or the room is cleared (the arena already dropped the 'roomClear' reward, charged actives, fired
+  triggers): challenge rewards appear; minibosses leave the 'minibossReward' table + a heart; boss rooms get the
+  trapdoor (centre, 'trapdoor' a = 0, 'stairs'), the reward pedestal nearby, a heart, the grate if the route is
+  here, and maybe the Broker's Nook (`floorRng(...).fork('nook')` < `nookChance()` = 25 %, + 35 % after a floor without
+  damage → `openNook`, 'secretFound' b = 2); a final boss gives its ending (§6d).
 - **Trapdoor**: usable 0.8 s after it appears and only once the player has stepped off it; stepping on → 'trapdoor'
-  a = 1, next floor on the same track. The last floor's (12) boss wins the run ('runEnd' a = 1).
+  a = 1 (id 'trapdoor' / 'grate' / 'whirlpool' / 'debug', x,y = where she fell), the next floor on `trackAfter(floor,
+  track)` (the same track, except the alt track rejoins the main one at chapter 6 without Ending 1).
 - **Curses** (`layout.curse` → `world.curse`): darkness (render: light pools, `darkVision` ignores it), lostMap
   (`map.lostMap`), maze (above), blind (render: '?' on pedestals / item pickups), unknown (render: hidden hearts),
   deluge (movement accel × 0.35 / decel × 0.2 unless flying, rain). `RunOptions.curse`: undefined rolled, null none, an
   id forced on every floor; debug `run.setCurse(c)`.
-- **Snapshots**: every room entry stores a checkpoint — `JSON.stringify({ v, run: RunData, world: WorldSnap, player:
-  PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck bonus, temporary effects by
-  value, trigger cooldowns by list position, the per-player timers that carry across rooms, rng states, counters,
-  seen enemies, enemy serial, god mode). `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB);
-  `Sim.fromSnapshot(snap)` restores world + player and runs the same `enterCurrent()`, so play continues exactly as
-  it did after the snapshot (same room, same future rolls and floors; tests/run.test.ts steps both side by side).
-  Progress inside the current room is not part of it (resuming = walking into that room again).
-- Debug / tools: `run.goThroughDoor(side)`, `teleport(room)` (walks in through its first door), `skipFloor()`,
-  `revealMap()`, `setCurse(c)`, `summary()` (`SimSummary.run`). Tuning: `RUN_TUNING` (sim/tuning.ts).
+- **Snapshots** (`RUN_SNAPSHOT_VERSION` 2): every room entry stores a checkpoint — `JSON.stringify({ v, run: RunData,
+  world: WorldSnap, player: PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck
+  bonus, temporary effects by value, trigger cooldowns by list position, the per-player timers that carry across
+  rooms, rng states, counters (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode).
+  `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB); `Sim.fromSnapshot(snap)` restores world + player
+  and runs the same `enterCurrent()`, so play continues exactly as it did after the snapshot (same room, same future
+  rolls and floors; a boss fight replays identically; tests step both side by side). Progress inside the current
+  room is not part of it (resuming = walking into that room again).
+- Debug / tools: `run.goThroughDoor(side)`, `teleport(room)` (walks in through its first door), `skipFloor()` (on a
+  final floor: floor 13 when the whirlpool is open, else the ending), `revealMap()`, `setCurse(c)`, `trackAfter`,
+  `nookChance()`, `seen(id)`, `unlocked(id)`, `summary()` (`SimSummary.run`: + ending, plate, grate, exits, boss).
+  Tuning: `RUN_TUNING` (sim/tuning.ts).
+
+## 6c. Bosses (`src/sim/bosses`, content in `src/content/bosses`)
+
+A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rendering all reuse the enemy code) whose
+`boss` (`BossState`, `state.ts`) replaces the movement / attack step of the enemy update (`updateBoss`, `brain.ts`).
+- **Compile** (`compile.ts`, cached per def): one synthetic EnemyDef per phase (id = the boss id; baseline movement,
+  the phase's enemy-library attacks + its `summon` as a spawnMinion attack, speed × speedMul, contact, mass, resist,
+  goo, big) and the phase's patterns with resolved params (`[default, min, max]` like the enemy behaviours), minion
+  defs, shot style; the thresholds. Defaults: speed 30, mass 6 / miniboss 3 / final 9, resist 0.5 / 0.65 / 0.4
+  (bosses resist statuses: shorter, and below 0.75 freeze only slows).
+- **Fight** (`world.boss`, a `BossFight`): `spawnBoss(w, def, x, y, { hp, intro })` fills it (id, name, flavour
+  `title`, `chapter` name, kind 0 boss / 1 miniboss / 2 final, group = the first part's uid, max / current HP, phase
+  marks, intro timer, ending) and emits 'bossIntro'. `updateBossFight` (start of every enemy update) sums the HP of
+  every living part of the group, advances the phase (monotonic: phase i begins when HP / max ≤ `at_i`) and ends the
+  fight when no part is left (`done`, `bossKills`++).
+- **Brain** per part and tick: the spawn poof, then the intro (idle while the card is up, 1.6 s / miniboss 1.2 s) →
+  a phase change when the fight's phase moved on (`startPhase`: the phase's EnemyDef / cfg / speed, fresh attack
+  timers, re-init movement, `pace`, 1.1 s invulnerable roar — 'bossPhase', hits 'tink' ('bossBlock') — then its
+  `enter` pattern) → otherwise the running pattern, or the baseline (the phase's movement + attacks) for a rest of
+  `rest` s ÷ pace, then the next pattern (in order, or a seeded weighted pick that never repeats the last one).
+  Fear makes a boss back off (no new patterns); dazes are ignored. `bossDamage` stops any single blow just past the
+  next threshold, so every phase change is seen.
+- **Patterns** (`patterns.ts`, `BOSS_PATTERN_KINDS`), each a small state machine on the BossState scratch slots that
+  starts with a telegraph ('bossTell', flash + squash, a pose) — timers ÷ pace, shot speeds × √pace: `charge` (aim
+  line, dash, bonk: shake, ring, debris), `jumpSlam` (crouch, leap to a marked spot, slam: shockwave rings + ring),
+  `ring` (repeats, spin, alt, aim), `spiral` (arms, rate, turn, reverse), `wave` (walls of shots with a gap),
+  `aimedBurst` (fans, lead), `summon` (adds, capped), `beamSweep` (a telegraph line, then a beam sweeping an arc —
+  `BossBeam`s, rocks are cover, width / 2 + 0.6 × her radius), `burrow` (dig, tunnel, rumble mound, erupt),
+  `teleport` (fade, marked spot, reappear + ring / burst), `debrisRain` (slam, marked drops: rocks or lightning),
+  `split` (parts sharing the fight's HP, smaller and faster — `spawnPart`), `shields` (orbiting tethered orbs,
+  default 'bubble-ward'), `hazard` (lobbed globs leaving puddles), `hook` (named per-boss code). Everything goes
+  through the enemy shot / lob / wave / creep pools (caps and the charm rules apply). Nothing allocates per tick.
+- **Hooks** (`hooks.ts`): `registerBossHook(name, { tick?, phase?, pattern? })`; a def's `hook` gets `tick` and
+  `phase(ctx, i)` (phase 0 when the intro ends), 'hook' patterns call `pattern(ctx)` until it returns true. The
+  context gives the World, the Enemy, its BossState and a small API (shoot, ring, drop, summon, random).
+- **Death sequence**: the last part's killing blow (`bossLethal`) sets `dying` (untouchable, harmless, still alive
+  for the arena) and emits 'bossDying' (the scene's slow motion + flash); the brain kills its adds, fizzles hostile
+  shots / creep / shockwaves, emits a 'bossBoom' every 0.15 s for 2.4 s, then 'bossDefeated' and the real kill
+  (drops — 'bossSpill' —, 'enemyKilled'), the fight ends and the room clears as usual. Other parts of a split boss
+  just die. Debug kills (`killEnemies`, `clearRoom`) skip the sequence.
+- **Selection** (`select.ts`): `bossPool(chapter, kind)` = `bossesInChapter` (explicit list ∪ bosses listing the
+  chapter); a chapter with none borrows every boss of the kind; `pickBoss(seed, floor, track, chapter, kind, avoid)`
+  = a weighted pick on `floorRng(...).fork(kind)`, avoiding the previous floor's boss of the same chapter;
+  `finalBossDef(key)`; `bossHpFor(def, floor)` = hp × (1 + 0.14 × floors past its home chapter). Only when no BossDef
+  of a kind exists at all does a room fall back to the Phase 3A placeholder (a big sturdy chapter enemy).
+- Content (`src/content/bosses`): Gutterways — Sodden Snarl (boss; charge + debris, stepped rings, muck puddles;
+  splits in two at half), Brimwell (boss; jump-slams, stepped spirals, rain walls; overflowing: water jet sweep,
+  double slams, ceiling debris, a spiral), Pipewhip (miniboss; burrow, aimed spit, pipe-hopping teleport; thrashing:
+  rats, double dives, a spiral); finals (placeholder-but-playable, replaced later — keep ids and keys): Old
+  Thunderhead (thunderhead, ending 1), The Nestmother (nestmother, ending 2), The Undertow (undertow, ending 3). Boss
+  minions in `content/enemies/boss-minions.ts` (weight 0): Bubble Ward, Nest Drone. Tuning: `BOSS_TUNING`.
+
+## 6d. Special rooms, economy, routes, endings (`sim/run/special.ts`, `sim/shopProps.ts`, `sim/roomProps.ts`)
+
+- **Placement** (`special.ts`, deterministic from the mirrored template and its markers): a SOLID prop (jar, gambler,
+  trader) goes on plain floor away from the door fronts and the markers, only where the room stays connected without
+  that cell (`solidPropCell`: preferred corners first, BFS check); FLAT floor objects (grate, whirlpool, skylight) on
+  any plain non-marker floor (`floorCell`). Wall NPCs perch on the top wall's ledge (`world.props.npc`, `npcX`).
+- **Keepsake Room**: a treasure-pool pedestal (seen items leave the pools, §6b).
+- **Magpie's Stall**: Magpie on the wall (greets on the first visit, flaps at a sale, shakes her head at an empty
+  purse), ≤ 5 slots: 2-3 items (10 / 12 / 15 / 20 / 25 coins by quality, trinkets 10, consumables 5 + quality) and
+  pickups for sale (heart 3, key / bomb / Tin heart 5, spark 6, double bomb / Ember heart 7); buying = walking onto a
+  slot with enough coins; tags drawn in the pixel font (red when unaffordable); `haggler` −25 %; the DONATION JAR
+  (leaning on it drops a coin every 0.28 s; `counters.donated` — at 5 / 15 / 30 / 50 / 75 / 99 coins luck +0.5
+  ('donate' b = 1); counted for unlocks later).
+- **Gumball Gambler** (12 % of normal rooms): 1 coin per spin (0.9 s), a seeded outcome on the loot stream (nothing
+  46 %, 2-3 coins, a heart, a bomb, a key, a spark, a gold coin, rarely a trinket); a blast breaks it open for 3-6
+  coins (`world.onExplosion`).
+- **Old Pell** (15 % of floors, one normal room): a snail trader offering one trader-pool item for 3 keys (haggler 2).
+- **Hidey-Hole / Forgotten Pocket**: secret-pool loot; the Pocket holds a quality 3+ item or a big pile of loot.
+- **Rain Barrel Arena**: calm on entry with a pressure plate in the middle; stepping on it ('plate') locks the doors
+  (`arena.locked`) and starts 3 pre-rolled waves 1 s apart ('npcSay' WAVE N OF 3); the reward appears after the last.
+- **Thorn Room**: its 'i' holds a curse-pool item or a lockbox; the doors bite (§6b).
+- **Broker's Nook**: after a boss (25 % + 35 % without damage), a door on the boss room's reserved cell; the Moth
+  Broker on the wall; two broker-pool deals (quality ≥ 2) priced 1 heart container (2 for quality 4) — 3 Tin hearts
+  per container when she has none; taking one makes the other vanish (a choice group).
+- **Hidden routes**: `altRouteAllowed(floor, track, unlocked)` = main track, floor < 12, and floors 10-11 (whose next
+  floor is chapter 6) only with 'ending1'. The generator's `hiddenRoute` room holds a cracked drain grate (drip hint;
+  in the boss room only after the boss); a blast opens it ('grate' a = 1); stepping in drops to floor + 1 on the ALT
+  track ('grate' a = 2, iris). Trapdoors keep the track (`trackAfter`).
+- **Endings**: a final boss (floor 12 main Old Thunderhead → 1, 12 alt The Nestmother → 2, 13 The Undertow → 3) ends
+  the run: `data.won` = 1, `data.ending`, 'runEnd' (a 1, b = ending). With 'ending1' + 'ending2' unlocked, beating a
+  floor-12 final instead raises a WHIRLPOOL (→ floor 13, The Undertow) and a SKYLIGHT (→ that final's ending);
+  `RoomState.exits` keeps them. The run scene shows the ending card (title per ending; M4 polishes the screens).
 
 ## 7. Saving & PWA (`src/meta`, `src/pwa`; integration guide: docs/saving.md)
 
@@ -729,8 +858,15 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   training yard (debug menu). In a run: walking through a door freezes stepping for 0.25 s while the previous frame's
   room image (the back buffer's room rect, copied every run frame) slides out and the new room slides in, clipped to
   the room; the trapdoor closes an iris on the old image (0.45 s) and opens it on the new floor (0.5 s); the floor card
-  ('CHAPTER N · NAME', floor, curse) shows 2.8 s; death (after 1.8 s of the death animation) or the last boss shows
-  an ending card, then a tap / any key / 8 s → title. Music: chapter loop, floor sting, boss intro + boss theme,
+  ('CHAPTER N · NAME', floor, curse) shows 2.8 s; death (after 1.8 s of the death animation) or a final boss shows
+  an ending card (the ending's title and line: 1 CLEAR SKIES, 2 THE QUIET HIVE, 3 WHAT THE RAIN KEPT — a stub M4
+  polishes), then a tap / any key / 8 s → title. Bosses (Phase 3B): the intro card ('bossIntro': portrait, CHAPTER /
+  MINIBOSS / FINAL BOSS, the name, the flavour line) over the room, the HP bar in the top band in place of the room
+  label, 1.5 s of half-speed slow motion when a boss starts dying ('bossDying'; presentation only: every other tick is
+  skipped and drawn at alpha 1), the boss's own theme (`BossDef.music`, finals' tracks, the miniboss theme). Special
+  rooms name themselves in the room label ("MAGPIE'S STALL · FLOOR 2", "RAIN BARREL ARENA · STEP ON THE PLATE"), NPC
+  lines ('npcSay') and jar / gambler / trader / grate notices show in the top band, and the iris closes on wherever she
+  fell (the 'trapdoor' event's x,y: trapdoor, grate, whirlpool). Music: chapter loop, floor sting, boss intro + boss theme,
   miniboss / shop / secret themes, quality-4 item fanfare, game over / victory jingles; the pause overlay muffles.
 - The big map (`ui/mapOverlay.ts`, scene 'map', `nav.map()`): tap the minimap or Tab; an overlay, so the run is paused
   underneath; any tap / Tab / Esc / M closes it.
@@ -743,7 +879,7 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   items, charge active). Keyboard: 1/2/3 or Tab tabs, arrows + Enter, M mode, Esc / ` close. Every action lives in
   the DOM-free `debug/actions.ts` (`DebugActions`), shared with `window.__SD.debug` and the headless tests. The
   CHEATS grid is 4 × 5 (24 px buttons); Phase 3A added skip floor, reveal map, go to boss, next curse, training yard
-  and new run (`debug.cheat.12`-`17`).
+  and new run (`debug.cheat.12`-`17`); Phase 3B added BOSS: <name> and FIGHT BOSS (`debug.cheat.18`-`19`).
 
 ## 8. Rendering & audio
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
@@ -778,6 +914,21 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   + four rects) and the floor card. WorldFx adds chapter ambience (drips, spores, embers, snow, motes, wind), rain for
   the Deluge, drips from hinted walls, rubble for blasted walls, key sparkles, trapdoor dust. The HUD hides hearts
   under the Curse of the Unknown; a 7 × 7 curse icon sits left of the minimap.
+- Bosses & special rooms (Phase 3B): the world renderer clips everything it draws to the room's outer rect (a big boss
+  near a wall never spills over the HUD). `EnemyRenderer` draws a boss with its pattern's pose (`BossState.anim`, with
+  fallbacks), the phase's colour wash (`PhaseSpec.tint`, ramping in), a white flash + shudder on phase changes, the
+  teleport fade, a shudder and white blinking while dying, the charge telegraph (marching dashes to the wall), landing
+  / emerging markers, enemy beams (`drawBeams`: a flickering line, then glow + core + a white centre; lightning gets a
+  jagged strand), falling debris (a rock over a double marker ring) and lightning strikes (a bolt + flash in the last
+  instant). Boss sprites anchor in the lower body; their shadow sits under the sprite. `render/bossHud.ts`: the HP bar
+  (name, phase notches, a pale drain trail, red / orange / violet by kind, slides in, blinks while dying) and the intro
+  card. `WorldRenderer`: Magpie / the Moth Broker on the top wall (idle / pleased / head shake), the pressure plate,
+  the grate (cracked / open), the whirlpool (grows, spins), the skylight (a cached shaft of sun), the donation jar
+  (fills up with the thresholds), the Gumball Gambler (spins, wrecked), Old Pell with his offer floating over him,
+  shop goods on a cushion, and price tags for coins / heart containers / Tin hearts / keys (red when unaffordable).
+  Art: `content/sprites/bosses.ts` and `specialRooms.ts`, built with the pixel painter `content/sprites/paint.ts`
+  (shapes, lines, textures, an automatic 1 px outline → row strings). WorldFx adds roars, slams, splits, chain
+  explosions, the big defeat burst, lightning flashes, grate drips / swirl, jar and gambler sparkles, moth dust.
 - The room background is pre-rendered and rebuilt only on `RoomGrid.version` changes; per-cell variation uses a
   positional hash so breaking one crate never reshuffles the rest. Fires are drawn live (flame height from hp).
 - HUD (`render/hud.ts`), never over the room interior: hearts top-left (6 per row, wraps to a 2nd row), coin/bomb/key
@@ -830,8 +981,11 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   killEnemies, god(on), aim360, newRun, title, pause, spawnItem(id) (pedestal next to the player), giveRandom(n),
   items(), enemies(), heal, add(coins?, bombs?, keys?), clearRoom, resetItems, autoWaves(on), menu(open?)}` (the
   debug menu's actions, `debug/actions.ts`; Phase 3A: `yard()`, `door(side)`, `teleport(room?)` (default: the boss room),
-  `skipFloor()`, `revealMap()`, `curse(c | null)`, `map()`, `runAt(floor, track?, curse?, seed?)`), `presentation()` (the
-  run scene's slide / iris / card / ending state); `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
+  `skipFloor()`, `revealMap()`, `curse(c | null)`, `map()`, `runAt(floor, track?, curse?, seed?, unlocked?)`; Phase 3B:
+  `bosses()`, `boss(id?)` — a boss fight in the current room), `presentation()` (the run scene's slide / iris / card /
+  ending + `endingId` / `bossCard` / `slowmo`); `hud()` includes `bossBar` during a fight; `run()` has `boss`
+  (id, hp, maxHp, phase, phases, dying, kind — null without a fight) and pedestals carry price / hearts / keys (after
+  the haggler discount), goods, prop ('jar' | 'slots' | 'trader'), group; `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
   includes `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`,
   `attack { primary, riders, mods, charge, beams, swipes, familiars }`, `run` (RunSummary: floor, track, chapter, room,
   roomType, cleared, curse, rooms, visited, doors[{ side, kind, state, to }], trapdoor, won, time, stats — null in the
@@ -840,6 +994,6 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F; `run.map` is the minimap
   (tap = the big map, whose full-screen `map.close` closes it); `run.end` is the full-screen tap after a run ends; the
   pause overlay has the invisible `pause.title` (5 taps = debug menu); the debug menu's buttons are `debug.list`,
-  `debug.tab.<items|foes|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-17>`.
+  `debug.tab.<items|foes|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-19>` (18 picks a boss, 19 fights it here).
 - E2E: the Phase 2 specs start in the training yard (`__SD.debug.yard()` after New Run); `e2e/floors.spec.ts` covers runs.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

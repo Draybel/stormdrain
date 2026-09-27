@@ -133,6 +133,15 @@ export function registerEnemy(def: EnemyDef): void {
   ENEMIES.set(def.id, def);
 }
 
+/**
+ * Runtime registration of a boss for tests and tools (game content belongs in
+ * src/content/bosses/*.ts). Throws on a duplicate id.
+ */
+export function registerBoss(def: BossDef): void {
+  if (BOSSES.has(def.id)) throw new Error(`duplicate boss id "${def.id}"`);
+  BOSSES.set(def.id, def);
+}
+
 const ALL_CHAMPIONS: readonly ChampionDef[] = [...CHAMPIONS.values()];
 
 /** Champion variants in registry order (champion rolls index into this list). */

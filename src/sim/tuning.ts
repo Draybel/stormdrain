@@ -46,12 +46,12 @@ export const RUN_TUNING = {
   trapdoorReach: 7,
   /** Curse of the Maze: chance that a door leads to a random visited room instead. */
   mazeChance: 0.2,
-  /** Broker's Nook after the boss: chance with / without damage taken on the floor. */
-  nookChanceHurt: 0.2,
-  nookChanceClean: 0.55,
+  /** Broker's Nook after the boss: base chance, plus this when no damage was taken on the floor. */
+  nookChance: 0.25,
+  nookCleanBonus: 0.35,
   /**
-   * Placeholder bosses (until the boss framework exists): HP = clamp(def.hp × mul, min, max) ×
-   * (1 + depth × (floor − 1)), size × scale.
+   * Placeholder bosses (only when no BossDef of the kind exists at all): HP = clamp(def.hp × mul, min,
+   * max) × (1 + depth × (floor − 1)), size × scale.
    */
   bossHpMul: 6,
   bossHpMin: 90,
@@ -62,8 +62,52 @@ export const RUN_TUNING = {
   minibossHpMax: 80,
   minibossScale: 1.3,
   bossHpPerFloor: 0.12,
-  /** Challenge rooms (Rain Barrel Arena) fight this many waves before the reward appears. */
-  challengeWaves: 2,
+  /** Challenge rooms (Rain Barrel Arena): waves after the pressure plate, the pause between them (s). */
+  challengeWaves: 3,
+  challengeGap: 1,
+  /** Feet within this distance of the pressure plate's centre press it (px). */
+  plateReach: 8,
+} as const;
+
+/** Bosses and minibosses (sim/bosses, ARCHITECTURE §6c). */
+export const BOSS_TUNING = {
+  /** Intro: the card is up and the boss idles (s). */
+  intro: 1.6,
+  minibossIntro: 1.2,
+  /** Phase change: roar + invulnerability (s). */
+  phaseInvuln: 1.1,
+  /** Death sequence (s) and the gap between its chain explosions (s). */
+  deathTime: 2.4,
+  boomEvery: 0.15,
+  /**
+   * A boss met deeper than its home chapter (fallback pools while later chapters have no bosses of
+   * their own): HP × (1 + this × floors past its home floor).
+   */
+  hpPerFloor: 0.14,
+  /** Enemy beams: the hit test uses width / 2 + this × the player's radius. */
+  beamGrace: 0.6,
+} as const;
+
+/** Shops, the donation jar, the Gumball Gambler, Old Pell, the Broker's Nook (sim/shopProps.ts). */
+export const SHOP_TUNING = {
+  /** The 'haggler' flag: coin / key prices × this (rounded, at least 1). */
+  haggle: 0.75,
+  /** Donation jar: one coin per this many seconds while leaning on it. */
+  jarEvery: 0.28,
+  /** Donation jar: total coins donated this run at which luck goes up… */
+  jarThresholds: [5, 15, 30, 50, 75, 99] as readonly number[],
+  /** …by this much each time. */
+  jarLuck: 0.5,
+  /** Gumball Gambler: spin time (s), a pause after each result (s), coins spilled when blown up. */
+  slotSpin: 0.9,
+  slotCool: 0.35,
+  slotBreakCoins: [3, 6] as readonly [number, number],
+  /** Explosions reach props this much beyond their tile radius (px). */
+  blastReach: 14,
+  /** Old Pell's price in keys. */
+  traderKeys: 3,
+  /** Broker's Nook: Tin hearts asked per heart container when the player has no containers. */
+  tinPerContainer: 3,
 } as const;
 
 export const MARBLE_TUNING = {

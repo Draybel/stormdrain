@@ -5,13 +5,20 @@
  * - enemies (two passes around the player for depth): spawn poof fade-in, idle/move/windup/air frames,
  *   telegraph blink + squash, hit flash, status tints + icons, champion outline + glow, phantom fade,
  *   split copies drawn smaller;
- * - enemy shots (dark outline + bright core + additive glow, allied ones pink), lobs with shadows.
+ * - enemy shots (dark outline + bright core + additive glow, allied ones pink), lobs with shadows,
+ *   falling debris (a rock over a marked spot) and lightning strikes (a bolt in the last instant);
+ * - bosses (sim/bosses): the pattern's pose, the phase's colour wash, a white flash + shudder on phase
+ *   changes, a teleport fade, the charge telegraph line, landing / emerging markers, enemy beams
+ *   (telegraph line → water jet / lightning / ink), and the death sequence's shudder and blinking.
  * Everything is a cached canvas; nothing allocates per frame.
  */
 
 import { lerp } from '../engine/math';
-import { ENEMIES } from '../content/registry';
+import { BOSSES, ENEMIES } from '../content/registry';
+import { ROOM_H, ROOM_W } from '../sim/constants';
 import { STATUS_ICON_SPRITE } from '../content/sprites/combat';
+import { DEBRIS_SPRITE } from '../content/sprites/specialRooms';
+import type { SpriteAnim, SpriteDef } from '../sim/types';
 import type { Enemy } from '../sim/enemies/enemy';
 import { ST_COUNT, ST_FREEZE } from '../sim/enemies/status';
 import { ENEMY_TUNING } from '../sim/tuning';
@@ -150,7 +157,57 @@ function ellipseRing(ctx: CanvasRenderingContext2D, x: number, y: number, r: num
 
 /** Cosmetic hover height of flyers (px). */
 function hover(e: Enemy, time: number): number {
-  return e.flying ? 7 + Math.sin(time * 4 + e.uid) * 1.5 : 0;
+  if (!e.flying) return 0;
+  return e.boss ? 4 + Math.sin(time * 2 + e.uid) * 2 : 7 + Math.sin(time * 4 + e.uid) * 1.5;
+}
+
+/** Pixels from a boss sprite's anchor down to its bottom edge (where its shadow falls). */
+function footOffset(e: Enemy): number {
+  const s = e.sprite;
+  if (!s || !e.boss) return 0;
+  return (s.h - 1 - (s.anchorY ?? s.h - 1)) * e.scale;
+}
+
+/** A boss's animation for its current state (the pattern's pose, else by movement). */
+function bossAnim(s: SpriteDef, e: Enemy, z: number): SpriteAnim | undefined {
+  const anims = s.anims;
+  if (!anims) return undefined;
+  const b = e.boss!;
+  const name = e.dying ? 'hurt' : b.anim;
+  if (name) {
+    const a = anims[name] ?? (name === 'charge' ? anims.move : name === 'slam' || name === 'roar' || name === 'hurt' ? anims.windup : undefined);
+    if (a) return a;
+  }
+  if (z > 0.5 && anims.air) return anims.air;
+  if (e.teleT > 0 && anims.windup) return anims.windup;
+  if (e.moving && anims.move) return anims.move;
+  return anims.idle;
+}
+
+/** Beam colours per look (0 water jet, 1 lightning, 2 ink): glow rgb prefix, core, centre. */
+const BEAM_LOOKS = [
+  { glow: 'rgba(111,192,240,0.3)', core: '#8fd0ff', hot: '#ffffff' },
+  { glow: 'rgba(255,230,120,0.3)', core: '#fff08a', hot: '#ffffff' },
+  { glow: 'rgba(240,74,106,0.3)', core: '#f04a6a', hot: '#ffd0da' },
+] as const;
+
+function hash(n: number): number {
+  const s = Math.sin(n * 12.9898) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** A jagged lightning bolt from near the top of the room down onto (x, y). */
+function boltPath(ctx: CanvasRenderingContext2D, x: number, y: number, seed: number): void {
+  ctx.beginPath();
+  const top = 44;
+  ctx.moveTo(Math.round(x + (hash(seed) - 0.5) * 16), top);
+  const steps = 6;
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps;
+    const px = x + (k === steps ? 0 : (hash(seed + k * 7) - 0.5) * 14 * (1 - t));
+    ctx.lineTo(Math.round(px), Math.round(top + (y - top) * t));
+  }
+  ctx.stroke();
 }
 
 export class EnemyRenderer {
@@ -158,7 +215,7 @@ export class EnemyRenderer {
 
   /** Rasterise enemy frames ahead of time (first appearance never hitches). */
   prepare(): void {
-    for (const d of ENEMIES.values()) {
+    for (const d of [...ENEMIES.values(), ...BOSSES.values()]) {
       if (typeof d.sprite === 'string') continue;
       for (let f = 0; f < d.sprite.frames.length; f++) {
         getFrame(d.sprite, f);
@@ -204,15 +261,20 @@ export class EnemyRenderer {
     }
     ctx.globalAlpha = 1;
 
-    // Lob landing markers: a pulsing ring that firms up as the glob comes down.
+    // Lob landing markers: a pulsing ring that firms up as the glob comes down (debris: a double ring;
+    // lightning: a crackling yellow one).
     const shots = world.enemyShots;
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
       if (!s.lob) continue;
       const t = Math.min(1, s.age / s.air);
       ctx.globalAlpha = 0.35 + 0.5 * t;
-      ctx.fillStyle = s.allied ? '#ff8ad0' : (Math.floor(time * 10) & 1) === 0 ? '#ff5a4a' : '#ffb04a';
-      ellipseRing(ctx, s.tx + ox, s.ty + oy, Math.max(3, s.splash * (1.2 - 0.4 * t)), false);
+      const blink = (Math.floor(time * 10) & 1) === 0;
+      if (s.fall === 2) ctx.fillStyle = blink ? '#fff27a' : '#bfe8ff';
+      else ctx.fillStyle = s.allied ? '#ff8ad0' : blink ? '#ff5a4a' : '#ffb04a';
+      const r = Math.max(3, s.splash * (1.2 - 0.4 * t));
+      ellipseRing(ctx, s.tx + ox, s.ty + oy, r, s.fall > 0);
+      if (s.fall > 0 && r > 5) ellipseRing(ctx, s.tx + ox, s.ty + oy, r * 0.45, false);
     }
     ctx.globalAlpha = 1;
 
@@ -220,6 +282,7 @@ export class EnemyRenderer {
     for (let i = 0; i < enemies.count; i++) {
       const e = enemies.items[i]!;
       if (e.dead) continue;
+      if (e.boss) this.drawBossFloor(ctx, e, alpha, ox, oy, time);
       if (e.burrowed) {
         const x = lerp(e.prevX, e.x, alpha) + ox;
         const y = lerp(e.prevY, e.y, alpha) + oy;
@@ -246,12 +309,14 @@ export class EnemyRenderer {
       const y = lerp(e.prevY, e.y, alpha) + oy;
       const z = lerp(e.prevZ, e.z, alpha);
       const w = Math.max(5, Math.round(e.r * 2.3 * (e.flying ? 0.75 : 1) * (z > 4 ? 0.8 : 1)));
-      drawShadow(ctx, x, y + 1, w);
+      drawShadow(ctx, x, y + 1 + (e.flying ? 0 : footOffset(e) * 0.5), w);
     }
     const shots = world.enemyShots;
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
-      drawShadow(ctx, lerp(s.prevX, s.x, alpha) + ox, lerp(s.prevY, s.y, alpha) + oy + 1, s.lob ? 6 : 4);
+      if (s.fall === 2) continue;
+      const size = s.fall === 1 ? 3 + Math.round(5 * Math.min(1, s.age / s.air)) : s.lob ? 6 : 4;
+      drawShadow(ctx, lerp(s.prevX, s.x, alpha) + ox, lerp(s.prevY, s.y, alpha) + oy + 1, size);
     }
   }
 
@@ -281,15 +346,26 @@ export class EnemyRenderer {
     const st = e.status;
     const frozen = st.t[ST_FREEZE]! > 0;
 
+    const b = e.boss;
     let a = 1;
     if (e.spawnT > 0) a = Math.max(0.15, 1 - e.spawnT / ENEMY_TUNING.spawnTime);
     if (e.faded) a *= 0.28;
-    if (e.hidden) a *= 0.3 + 0.3 * Math.sin(time * 30);
+    if (e.hidden) a *= b ? 0 : 0.3 + 0.3 * Math.sin(time * 30);
     if (e.cfg.move.kind === 'teleport' && e.mode === 1 && e.teleMax > 0) a *= Math.max(0.2, e.teleT / e.teleMax);
+    if (b) a *= b.fade;
+    if (a <= 0.01) return;
+    // Bosses shudder while they roar (phase change) and while they die.
+    if (b && (b.invulnT > 0 || e.dying)) {
+      const k = e.dying ? 2 : 1;
+      const ph = ((time * 60) | 0) % 3;
+      x += ph === 0 ? k : ph === 1 ? -k : 0;
+    }
 
     const anims = s.anims;
     let anim = anims?.idle;
-    if (anims) {
+    if (b) {
+      anim = bossAnim(s, e, z);
+    } else if (anims) {
       if (z > 0.5 && anims.air) anim = anims.air;
       else if (e.teleT > 0 && anims.windup) anim = anims.windup;
       else if (e.moving && anims.move) anim = anims.move;
@@ -325,8 +401,9 @@ export class EnemyRenderer {
     const dx = Math.round(x - (flip ? s.w - 1 - ax : ax) * (w / s.w));
     const dy = Math.round(y - z - hover(e, time) - ay * (h / s.h));
 
-    // Hit = solid white flash; telegraph = a softer white blink over the (wind-up) pose.
-    const flash = e.flash > 0;
+    // Hit = solid white flash; telegraph = a softer white blink over the (wind-up) pose. A dying boss
+    // blinks white; a boss that just changed phase flashes.
+    const flash = e.flash > 0 || (!!b && ((e.dying && (Math.floor(time * 12) & 1) === 0) || b.phaseT < 0.18));
     const blink = !flash && e.teleT > 0 && (Math.floor(time * 16) & 1) === 0;
 
     // Champion: coloured glow + 1 px outline.
@@ -352,6 +429,14 @@ export class EnemyRenderer {
     else img = flip ? getFlipped(s, frame) : getFrame(s, frame);
     ctx.drawImage(img, dx, dy, w, h);
 
+    // A boss's phase colour: a pulsing wash that ramps in after the phase change.
+    if (b && !flash) {
+      const tint = b.c.phases[b.phase]!.tint;
+      if (tint) {
+        ctx.globalAlpha = a * Math.min(1, b.phaseT / 0.6) * (0.3 + 0.12 * Math.sin(time * 5 + e.uid));
+        ctx.drawImage(flip ? getTintedFlipped(s, frame, tint) : getTinted(s, frame, tint), dx, dy, w, h);
+      }
+    }
     // Status tint wash (dominant status; frozen is already fully tinted).
     if (!flash && !frozen && st.mask !== 0) {
       const tint = dominantTint(st.mask);
@@ -385,6 +470,112 @@ export class EnemyRenderer {
     }
   }
 
+  /** A boss's floor telegraphs: the charge line and the landing / emerging marker. */
+  private drawBossFloor(ctx: CanvasRenderingContext2D, e: Enemy, alpha: number, ox: number, oy: number, time: number): void {
+    const b = e.boss!;
+    const x = lerp(e.prevX, e.x, alpha) + ox;
+    const y = lerp(e.prevY, e.y, alpha) + oy;
+    if (b.tellLine) {
+      // Dashes marching along the charge direction to the room's edge.
+      ctx.globalAlpha = 0.45 + 0.35 * Math.sin(time * 18);
+      ctx.fillStyle = '#ff5a4a';
+      const off = (time * 60) % 8;
+      for (let d = e.r + off; d < 260; d += 8) {
+        const px = Math.round(x + b.tellX * d);
+        const py = Math.round(y + b.tellY * d);
+        if (px < ox || px > ox + ROOM_W || py < oy || py > oy + ROOM_H) break;
+        ctx.fillRect(px - 1, py - 1, 3, 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (b.markT > 0) {
+      const mx = b.markX + ox;
+      const my = b.markY + oy;
+      ctx.globalAlpha = 0.35 + 0.35 * Math.sin(time * 16);
+      ctx.fillStyle = (Math.floor(time * 10) & 1) === 0 ? '#ff5a4a' : '#ffb04a';
+      ellipseRing(ctx, mx, my, e.r + 3, true);
+      ellipseRing(ctx, mx, my, Math.max(3, (e.r + 3) * (0.3 + 0.5 * ((time * 2) % 1))), false);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  private readonly boltGlow = glowSprite(10, '255,240,160', 0.8);
+
+  /** A lightning strike: nothing but its marker until the last moment, then a bolt and a flash. */
+  private drawBolt(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, time: number): void {
+    if (t < 0.82) return;
+    const seed = Math.floor(time * 30) + Math.round(x);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(255,240,140,0.55)';
+    ctx.lineWidth = 4;
+    boltPath(ctx, x, y, seed);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    boltPath(ctx, x, y, seed);
+    ctx.globalAlpha = 0.5 * ((t - 0.82) / 0.18);
+    const g = this.boltGlow;
+    ctx.drawImage(g, Math.round(x - g.width / 2), Math.round(y - g.height / 2));
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Enemy beams (bosses): a thin flickering telegraph, then the damaging beam (additive). */
+  drawBeams(ctx: CanvasRenderingContext2D, world: World, alpha: number, ox: number, oy: number, time: number): void {
+    const enemies = world.enemies;
+    for (let i = 0; i < enemies.count; i++) {
+      const e = enemies.items[i]!;
+      const b = e.boss;
+      if (!b || e.dead) continue;
+      for (let k = 0; k < 2; k++) {
+        const bm = b.beams[k]!;
+        if (!bm.on) continue;
+        const L = BEAM_LOOKS[bm.look] ?? BEAM_LOOKS[0];
+        const x0 = lerp(e.prevX, e.x, alpha) + ox;
+        const y0 = lerp(e.prevY, e.y, alpha) + oy - 4;
+        const x1 = x0 + Math.cos(bm.angle) * bm.len;
+        const y1 = y0 + Math.sin(bm.angle) * bm.len;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        if (bm.tele) {
+          ctx.globalAlpha = 0.35 + 0.35 * Math.sin(time * 30);
+          ctx.strokeStyle = L.core;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else {
+          const wob = 1 + 0.15 * Math.sin(time * 40);
+          ctx.strokeStyle = L.glow;
+          ctx.lineWidth = (bm.width + 6) * wob;
+          ctx.stroke();
+          ctx.globalAlpha = 0.85;
+          ctx.strokeStyle = L.core;
+          ctx.lineWidth = bm.width * wob;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = L.hot;
+          ctx.lineWidth = Math.max(1, bm.width / 3);
+          if (bm.look === 1) {
+            // Lightning: a jagged strand along the beam.
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            const n = Math.max(2, Math.floor(bm.len / 10));
+            const nx = -Math.sin(bm.angle);
+            const ny = Math.cos(bm.angle);
+            for (let j = 1; j <= n; j++) {
+              const t = j / n;
+              const jit = j === n ? 0 : (hash(j * 13 + Math.floor(time * 24)) - 0.5) * bm.width;
+              ctx.lineTo(x0 + (x1 - x0) * t + nx * jit, y0 + (y1 - y0) * t + ny * jit);
+            }
+          }
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+  }
+
   drawShots(ctx: CanvasRenderingContext2D, world: World, alpha: number, ox: number, oy: number, time: number): void {
     const shots = world.enemyShots;
     if (shots.count === 0) return;
@@ -392,6 +583,7 @@ export class EnemyRenderer {
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
+      if (s.fall > 0) continue;
       const style = s.allied && s.style !== ICE_STYLE ? CHARM_STYLE : s.style;
       const g = shotGlow(style, Math.max(1, Math.min(8, Math.round(s.r))));
       if (!g) continue;
@@ -402,6 +594,17 @@ export class EnemyRenderer {
     ctx.globalCompositeOperation = 'source-over';
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
+      if (s.fall === 2) {
+        this.drawBolt(ctx, s.tx + ox, s.ty + oy, s.age / s.air, time);
+        continue;
+      }
+      if (s.fall === 1) {
+        const img = getFrame(DEBRIS_SPRITE, (s.owner + i) & 1);
+        const x = Math.round(lerp(s.prevX, s.x, alpha) + ox);
+        const y = Math.round(lerp(s.prevY, s.y, alpha) + oy - lerp(s.prevZ, s.z, alpha));
+        ctx.drawImage(img, x - (img.width >> 1), y - img.height + 2);
+        continue;
+      }
       const style = s.allied && s.style !== ICE_STYLE ? CHARM_STYLE : s.style;
       const r = Math.max(1, Math.min(8, Math.round(s.r)));
       const img = shotSprite(style, r);

@@ -8,8 +8,9 @@ import type { InputState } from '../engine/inputState';
 import { Rng, seedToU32 } from '../engine/rng';
 import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
-import { CHARACTERS, getEnemy, getItem } from '../content/registry';
-import { nearestFreeSpot, startWave, updateArena, type WaveOpts } from './arena';
+import { CHARACTERS, getBoss, getEnemy, getItem } from '../content/registry';
+import { beginWave, nearestFreeSpot, startWave, updateArena, type WaveOpts } from './arena';
+import { spawnBoss, type BossSpawnOpts } from './bosses/brain';
 import { resetAttackRoom, updateAttack } from './attack/update';
 import { explode, placeBomb, updateBombs } from './bombs';
 import { hurtPlayer, killPlayer } from './combat';
@@ -26,8 +27,8 @@ import { SRC_PLAYER } from './hittable';
 import { describeHealth } from './health';
 import { addCounter } from './inventory';
 import { pickItem } from './itemPools';
-import { setPedestalItem, spawnBell, spawnPedestal, updatePedestals, updateRotation, type Pedestal } from './pedestals';
-import { pickupKindOf, pickupName } from './pickupKinds';
+import { haggled, setPedestalItem, spawnBell, spawnPedestal, updatePedestals, updateRotation, type Pedestal } from './pedestals';
+import { pickupKindOf, pickupName, type PickupKind } from './pickupKinds';
 import { spawnPickup, updatePickups } from './pickups';
 import { updatePlayer } from './player';
 import { cellCenterX, cellCenterY, parseRoomLayout, type RoomMarker } from './room';
@@ -65,8 +66,26 @@ export interface SimSummary {
   projectiles: number;
   dummies: { x: number; y: number; hp: number; popped: boolean }[];
   pickups: { kind: string; x: number; y: number; opened: boolean; item: string }[];
-  /** Item pedestals (and the training-yard bell: `bell`, no item); `rotate` = a rotating yard pedestal. */
-  pedestals: { x: number; y: number; item: string; bell: boolean; rotate: boolean }[];
+  /**
+   * Item pedestals (and the training-yard bell: `bell`, no item); `rotate` = a rotating yard pedestal;
+   * prices (coins after the haggler discount, heart containers, keys), shop goods (a pickup name) and
+   * props ('jar' | 'slots' | 'trader' | '').
+   */
+  pedestals: {
+    x: number;
+    y: number;
+    item: string;
+    bell: boolean;
+    rotate: boolean;
+    price: number;
+    hearts: number;
+    keys: number;
+    goods: string;
+    prop: string;
+    group: number;
+  }[];
+  /** The room's boss fight (null when none is on). */
+  boss: { id: string; hp: number; maxHp: number; phase: number; phases: number; dying: boolean; kind: number } | null;
   bombs: number;
   enemies: {
     id: string;
@@ -124,6 +143,8 @@ export interface SimSummary {
 }
 
 const spot = { x: 0, y: 0 };
+/** Summary names of the pedestal props (sim/shopProps PROP_*). */
+const PROP_NAMES = ['', 'jar', 'slots', 'trader'];
 
 export class Sim {
   readonly seed: number;
@@ -223,6 +244,8 @@ export class Sim {
     w.creep.clear();
     w.waves.clear();
     w.arena.reset();
+    w.boss.reset();
+    w.props.reset();
     w.flow.invalidate();
     w.bellRung = false;
     leftRoom(w);
@@ -310,6 +333,7 @@ export class Sim {
     updateBombs(w, DT);
     updatePickups(w, DT);
     updatePedestals(w, DT);
+    w.props.update(DT);
     if (this.rotating) updateRotation(w, this.roomRng, DT);
     updateHazards(w);
     updateDummies(w, DT);
@@ -380,6 +404,29 @@ export class Sim {
       sy = spot.y;
     }
     return spawnEnemy(this.world, getEnemy(id), sx, sy, opts);
+  }
+
+  /**
+   * Debug / tests: starts a boss fight with a BossDef in the current room (intro card, HP bar, phases),
+   * at (x, y) or across the room from the player; the doors shut like any wave. Returns the boss.
+   */
+  startBossFight(id: string, x?: number, y?: number, opts?: BossSpawnOpts): Enemy | null {
+    const w = this.world;
+    if (w.arena.active) return null;
+    const p = w.player;
+    let sx = x ?? (p.x < ROOM_W / 2 ? ROOM_W - 48 : 48);
+    let sy = y ?? ROOM_H / 2;
+    if (x === undefined && y === undefined) {
+      nearestFreeSpot(w, sx, sy, spot);
+      sx = spot.x;
+      sy = spot.y;
+    }
+    const e = spawnBoss(w, getBoss(id), sx, sy, opts);
+    if (e) {
+      w.arena.reward = true;
+      beginWave(w);
+    }
+    return e;
   }
 
   /** Debug: kills every enemy (credited to the player). */
@@ -574,7 +621,19 @@ export class Sim {
     const pedestals: SimSummary['pedestals'] = [];
     for (let i = 0; i < w.pedestals.count; i++) {
       const s = w.pedestals.items[i]!;
-      pedestals.push({ x: s.x, y: s.y, item: s.item, bell: s.bell, rotate: s.rotate !== null });
+      pedestals.push({
+        x: s.x,
+        y: s.y,
+        item: s.item,
+        bell: s.bell,
+        rotate: s.rotate !== null,
+        price: haggled(w, s.price),
+        hearts: s.hearts,
+        keys: haggled(w, s.keys),
+        goods: s.goods >= 0 ? pickupName(s.goods as PickupKind) : '',
+        prop: PROP_NAMES[s.prop] ?? '',
+        group: s.group,
+      });
     }
     return {
       tick: w.tick,
@@ -590,6 +649,9 @@ export class Sim {
       creep: w.creep.count,
       arena: { active: w.arena.active, wave: w.arena.wave, doors: w.arena.doors },
       run: this.run ? this.run.summary() : null,
+      boss: w.boss.active
+        ? { id: w.boss.id, hp: w.boss.hp, maxHp: w.boss.maxHp, phase: w.boss.phase, phases: w.boss.phases, dying: w.boss.dying, kind: w.boss.kind }
+        : null,
       attack: {
         primary: p.attack.primary,
         riders: CARRIER_IDS.filter((c) => c !== p.attack.primary && p.attack.stacksOf(c) > 0),

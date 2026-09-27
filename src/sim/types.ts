@@ -248,6 +248,8 @@ export const PLAYER_FLAGS = [
   'seeSecrets',
   /** Ignores the darkness curse. */
   'darkVision',
+  /** Shop and trader prices −25 % (Magpie's Stall, Old Pell). */
+  'haggler',
 ] as const;
 export type PlayerFlag = (typeof PLAYER_FLAGS)[number];
 
@@ -584,14 +586,81 @@ export interface ChampionDef {
   drops?: DropTableId;
 }
 
+/**
+ * Boss attack patterns (sim/bosses/patterns.ts): the big telegraphed moves a boss phase cycles through,
+ * composed by data. Each kind declares its numeric params as `name: [default, min, max]` like the enemy
+ * behaviours (validated by validateBossDef).
+ */
+export const BOSS_PATTERN_KINDS = [
+  /** Telegraphed charge across the room (bonk on walls: shake, optional shot ring / debris). */
+  'charge',
+  /** Crouch → leap (landing marker) → slam: shockwave rings + optional shot ring. */
+  'jumpSlam',
+  /** Rings of shots, repeated (with spin: a stepped spiral). */
+  'ring',
+  /** A rotating stream of shots (arms, turn rate, duration). */
+  'spiral',
+  /** Walls of shots crossing the room with a gap to slip through. */
+  'wave',
+  /** Aimed fans in quick bursts. */
+  'aimedBurst',
+  /** Calls adds (spec.enemy). */
+  'summon',
+  /** A telegraphed damaging beam that sweeps an arc (rocks are cover). */
+  'beamSweep',
+  /** Digs in, tunnels toward the player (mound), rumbles, erupts. */
+  'burrow',
+  /** Fades out, blinks to a marked spot, attacks on reappearing. */
+  'teleport',
+  /** Slams a wall: debris (or lightning with `bolt`) rains on marked spots. */
+  'debrisRain',
+  /** Splits into smaller parts sharing the fight's health (usually a phase `enter`). */
+  'split',
+  /** Orbiting shield orbs that soak up shots (spec.enemy, default 'bubble-ward'). */
+  'shields',
+  /** Lobbed globs that leave hazard puddles (muck, water, fire…). */
+  'hazard',
+  /** Runs a named boss hook (registerBossHook) — per-boss code. */
+  'hook',
+] as const;
+export type BossPatternKind = (typeof BOSS_PATTERN_KINDS)[number];
+
+export interface BossPatternSpec {
+  kind: BossPatternKind;
+  /** Numeric params (see the kind's ParamSpec in sim/bosses/patterns.ts). */
+  params?: Readonly<Record<string, number>>;
+  /** summon / shields: the enemy to call. */
+  enemy?: EnemyId;
+  /** hook: the registered boss hook name. */
+  hook?: string;
+  /** Projectile look (default: the boss's `shot`). */
+  shot?: EnemyShotStyle;
+  /** Pick weight in 'random' order (default 1). */
+  weight?: number;
+}
+
 export interface PhaseSpec {
-  /** The phase starts when HP falls to this fraction (1 for the first phase). */
+  /** The phase starts when the fight's HP falls to this fraction (1 for the first phase). */
   at: number;
   name?: string;
+  /** Baseline movement between patterns (the enemy movement library). */
   move: MoveSpec;
+  /** Enemy-library attacks that run on their own timers between patterns (may be empty). */
   attacks: readonly AttackSpec[];
   speedMul?: number;
   summon?: { enemy: EnemyId; count: number; cooldown: number };
+  /** Boss patterns of this phase (sim/bosses/patterns), used in `order`. */
+  patterns?: readonly BossPatternSpec[];
+  /** 'cycle' (default: in order) or 'random' (seeded, weighted, never the same twice in a row). */
+  order?: 'cycle' | 'random';
+  /** Seconds of baseline movement between two patterns [min, max] (default [1, 1.6]). */
+  rest?: readonly [number, number];
+  /** A pattern run once when the phase begins, right after the roar (split, shields, summon…). */
+  enter?: BossPatternSpec;
+  /** Colour shift of this phase: the sprite is washed toward this #rrggbb (render). */
+  tint?: string;
+  /** Speed-up of this phase: rests / telegraphs ÷ pace, shot speeds × √pace (default 1). */
+  pace?: number;
 }
 
 export interface BossDef {
@@ -602,12 +671,38 @@ export interface BossDef {
   hp: number;
   /** At least 2 phases. */
   phases: readonly PhaseSpec[];
+  /** 32-56 px, anims `idle` + `move` (optional `windup`, `air`, `slam`, `roar`, `hurt`). */
   sprite: SpriteDef | string;
   /** Collision radius / visual size, px. */
   size: number;
   /** Music track id (music registry). */
   music?: string;
   drops?: DropTableId;
+  /** Baseline walking speed, px/s (× phase speedMul; default 30). */
+  speed?: number;
+  /** Contact damage in half hearts (default 1). */
+  contact?: number;
+  /** Knockback mass (default 6; minibosses 3). */
+  mass?: number;
+  /** Status duration multiplier (default 0.5; minibosses 0.65; below 0.75 freeze only slows). */
+  resist?: number;
+  /** Crosses pits and rocks. */
+  flying?: boolean;
+  /** Default projectile look. */
+  shot?: EnemyShotStyle;
+  /** Hit / death burst colours. */
+  goo?: readonly string[];
+  /** Intro card line under the name (default: the chapter's name). */
+  title?: string;
+  /** Final bosses: which final this is (floor 12 main / 12 alt / 13) and the ending it gives (1-3). */
+  final?: 'thunderhead' | 'nestmother' | 'undertow';
+  ending?: number;
+  /** Pick weight in its chapter's pool (default 1). */
+  weight?: number;
+  /** Bestiary blurb. */
+  bestiary?: string;
+  /** Named boss hook (registerBossHook) with per-boss code (tick / phase start). */
+  hook?: string;
 }
 
 // ── Characters ───────────────────────────────────────────────────────────────

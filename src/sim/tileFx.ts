@@ -105,6 +105,7 @@ export function explodeTiles(w: World, x: number, y: number, radius: number): vo
       if (dx * dx + dy * dy < r2) destroyTile(w, col, row);
     }
   }
+  w.onExplosion?.(x, y, radius);
   const cb = w.onSecretWallBombed;
   if (cb) {
     const reach = radius + SLOT_REACH;

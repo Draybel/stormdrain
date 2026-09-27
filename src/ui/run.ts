@@ -13,7 +13,8 @@
 import type { InputState } from '../engine/inputState';
 import { ICON_FIGHT } from '../content/sprites/combat';
 import { CURSE_ICONS } from '../content/sprites/mapIcons';
-import { CHAPTERS, findItem } from '../content/registry';
+import { BOSSES, CHAPTERS, findItem } from '../content/registry';
+import { BOSS_BAR_W, BOSS_BAR_Y, BossHud } from '../render/bossHud';
 import { randomSeed } from '../engine/rng';
 import { GAME_H, GAME_W } from '../engine/screen';
 import { Sim } from '../sim/sim';
@@ -72,7 +73,30 @@ const DENIED: Readonly<Record<string, string>> = {
   locked: 'NEEDS A KEY',
   poor: 'NOT ENOUGH COINS',
   noHearts: 'NOT ENOUGH HEARTS',
+  noKeys: 'NOT ENOUGH KEYS',
+  full: "YOU CAN'T USE THAT RIGHT NOW",
 };
+
+/** Ending cards (DESIGN "Final bosses & endings"): id → title, line. */
+const ENDINGS: Readonly<Record<number, readonly [string, string]>> = {
+  1: ['CLEAR SKIES', 'THE STORM IS OVER. FOR NOW.'],
+  2: ['THE QUIET HIVE', 'THE PAPER QUEEN SLEEPS. THE DRAINS HUSH.'],
+  3: ['WHAT THE RAIN KEPT', 'EVERYTHING THE STORM TOOK COMES HOME.'],
+};
+
+/** Room label names of the special rooms (DESIGN "Rooms"). */
+const ROOM_NAMES: Readonly<Partial<Record<string, string>>> = {
+  treasure: 'KEEPSAKE ROOM',
+  shop: "MAGPIE'S STALL",
+  secret: 'HIDEY-HOLE',
+  deepSecret: 'FORGOTTEN POCKET',
+  challenge: 'RAIN BARREL ARENA',
+  cursed: 'THORN ROOM',
+  nook: "THE BROKER'S NOOK",
+};
+
+/** Real seconds of slow motion when a boss starts dying (the sim runs at half speed meanwhile). */
+const SLOWMO_TIME = 1.5;
 
 export type RunMode = 'run' | 'yard';
 
@@ -124,6 +148,13 @@ export class RunScene implements Scene {
   private ending = '';
   private endT = 0;
   private endSub = '';
+  /** The ending reached (1-3) for the victory card. */
+  private endingId = 0;
+  /** Boss HP bar + intro card. */
+  private readonly bossHud = new BossHud();
+  /** Boss death slow motion: real seconds left, and the step-skipping toggle. */
+  private slowT = 0;
+  private slowSkip = false;
 
   constructor(app: App, mode: RunMode = 'run') {
     this.app = app;
@@ -157,6 +188,7 @@ export class RunScene implements Scene {
   restartRun(opts: RunOptions = {}, seed: number | string = randomSeed()): void {
     this.sim = Sim.newRun(seed, opts);
     this.ending = '';
+    this.endingId = 0;
     this.endTap.visible = false;
     this.slideT = SLIDE_TIME;
     this.irisPhase = 0;
@@ -181,6 +213,8 @@ export class RunScene implements Scene {
     this.app.particles.clear();
     this.app.shake.reset();
     this.hud.reset();
+    this.bossHud.reset();
+    this.slowT = 0;
     this.iconsFor = -1;
     this.time = 0;
     this.hitStop = 0;
@@ -231,9 +265,9 @@ export class RunScene implements Scene {
     this.noticeTime = time;
   }
 
-  /** Is a transition (slide / iris) holding the sim still? */
+  /** Is a transition (slide / iris) holding the sim still — or slow motion stepping it unevenly? */
   private get frozen(): boolean {
-    return this.slideT < SLIDE_TIME || this.irisPhase !== 0;
+    return this.slideT < SLIDE_TIME || this.irisPhase !== 0 || this.slowT > 0;
   }
 
   update(dt: number, input: InputState): void {
@@ -286,6 +320,15 @@ export class RunScene implements Scene {
     }
     this.hitStop = 0;
     if (this.app.input.moveStick.active || this.app.input.aimStick.active) this.usedSticks = true;
+    // A boss's death plays in slow motion: every other tick is skipped (presentation only).
+    if (this.slowT > 0) {
+      this.slowT -= dt;
+      this.slowSkip = !this.slowSkip;
+      if (this.slowSkip && !input.bomb && !input.active && !input.consumable && !input.firePressed) {
+        this.tickPresentation(dt, false);
+        return;
+      }
+    }
 
     const sim = this.sim;
     sim.step(input);
@@ -294,8 +337,34 @@ export class RunScene implements Scene {
       const e = q.at(i);
       this.fx.onEvent(e);
       this.hud.onEvent(e);
+      this.bossHud.onEvent(e);
       playEventSound(this.app.audio, e);
       switch (e.type) {
+        case 'bossIntro':
+          // The yard's debug fights get their theme too (runs start it on room entry).
+          if (!sim.run) this.app.audio.music.stinger(MUSIC.bossIntro, { then: this.bossTrack(e.id) });
+          break;
+        case 'bossDying':
+          this.slowT = SLOWMO_TIME;
+          this.slowSkip = false;
+          break;
+        case 'npcSay':
+          this.say(e.id, 2.6);
+          break;
+        case 'donate':
+          if (e.b === 1) this.say('THE JAR JINGLES HAPPILY · LUCK UP!', 2.2);
+          break;
+        case 'slots':
+          if (e.a === 2) this.say('THE GUMBALL GAMBLER BURSTS OPEN!', 2);
+          else if (e.a === 1) this.say(e.b === 1 ? 'A PRIZE!' : 'NOTHING... TRY AGAIN?', 1.2);
+          break;
+        case 'trade':
+          this.say('OLD PELL: A FAIR TRADE. SAFE TRAVELS...', 2.4);
+          break;
+        case 'grate':
+          if (e.a === 0) this.say('A CRACKED DRAIN GRATE...', 2.2);
+          else if (e.a === 1) this.say('THE GRATE GIVES WAY. A HIDDEN ROUTE!', 2.4);
+          break;
         case 'denied':
           this.say(DENIED[e.id] ?? 'NOPE');
           break;
@@ -318,7 +387,7 @@ export class RunScene implements Scene {
           this.onRoomEnter(e.b);
           break;
         case 'trapdoor':
-          if (e.a === 1) this.startIris();
+          if (e.a === 1) this.startIris(e.x, e.y);
           else this.say('A TRAPDOOR OPENS...', 2);
           break;
         case 'floorStart':
@@ -329,6 +398,7 @@ export class RunScene implements Scene {
           this.say(e.b === 2 ? "THE BROKER'S NOOK HAS OPENED" : 'A SECRET!', 2);
           break;
         case 'runEnd':
+          this.endingId = e.b;
           this.endRun('win');
           break;
         case 'item':
@@ -353,6 +423,7 @@ export class RunScene implements Scene {
     const w = this.sim.world;
     if (stepped) this.fx.tick(w, dt);
     this.hud.update(dt, w);
+    this.bossHud.update(dt, w.boss);
     this.app.particles.update(dt);
     this.app.shake.update(dt);
     this.syncButtonIcons();
@@ -371,13 +442,21 @@ export class RunScene implements Scene {
     if (this.irisPhase === 0) this.playRoomMusic(false);
   }
 
-  private startIris(): void {
-    const p = this.sim.world.player;
+  /** Closes the iris on (x, y) (room px): where she fell (trapdoor, grate, whirlpool). */
+  private startIris(x: number, y: number): void {
     this.irisPhase = 1;
     this.irisT = 0;
     // The iris closes on where she fell (the old room's image is what's on screen).
-    this.irisX = (this.sim.world.trapdoor.x || p.x) + ROOM_X;
-    this.irisY = (this.sim.world.trapdoor.y || p.y) + ROOM_Y;
+    this.irisX = x + ROOM_X;
+    this.irisY = y + ROOM_Y;
+  }
+
+  /** The theme of a boss (its own, a final's, else the chapter's boss theme). */
+  private bossTrack(id: string): string {
+    const def = BOSSES.get(id);
+    if (def?.music) return def.music;
+    if (def?.kind === 'miniboss') return MUSIC.miniboss;
+    return bossMusicFor(this.sim.run?.data.chapter ?? 'gutterways');
   }
 
   private showFloorCard(): void {
@@ -406,7 +485,7 @@ export class RunScene implements Scene {
     const cleared = run.state.cleared;
     if (type === 'shop') music.play(MUSIC.shop);
     else if (type === 'secret' || type === 'deepSecret') music.play(MUSIC.secret);
-    else if (type === 'boss' && !cleared) music.stinger(MUSIC.bossIntro, { then: bossMusicFor(run.data.chapter) });
+    else if (type === 'boss' && !cleared) music.stinger(MUSIC.bossIntro, { then: this.bossTrack(run.state.boss) });
     else if (type === 'miniboss' && !cleared) music.play(MUSIC.miniboss);
     else music.play(this.chapterTrack(), first ? { fade: 1.5 } : undefined);
   }
@@ -461,6 +540,8 @@ export class RunScene implements Scene {
     if (this.cardT < CARD_TIME && this.irisPhase !== 1) {
       const a = this.cardT < 0.3 ? this.cardT / 0.3 : this.cardT > CARD_TIME - 0.6 ? (CARD_TIME - this.cardT) / 0.6 : 1;
       drawFloorCard(ctx, this.cardTitle, this.cardSub, this.cardCurse, a);
+    } else if (this.slideT >= SLIDE_TIME) {
+      this.bossHud.drawCard(ctx, world.boss, this.time);
     }
     if (this.ending) this.drawEnding(ctx);
   }
@@ -496,8 +577,11 @@ export class RunScene implements Scene {
     ctx.fillRect(0, 0, GAME_W, GAME_H);
     ctx.globalAlpha = a;
     const win = this.ending === 'win';
-    drawTextCentered(ctx, win ? 'CLEAR SKIES' : 'THE RAIN TAKES YOU', GAME_W / 2, 62, END_TITLE);
-    drawTextCentered(ctx, win ? 'THE STORM IS OVER. FOR NOW.' : 'SOAKED THROUGH...', GAME_W / 2, 92, END_SUB);
+    // Victory screen stub (M4 polishes the ending screens): the ending's title and line.
+    const end = ENDINGS[this.endingId] ?? ENDINGS[1]!;
+    drawTextCentered(ctx, win ? end[0] : 'THE RAIN TAKES YOU', GAME_W / 2, 62, END_TITLE);
+    drawTextCentered(ctx, win ? end[1] : 'SOAKED THROUGH...', GAME_W / 2, 92, END_SUB);
+    if (win) drawTextCentered(ctx, `ENDING ${this.endingId || 1} OF 3`, GAME_W / 2, 118, LABEL);
     drawTextCentered(ctx, this.endSub, GAME_W / 2, 106, LABEL);
     if (this.endT >= END_WAIT) drawTextCentered(ctx, 'TAP TO CONTINUE', GAME_W / 2, 150, HINT);
     ctx.globalAlpha = 1;
@@ -505,9 +589,18 @@ export class RunScene implements Scene {
 
   private drawHud(ctx: CanvasRenderingContext2D): void {
     const banner = this.hud.bannerVisible;
+    const boss = this.sim.world.boss;
     // Room label over the top wall; short notices ("NO BOMBS") replace it for a moment. Both stay
-    // in the top band so nothing covers the room.
-    if (this.noticeTime > 0) {
+    // in the top band so nothing covers the room. During a boss fight its HP bar takes that place
+    // (notices then sit above it).
+    if (boss.active) {
+      this.bossHud.drawBar(ctx, boss, this.time);
+      if (this.noticeTime > 0 && !banner) {
+        ctx.globalAlpha = Math.min(1, this.noticeTime * 3);
+        drawTextCentered(ctx, this.notice, GAME_W / 2, ROOM_OUTER_Y - 30, NOTICE);
+        ctx.globalAlpha = 1;
+      }
+    } else if (this.noticeTime > 0) {
       ctx.globalAlpha = Math.min(1, this.noticeTime * 3);
       drawTextCentered(ctx, this.notice, GAME_W / 2, ROOM_OUTER_Y - 12, NOTICE);
       ctx.globalAlpha = 1;
@@ -562,13 +655,16 @@ export class RunScene implements Scene {
     const run = this.sim.run;
     let n = 0;
     if (w.arena.active) for (let i = 0; i < w.enemies.count; i++) if (!w.enemies.items[i]!.dead) n++;
-    const key = w.arena.active ? w.arena.wave * 1000 + n : -2 - (run ? run.data.current : 0);
+    const key = w.arena.active ? w.arena.wave * 1000 + n : -2 - (run ? run.data.current + run.state.plate * 100 : 0);
     if (key === this.labelFor) return this.label;
     this.labelFor = key;
     if (run) {
       const d = run.data;
       const ch = CHAPTERS.get(d.chapter);
-      const place = `${(ch?.name ?? '').toUpperCase()} · FLOOR ${d.floor}`;
+      const type = run.room.type;
+      const special = ROOM_NAMES[type];
+      let place = special ? `${special} · FLOOR ${d.floor}` : `${(ch?.name ?? '').toUpperCase()} · FLOOR ${d.floor}`;
+      if (type === 'challenge' && run.state.plate === 0 && !run.state.cleared) place = 'RAIN BARREL ARENA · STEP ON THE PLATE';
       this.label = w.arena.active ? `${n} LEFT` : place;
     } else if (!w.arena.active) {
       this.label = this.sim.autoWaves
@@ -586,12 +682,24 @@ export class RunScene implements Scene {
 
   /** HUD element rects in game px (window.__SD.hud()). */
   hudRects(): HudRect[] {
-    return this.hud.rects(this.sim.world, this.ui);
+    const rects = this.hud.rects(this.sim.world, this.ui);
+    if (this.sim.world.boss.active) {
+      rects.push({ id: 'bossBar', x: Math.round((GAME_W - BOSS_BAR_W) / 2) - 2, y: BOSS_BAR_Y - 9, w: BOSS_BAR_W + 4, h: 18 });
+    }
+    return rects;
   }
 
-  /** Test hook: is a room slide / iris / card / ending showing? */
-  get presentation(): { slide: boolean; iris: number; card: boolean; ending: string } {
-    return { slide: this.slideT < SLIDE_TIME, iris: this.irisPhase, card: this.cardT < CARD_TIME, ending: this.ending };
+  /** Test hook: is a room slide / iris / card / ending / boss card / slow motion showing? */
+  get presentation(): { slide: boolean; iris: number; card: boolean; ending: string; bossCard: boolean; slowmo: boolean; endingId: number } {
+    return {
+      slide: this.slideT < SLIDE_TIME,
+      iris: this.irisPhase,
+      card: this.cardT < CARD_TIME,
+      ending: this.ending,
+      bossCard: this.bossHud.cardVisible,
+      slowmo: this.slowT > 0,
+      endingId: this.endingId,
+    };
   }
 }
 

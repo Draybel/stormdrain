@@ -10,6 +10,7 @@
 
 import type { Poolable } from '../../engine/pool';
 import { HIT_ENEMY, type Hittable } from '../hittable';
+import type { BossState } from '../bosses/state';
 import type { ChampionDef, EnemyDef, SpriteDef, StatusKind } from '../types';
 import type { World } from '../world';
 import type { CompiledAttack, CompiledEnemy } from './behaviors/common';
@@ -82,6 +83,18 @@ export class Enemy implements Poolable, Hittable {
   gen = 0;
   /** uid of the enemy that spawned it (minions), 0 = none. */
   parent = 0;
+  /** Boss brain (sim/bosses): phases, patterns, death sequence — null for ordinary enemies. */
+  boss: BossState | null = null;
+  /** A boss's death sequence is playing: untouchable, harmless, still counted as alive. */
+  dying = false;
+  /**
+   * Tethered to another enemy (boss shield orbs): uid of the anchor (0 = free), orbit radius (px),
+   * angle (rad) and angular speed (rad/s). The update places it on the orbit and it dies with its anchor.
+   */
+  anchor = 0;
+  anchorR = 0;
+  anchorA = 0;
+  anchorW = 0;
 
   // ── Behaviour state ──────────────────────────────────────────────────────
   /** Seconds of spawn protection left (inactive, harmless). */
@@ -151,11 +164,11 @@ export class Enemy implements Poolable, Hittable {
 
   /** Harmless and untouchable right now (underground, blinking, faded)? */
   get intangible(): boolean {
-    return this.burrowed || this.hidden || this.faded;
+    return this.burrowed || this.hidden || this.faded || this.dying;
   }
 
   get hittable(): boolean {
-    return this.alive && !this.dead && !this.burrowed && !this.hidden && !this.faded;
+    return this.alive && !this.dead && !this.burrowed && !this.hidden && !this.faded && !this.dying;
   }
 
   hurt(dmg: number, source: number, kx: number, ky: number): boolean {

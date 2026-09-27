@@ -179,6 +179,9 @@ export class DebugMenu implements Scene {
       },
       { label: () => 'TRAINING YARD', run: () => (a.yard(), 'TO THE YARD') },
       { label: () => 'NEW RUN', run: () => (a.newRun(), 'NEW RUN') },
+      // Bosses (Phase 3B): pick one, then fight it right here.
+      { label: () => `BOSS: ${a.bossName()}`, run: () => `BOSS: ${a.nextBoss()}` },
+      { label: () => 'FIGHT BOSS', run: () => (a.bossFight() ? `${a.bossName()}!` : 'FINISH THIS FIGHT FIRST') },
     ];
     // 4 columns × 5 rows of 24 px buttons fit the list area.
     const cw = Math.floor((LIST_W - 6 * (CHEAT_COLS - 1) - 6) / CHEAT_COLS);

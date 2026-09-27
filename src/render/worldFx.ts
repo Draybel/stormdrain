@@ -5,7 +5,7 @@
  */
 
 import type { GameEvent } from '../engine/events';
-import { ENEMIES, allChampions } from '../content/registry';
+import { BOSSES, ENEMIES, allChampions } from '../content/registry';
 import { GLOW } from '../content/sprites/palette';
 import { ST_BURN, ST_CHARM, ST_FEAR, ST_FREEZE, ST_POISON } from '../sim/enemies/status';
 import { SRC_STATUS } from '../sim/hittable';
@@ -52,6 +52,10 @@ const BLINK = ['#c9a0ff', '#ffffff', '#8a6ad8'] as const;
 const RUBBLE = ['#5c6580', '#8691ad', '#3e455a', '#2a2e3c'] as const;
 const KEY_GOLD = ['#fff4a8', '#e0b040', '#ffffff'] as const;
 const RAIN = 'rgba(150,185,230,0.55)';
+const WATER_BITS = ['#8fc8f0', '#ffffff', '#3b78c0', '#6fb0e8'] as const;
+const LUCK_BITS = ['#7ee06a', '#c8ff9a', '#fff4a8', '#ffffff'] as const;
+const GUMBALLS = ['#ff6a8a', '#6ad0ff', '#ffe06a', '#8aff9a', '#c0403a'] as const;
+const MOTH_DUST = ['#c8b894', '#9a8a70', '#fff4d0', '#6e6250'] as const;
 /** Wall-slot centres (screen, before shake) per side, for door / secret-wall effects. */
 const SLOT_SX = [ROOM_X + TILE * 6.5, ROOM_X + TILE * 13 + 4, ROOM_X + TILE * 6.5, ROOM_X - 4];
 const SLOT_SY = [ROOM_Y - 4, ROOM_Y + TILE * 3.5, ROOM_Y + TILE * 7 + 4, ROOM_Y + TILE * 3.5];
@@ -76,11 +80,12 @@ const STATUS_BITS: readonly (readonly string[])[] = [
 ];
 
 function gooOf(id: string): readonly string[] {
-  return ENEMIES.get(id)?.goo ?? GOO;
+  return ENEMIES.get(id)?.goo ?? BOSSES.get(id)?.goo ?? GOO;
 }
 
 /** Visual body centre height of an enemy kind above its feet (flyers hover). */
 function liftOf(id: string, r: number): number {
+  if (BOSSES.has(id)) return r * 0.8;
   return (ENEMIES.get(id)?.flying ? 7 : 0) + r * 0.7;
 }
 
@@ -276,6 +281,23 @@ export class WorldFx {
         const floor = ROOM_OUTER_Y + 10 + Math.random() * (ROOM_OUTER_H - 12);
         const p = P.spawn(ROOM_OUTER_X + Math.random() * ROOM_OUTER_W, ROOM_OUTER_Y - 4, -vy * 0.12, vy, Math.max(0.05, (floor - ROOM_OUTER_Y) / vy), RAIN, 5, P_STREAK);
         if (p) p.fade = false;
+      }
+    }
+    // The hidden-route grate: water drips into it (the hint), or swirls out of it once open.
+    const g = world.props.grate;
+    if (g.active && Math.random() < dt * (g.state === 0 ? 1.6 : 4)) {
+      const gx = g.x + ROOM_X;
+      const gy = g.y + ROOM_Y;
+      if (g.state === 0) {
+        const p = P.spawn(gx + (Math.random() - 0.5) * 8, gy - 14, 0, 20, 0.5, '#8fb8dc');
+        if (p) {
+          p.gravity = 180;
+          p.floorY = gy;
+        }
+      } else {
+        const a = Math.random() * Math.PI * 2;
+        const p = P.spawn(gx + Math.cos(a) * 6, gy + Math.sin(a) * 3, -Math.sin(a) * 14, Math.cos(a) * 7 - 4, 0.6, Math.random() < 0.5 ? '#8fc8f0' : '#ffffff');
+        if (p) p.drag = 1;
       }
     }
     // Hinted secret walls drip.
@@ -703,10 +725,156 @@ export class WorldFx {
         break;
       }
       case 'lobLand': {
-        const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
-        P.burst(x, y, 10, 20, 60, 0.4, bits, 1, 200, 2);
+        if (e.id === 'bolt') {
+          // A lightning strike: white-hot flash, sparks, a quick jolt.
+          P.burst(x, y - 2, 14, 30, 110, 0.35, SHOCK, 1, 80, 3);
+          const r = P.spawn(x, y, 0, 0, 0.2, '#fff27a', 1, P_RING);
+          if (r) r.endSize = Math.round(e.a + 4);
+          this.flash = Math.max(this.flash, 0.18);
+          this.flashColor = '#fff8d8';
+          this.flashMax = 0.35;
+          this.flashDecay = 9;
+          this.shake.add(0.16);
+          break;
+        }
+        const bits = e.id === 'rock' ? RUBBLE : (SHOT_BITS[e.b] ?? SHOT_BITS[0]!);
+        P.burst(x, y, e.id === 'rock' ? 12 : 10, 20, 60, 0.4, bits, 1, 200, 2);
         const r = P.spawn(x, y, 0, 0, 0.25, bits[0]!, 1, P_RING);
         if (r) r.endSize = Math.round(e.a + 2);
+        if (e.id === 'rock') this.shake.add(0.08);
+        break;
+      }
+      // ── Bosses (Phase 3B) ──
+      case 'bossIntro': {
+        P.burst(x, y - 8, 24, 20, 80, 0.7, POOF, 2, -20, 2);
+        this.shake.add(0.3);
+        break;
+      }
+      case 'bossPhase': {
+        // A roar: flash, shake, a burst of the boss's colours and a shock ring.
+        const colors = gooOf(e.id);
+        P.burst(x, y - 12, 26, 40, 120, 0.6, colors, 2, 60, 2);
+        for (let k = 0; k < 2; k++) {
+          const r = P.spawn(x, y - 8, 0, 0, 0.4 + k * 0.2, k === 0 ? '#ffffff' : colors[0]!, 1, P_RING);
+          if (r) r.endSize = 30 + k * 18;
+        }
+        this.warmFlash(0.55);
+        this.flashColor = '#ffffff';
+        this.shake.add(0.55);
+        break;
+      }
+      case 'bossTell': {
+        P.burst(x, y - 10, 6, 10, 30, 0.3, STARS, 1, -10, 3);
+        break;
+      }
+      case 'bossSlam': {
+        P.burst(x, y, 18, 30, 110, 0.5, DUST, 2, 60, 2);
+        P.burst(x, y, 8, 40, 90, 0.45, RUBBLE, 1, 220, 1.5);
+        const r = P.spawn(x, y, 0, 0, 0.35, '#c9d3f0', 1, P_RING);
+        if (r) r.endSize = Math.round(e.a + 6);
+        this.shake.add(e.b === 1 ? 0.5 : 0.4);
+        break;
+      }
+      case 'bossBeam': {
+        if (e.a === 1) this.shake.add(0.25);
+        break;
+      }
+      case 'bossSplit': {
+        const colors = gooOf(e.id);
+        P.burst(x, y - 8, 40, 30, 130, 0.8, colors, 2, 240, 1.5);
+        this.shake.add(0.45);
+        break;
+      }
+      case 'bossDying': {
+        this.warmFlash(0.8);
+        this.flashColor = '#ffffff';
+        this.flashDecay = 3;
+        this.shake.add(0.6);
+        break;
+      }
+      case 'bossBoom': {
+        // One blast of the death sequence: fire, smoke, the boss's goo.
+        P.burst(x, y, 10 + e.a * 2, 30, 90, 0.4, FIRE, 2, -10, 4);
+        P.burst(x, y, 6, 10, 40, 0.7, SMOKE, 2, -20, 2);
+        const r = P.spawn(x, y, 0, 0, 0.25, '#fff3b0', 1, P_RING);
+        if (r) r.endSize = 6 + e.a * 2;
+        this.shake.add(0.2);
+        break;
+      }
+      case 'bossDefeated': {
+        const colors = gooOf(e.id);
+        for (let i = 0; i < 60; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const sp = 40 + Math.random() * 140;
+          const p = P.spawn(x, y - e.a, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.7 - 50, 0.7 + Math.random() * 0.6, colors[i % colors.length]!, i % 3 === 0 ? 3 : 2);
+          if (!p) break;
+          p.gravity = 260;
+          p.drag = 1.2;
+          p.floorY = y + 2 + Math.random() * 10;
+        }
+        for (let k = 0; k < 3; k++) {
+          const r = P.spawn(x, y, 0, 0, 0.5 + k * 0.2, k === 1 ? colors[0]! : '#ffffff', 1, P_RING);
+          if (r) r.endSize = 30 + k * 20;
+        }
+        this.warmFlash(1);
+        this.flashColor = '#ffffff';
+        this.flashMax = 0.7;
+        this.flashDecay = 2.5;
+        this.shake.add(1);
+        break;
+      }
+      case 'bossBlock': {
+        P.burst(x, y, 3, 20, 50, 0.2, IRON, 1, 0, 5);
+        break;
+      }
+      // ── Special rooms (Phase 3B) ──
+      case 'plate': {
+        P.burst(x, y, 16, 20, 60, 0.5, WATER_BITS, 1, 120, 2);
+        const r = P.spawn(x, y, 0, 0, 0.4, '#9fe0ff', 1, P_RING);
+        if (r) r.endSize = 22;
+        this.shake.add(0.3);
+        break;
+      }
+      case 'donate': {
+        P.burst(x, y, e.b === 1 ? 18 : 5, 15, 50, 0.45, e.b === 1 ? LUCK_BITS : GOLD, 1, 60, 3);
+        break;
+      }
+      case 'slots': {
+        if (e.a === 2) {
+          P.burst(x, y, 24, 30, 110, 0.7, GUMBALLS, 2, 240, 1.5);
+          this.shake.add(0.3);
+        } else if (e.a === 1 && e.b === 1) {
+          P.burst(x, y - 4, 14, 20, 70, 0.5, GOLD, 1, 60, 3);
+        } else if (e.a === 0) {
+          P.burst(x, y - 6, 4, 10, 30, 0.3, GUMBALLS, 1, 0, 4);
+        }
+        break;
+      }
+      case 'trade': {
+        P.burst(x, y, 16, 20, 70, 0.5, ITEM_RAYS, 1, -10, 3);
+        break;
+      }
+      case 'grate': {
+        if (e.a === 1) {
+          P.burst(x, y, 20, 20, 90, 0.7, RUBBLE, 2, 220, 1.5);
+          P.burst(x, y, 10, 10, 40, 0.8, WATER_BITS, 1, 60, 2);
+          this.shake.add(0.3);
+        } else if (e.a === 2) {
+          P.burst(x, y, 14, 20, 60, 0.4, WATER_BITS, 1, 160, 2);
+        } else {
+          P.burst(x, y, 6, 10, 30, 0.5, WATER_BITS, 1, 60, 2);
+        }
+        break;
+      }
+      case 'whirlpool': {
+        P.burst(x, y, e.a === 0 ? 30 : 16, 20, 90, 0.7, WATER_BITS, 1, 0, 2);
+        const r = P.spawn(x, y, 0, 0, 0.6, e.a === 2 ? '#fff0b0' : '#8fc8f0', 1, P_RING);
+        if (r) r.endSize = 26;
+        break;
+      }
+      case 'pedestalVanish': {
+        // Moth dust: the other deal flutters away.
+        P.burst(x, y, 16, 15, 50, 0.7, MOTH_DUST, 1, -30, 2);
         break;
       }
       case 'status': {
