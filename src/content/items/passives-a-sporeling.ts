@@ -28,8 +28,8 @@ const items: ItemDef[] = [
     sprite: ICON_EARTHSTAR,
   },
   {
-    id: 'glowcap',
-    name: 'Glowcap',
+    id: 'foxfire-cap',
+    name: 'Foxfire Cap',
     desc: '+1 LUCK · GLOWS IN THE DARK, SPOTS SECRETS',
     kind: 'passive',
     quality: 2,

@@ -13,7 +13,7 @@ import { decodeGrid, encodeGrid } from '../src/sim/run/run';
 import type { RoomState, RunSnapshot } from '../src/sim/run/types';
 import { RoomGrid } from '../src/sim/room';
 import { Sim } from '../src/sim/sim';
-import { CHAPTERS } from '../src/content/registry';
+import { CHAPTERS, findItem } from '../src/content/registry';
 import { makeInput, stepN } from './helpers/sim';
 
 /** Kills everything in the room until it counts as cleared (challenge rooms have two waves). */
@@ -414,9 +414,12 @@ describe('floors', () => {
       const price = ped.hearts;
       expect(price).toBeGreaterThanOrEqual(1);
       const containers = sim.world.player.health.redMax;
+      // The deal itself may add containers (e.g. Clockwork Heart): its instant 'hearts' effects count too.
+      let gained = 0;
+      for (const e of findItem(ped.item)?.effects ?? []) if (e.type === 'hearts') gained += e.containers ?? 0;
       sim.world.player.placeAt(ped.x, ped.y + 12);
       stepN(sim, makeInput(), 2);
-      expect(sim.world.player.health.redMax).toBe(containers - price * 2);
+      expect(sim.world.player.health.redMax).toBe(containers - price * 2 + gained * 2);
       expect(sim.world.player.inv.passives.length + (sim.world.player.inv.active ? 1 : 0)).toBe(1);
     }
     expect(opened).toBeGreaterThan(3);

@@ -2,8 +2,8 @@
  * Stickers (DESIGN.md "Pickups"): single-use cards, named and described on pickup, used with the
  * consumable button. `consumable: 'sticker'`; the `use` list is the whole effect.
  *
- * The map and Keepsake stickers need the floor (FLOOR_LINKS in src/sim/tonics.ts): with nothing to
- * reveal or nowhere to go they say NOPE and stay in your pocket. So does the Swirly Sticker in a room
+ * The map and Keepsake stickers need a floor run (FLOOR_LINKS in src/sim/tonics.ts, set by sim/run/run.ts):
+ * outside one (the training yard), or with no Keepsake Room to go to, they say NOPE and stay in your pocket. So does the Swirly Sticker in a room
  * without items.
  */
 

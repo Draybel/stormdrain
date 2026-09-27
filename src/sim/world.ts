@@ -134,6 +134,11 @@ export class World {
    */
   lockedItems: ReadonlySet<string> | null = null;
   /**
+   * Items shown or taken this run (the run's `RunData.seen`, sim/run): item rerolls (sim/tonics.ts) avoid
+   * them like the pre-rolled pools do. Null outside floor runs.
+   */
+  seenItems: ReadonlySet<string> | null = null;
+  /**
    * Current room presentation state set by the floor run (sim/run): door slots, the trapdoor, the
    * chapter whose palette the room uses, and the floor curse (render + deluge movement).
    */

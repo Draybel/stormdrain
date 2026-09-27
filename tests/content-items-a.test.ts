@@ -231,7 +231,7 @@ describe('items pack A: sets', () => {
     clock.step(makeInput({ aimX: 1, aimY: 0, fireHeld: true, firePressed: true }));
     expect(clock.world.projectiles.items[0]!.bounceLeft).toBe(1);
 
-    const spore = holding('spore', ['glowcap', 'toddlecap', 'shelf-fungus']);
+    const spore = holding('spore', ['foxfire-cap', 'toddlecap', 'shelf-fungus']);
     expect(spore.world.player.triggers.kill.some((t) => t.source === 'sporeling')).toBe(true);
     expect(getSet('sporeling').effects.some((e) => e.type === 'hearts' && e.containers === 1)).toBe(true);
 

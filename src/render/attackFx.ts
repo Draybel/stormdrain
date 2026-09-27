@@ -10,7 +10,7 @@
  */
 
 import type { GameEvent } from '../engine/events';
-import { findItem } from '../content/registry';
+import { findItem, findSet } from '../content/registry';
 import { BK_LANCE, BK_LASER } from '../sim/attack/beam';
 import { CM_LANCE } from '../sim/attack/profile';
 import { F_BOMB, F_FALLING } from '../sim/attack/state';
@@ -297,7 +297,9 @@ export class AttackFx {
       this.sparkFor = L.version;
       this.sparkColor = '';
       for (const id of L.costumes) {
-        for (const c of costumeList(findItem(id)?.costume)) if (c.sparks) this.sparkColor = c.sparks;
+        // Item costumes by item id; transformations as 'set:<id>' (their costume lives on the ItemSetDef).
+        const spec = id.startsWith('set:') ? findSet(id.slice(4))?.costume : findItem(id)?.costume;
+        for (const c of costumeList(spec)) if (c.sparks) this.sparkColor = c.sparks;
       }
     }
     if (this.sparkColor && !pl.dead && Math.random() < 0.18) {

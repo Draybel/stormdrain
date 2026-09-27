@@ -6,6 +6,7 @@
 import type { RngState } from '../../engine/rng';
 import type { FloorCurse, FloorLayout, FloorTrack } from '../floor/types';
 import type { MinimapState } from '../floor/minimap';
+import type { TonicState } from '../tonics';
 import type { WorldCounters } from '../world';
 
 /** Bump when RunSnapshot changes shape (the run save migrates or drops older snapshots). */
@@ -237,6 +238,11 @@ export interface WorldSnap {
   combat: RngState;
   loot: RngState;
   god: boolean;
+  /**
+   * This run's Mystery Tonics (sim/tonics.ts: which bottle colour holds which effect, and the bottles
+   * identified so far). Optional so older snapshots load: a run restored without it deals them from the seed.
+   */
+  tonics?: TonicState | null;
 }
 
 /** `Sim.snapshot()`: the whole run at the moment the player entered the current room. */

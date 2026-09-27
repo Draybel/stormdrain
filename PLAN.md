@@ -171,16 +171,27 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] GitHub Actions: test + deploy to GitHub Pages on push
 
 ## Phase 6 — Content expansion (parallel)
-- [ ] Passive items → 100+
-- [ ] Active items → 25+ (charge bars), trinkets → 30+, consumables → 20+ (incl. 10 mystery Tonics)
-- [ ] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
+- [x] Passive items → 100+
+      (content merge: 129 passives — 45 starter + items pack A 42 (docs/content-itemsA.md) + pack B 42
+      (docs/content-itemsB.md); 5 + 4 new familiars; costumes on the major items; every set member tagged)
+- [x] Active items → 25+ (charge bars), trinkets → 30+, consumables → 20+ (incl. 10 mystery Tonics)
+      (content merge, items pack C (docs/content-items-c.md): 28 actives, 34 trinkets, 23 consumables — 10 Mystery Tonic
+      bottles dealt from the run seed and saved with the run, 11 stickers; map / teleport items wired to the floor run)
+- [x] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
+      (content merge: 56 enemies — 53 in chapter pools (every chapter ≥ 3) + the Glint Mite minion + 2 boss minions; enemy
+      packs A (chapters 1 alt-3, 23) and B (chapters 4-6, 22), behaviours bounce / lurk / intercept / swoop / ambush and
+      spiral / stream; docs/content-enemies-a.md, -b.md)
 - [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
       (3B: the framework + 2 Gutterways bosses, 1 miniboss and placeholder versions of the 3 finals)
-- [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
-      (25 generic templates so far; 3A: the 12 chapter looks and all six curse effects are done — templates to go)
-- [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)
-      (4A: the achievement framework, 15 first achievements and the transformation engine exist; characters, the big
-      achievement list and the set content to do)
+- [x] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
+      (97 templates: 25 generic + 60 chapter rooms (5 per chapter) + 12 special variants (docs/content-rooms.md); 3A: the 12
+      chapter looks and all six curse effects)
+- [x] 8+ item sets (transformations)
+      (content merge: the nine DESIGN.md sets, need 3 of 5-6 members each — Stormcaller, Mothkin, Clockwork, Sporeling, Waxen
+      (pack A), Toybox, Ossuary, Tidewalker, Glimmer (pack B) — each with its costume, style and bonus, through the 4A engine)
+- [ ] Characters → 7 with unique mechanics; achievements & unlock chain
+      (4A: the achievement framework and 15 first achievements; only Wren so far — characters and the big achievement list
+      to do)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md
       (4A: the synergy engine is verified and tested; the content to do)
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
@@ -195,6 +206,8 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 
 ## Phase 7 — Integration, balance & performance
 - [ ] Merge all content; full test suite green; bot clears every floor/track
+      (content merge 1: items A / B / C, enemies A / B and room templates merged into main — 46 unit-test files (2 179 tests), e2e green,
+      the explorer clean over 200 seeds × floors 1-4 + 10 whole runs; bosses, characters, synergies and achievements to come)
 - [ ] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 

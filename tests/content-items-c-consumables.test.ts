@@ -324,6 +324,8 @@ describe('stickers', () => {
     expect(sim.world.player.inv.consumables).toEqual(['treasure-map-sticker']);
 
     const calls: string[] = [];
+    // Floor runs install their own links (sim/run/run.ts); put them back afterwards.
+    const prev = { ...FLOOR_LINKS };
     FLOOR_LINKS.revealMap = (_w, level) => {
       calls.push(`map:${level}`);
       return true;
@@ -339,8 +341,8 @@ describe('stickers', () => {
       expect(calls).toEqual(['map:full', 'go:treasure']);
       expect(sim.world.player.inv.consumables).toEqual([]);
     } finally {
-      FLOOR_LINKS.revealMap = null;
-      FLOOR_LINKS.teleport = null;
+      FLOOR_LINKS.revealMap = prev.revealMap;
+      FLOOR_LINKS.teleport = prev.teleport;
     }
     const lost = room('keepsake');
     const st2 = drink(lost, 'keepsake-sticker');

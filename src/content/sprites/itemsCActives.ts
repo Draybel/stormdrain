@@ -252,8 +252,8 @@ export const ICON_JACK_IN_THE_BOX = icon('jack-in-the-box', { W: '#f3efe0', k: '
   '..oooooooooo..',
 ]);
 
-/** Whistling Kettle: a red enamel kettle puffing steam out of its spout. */
-export const ICON_WHISTLING_KETTLE = icon('whistling-kettle', { T: '#d8503a', h: '#ffa890', K: '#3a3a48', w: '#c8d0e0' }, [
+/** Shrieking Kettle: a red enamel kettle puffing steam out of its spout. */
+export const ICON_WHISTLING_KETTLE = icon('shrieking-kettle', { T: '#d8503a', h: '#ffa890', K: '#3a3a48', w: '#c8d0e0' }, [
   '..........w.w.',
   '...........w..',
   '.....oo...w...',

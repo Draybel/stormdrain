@@ -37,7 +37,9 @@ tests/               vitest unit + simulation tests (floorgen, items, save, syne
 e2e/                 playwright webkit tests
 scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plugin.mjs → dist/sw.js)
 public/              static files copied verbatim (manifest, icons)
-docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8)
+docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8); content packs (Phase 6):
+                     content-itemsA.md, content-itemsB.md, content-items-c.md, content-enemies-a.md,
+                     content-enemies-b.md, content-rooms.md
 ```
 
 ### Content registries (IMPORTANT for parallel work)
@@ -140,6 +142,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   called from `explodeTiles`; the run breaks gamblers open and cracks the grate with it) and `arena.locked` (doors
   stay shut between the Rain Barrel Arena's waves). `world.lockedItems` (Phase 4A): the run's locked item ids (its meta
   unlock snapshot, §7a) — drop tables never roll them either; null outside runs (the yard offers everything).
+  `world.seenItems` (content merge): the run's `RunData.seen` set — item rerolls avoid it (§6b); null outside runs.
+  `world.tonics` (content merge, declared by module augmentation in `sim/tonics.ts`): this run's Mystery Tonics (§5).
 - Entities are pooled classes with an `alive` flag; removal = swap-remove or free-list. Hot loops use scratch vectors,
   no closures/arrays/objects allocated per tick. Collision is circle-vs-circle for actors/shots and circle-vs-grid for tiles.
 - Units: pixels and seconds (dt = 1/60). Room-local coordinates: (0,0) = top-left of the interior floor.
@@ -273,13 +277,21 @@ placed bombs and novas hurt everything in reach.
   landing spot), `dash` (line up → wind-up → straight charge → bonk + daze on walls; `axis` 1/2 = sideways/vertical
   only), `orbitPlayer, keepDistance` (kiter), `burrow` (tunnels under everything, rumbles, surfaces only on open floor),
   `teleport` (fade + destination marker → blink → fade in), `wallCrawl` (slides along the room edge), `float` (flying
-  sine drift; flyers only meet the walls), `turret` (pinned). A behaviour writes a desired velocity (`tvx/tvy`); one
+  sine drift; flyers only meet the walls), `turret` (pinned). Phase 6 extensions (`behaviors/ext-a.ts`,
+  `behaviors/ext-b.ts`; guides docs/content-enemies-a.md / -b.md): `bounce` (straight ricochets off walls / rocks /
+  pits, diagonal or a back-and-forth patrol; each ricochet fires its `on` 4 attacks), `lurk` (a disguise until the
+  target comes close or it is hurt → a rousing telegraph → fires its `on` 3 attacks and chases), `intercept` (heads
+  for where the player is going, weaving), `swoop` (circles, hovers as a telegraph, dives through her spot; `on` 4 at
+  each dive end), `ambush` (like lurk without a wake-up volley: optional `patience` timer, flow-field hunt; its
+  attack clocks are held ≥ 0.5 s while asleep). A behaviour writes a desired velocity (`tvx/tvy`); one
   integrator accelerates toward it, adds knockback (decays; frozen enemies slide), soft O(n²) separation, sub-stepped
   grid collision (WALK, or walls-only for flyers / airborne / underground), pedestals and dummies as solid.
 - Attacks: `aimedShot, cardinal4, ringN (8 = the ring of 8), spreadFan, burst, lob` (arcing, lands on a marked spot:
   splash / creep / split), `spawnMinion` (capped per spawner), `landShockwave` (expanding ground ring), `leaveTrail`
-  (passive damaging creep). Shared params: `windup` (telegraph s), `range/minRange`, `on` (0 timer, 1 hop landing,
-  2 burrow emerge, 3 teleport appear, 4 dash bonk), `still`, `first`; shot params `speed, dmg (half hearts), size,
+  (passive damaging creep); Phase 6: `spiral` (ext-a: a rotating sprinkler stream or a hose sweep across her, stateless
+  — angle from age / shot index) and `stream` (ext-b: a timed stream of 1-4 arms turning per step, optionally centred
+  on her); both reuse the burst machinery, so freeze / fear cancel them. Shared params: `windup` (telegraph s), `range/minRange`, `on` (0 timer, 1 hop landing,
+  2 burrow emerge, 3 teleport appear / lurker wakes, 4 dash bonk / bouncer ricochet / swoop dive end), `still`, `first`; shot params `speed, dmg (half hearts), size,
   accel, curve, phase, life`. On death: `explode, split` (copies, generations capped), `ringN`.
 - Fairness: every attack and sudden move is telegraphed (`teleT`: flash + squash / wind-up frame); fresh enemies are
   inactive and harmless for `ENEMY_TUNING.spawnTime` (0.4 s, spawn poof). Contact damage uses 0.85 × radius; enemies
@@ -567,6 +579,9 @@ whenever the player fires and their own cooldown (`period / fireRateMul`) allows
 `contactDamage` hurts touched enemies every 0.3 s. Content: Lamplet (follow, 0.45), Paper Boat (follow, 0.35, fires
 faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`content/familiars/critters.ts`): Dustwing
 (hover, 0.4, fires a little slower), Roly-Poly (chase, contact 6), Wick Wisp (guard, 0.25, blocks shots, contact 2).
+Phase 6 packs: `itemsA.ts` (Blinkbug, Gloamwing, Tin Cuckoo, Toddlecap, Tallow Tot), `itemsB.ts` (Tin Sentry — the
+Toybox set's toy soldiers —, Threadbare Bear, Tadpole, Gutter Ferret: a chase familiar that shoots point-blank) and
+`toySoldiers.ts` (Tin Soldier, summoned by the Tin Soldier Tin active).
 
 ---
 
@@ -574,7 +589,17 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
 
 - `ItemDef { id, name, desc, kind: 'passive'|'active'|'trinket'|'consumable', quality 0-4, pools: PoolId[],
   tags: string[], set?: SetId, effects: Effect[], active?: { charge: number, chargeType: 'room'|'timed', use: Effect[] },
-  use?: Effect[] (consumables), sprite: SpriteDef (14×14) | string, costume?: CostumeSpec, unlock?: AchievementId }`.
+  use?: Effect[] (consumables), consumable?: 'tonic' | 'sticker', sprite: SpriteDef (14×14) | string, costume?: CostumeSpec,
+  unlock?: AchievementId }`.
+- **Mystery Tonics** (content merge; `sim/tonics.ts`, content `items/consumables-tonics.ts`, guide docs/content-items-c.md):
+  ten bottle items (`consumable: 'tonic'`, fixed colours; their own `use` is only the shared "glug") and ten `TonicDef {
+  id, name, desc, good, use }` effects. Which colour holds which effect is dealt per run (`initTonics(world, runSeed)` at
+  `Run.start`: the seed alone) into `world.tonics = TonicState { v, map: bottleId → tonicId, known: bottleId[] }` (plain
+  JSON, saved as `WorldSnap.tonics`, §6b). `useConsumable` runs the bottle's `use`, then `drinkTonic` identifies it and
+  returns its effect list. A bottle reads '??? <COLOUR> TONIC' until drunk (or while the `readLabels` flag — Cracked
+  Monocle — is on): anything that names an item during a run uses `itemName(w, id)` / `itemDesc(w, id)` (HUD banner,
+  pause menu); render / UI only use the non-creating queries. Stickers (`consumable: 'sticker'`) are plain single-use
+  cards whose `use` is the whole effect.
 - `CostumeDef { id, layer: 'body'|'cape'|'eyes'|'hat'|'aura'|'held', sprite, dx?, dy?, behind?, frames?: 'dir'|'anim',
   fps?, glow? ('r,g,b'), sparks? (colour), additive? }` anchored like the character; `frames: 'dir'` = frame 0 facing
   down, 1 up, 2 side (mirrored for left); `'anim'` cycles at `fps`. `CostumeSpec` = one def or an array of layers
@@ -585,16 +610,23 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   tidewalker, glimmer`) so future transformations (`ItemSetDef` / `SynergyDef` tag requirements) can pick them up.
   The starter set (Phase 2D): `items/starter-attack.ts` (7 carriers), `starter-mods.ts` (19 modifier items),
   `starter-weird.ts` (5 "useless alone, great in combos"), `starter-familiars.ts` (6, one per familiar behaviour and
-  then some) — together every carrier and every modifier (tests/starter-items.test.ts enforces coverage).
+  then some) — together every carrier and every modifier (tests/starter-items.test.ts enforces coverage). Phase 6 packs:
+  `passives-a-*.ts` (42, sets A), `passives-b-*.ts` (42, sets B), `actives.ts` (26), `trinkets.ts` (32),
+  `consumables-tonics.ts` (10), `consumables-stickers.ts` (11); hooks `itemsA.*`, `itemsB.*`, `itemsC.*` (the item-C hooks
+  get their sim services through `ITEMS_C_TOOLS`, installed by `sim/tonics.ts`). Display names are unique across items,
+  enemies and bosses (tests/content-integration.test.ts).
 - `Effect` = discriminated union: `stat` (add/mul), `mod` (stacks, params), `carrier`, `familiar`, `heal` (half hearts),
   `hearts` (containers in whole hearts; red/tin/ember in halves), `pickups` (coins/bombs/keys, charge, spawn[], table),
   `trigger` (`on: 'hurt'|'roomClear'|'kill'|'fire'|'floorStart'|'bomb'|'pickup'|'use'`, chance, luck, maxChance,
   cooldown, `say` (a short notice for the top band, sent as a 'say' event), effects), `flag` (`PLAYER_FLAGS`: flying, spectral, magnet, extraTrinket, extraConsumable,
-  explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision, haggler), `hook` (named code in
+  explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision, haggler, confused (movement mirrored — the
+  Dizzy Tonic, read by `player.ts`), readLabels (tonic bottles show their real names)), `hook` (named code in
   `content/hooks`, params). Persistent kinds accept an optional `duration` for use/trigger contexts.
 - Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
 - `DropTableDef { id, rolls: [min, max], nothing?, luck?, entries: { kind: PickupName, weight, count?, pool? }[] }`.
-- `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook?, style? }`,
+- `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook?, style? }`
+  (content: `src/content/sets` — the nine DESIGN.md sets, need 3 each, 5-6 members each: Stormcaller, Mothkin, Clockwork,
+  Sporeling, Waxen (items pack A), Toybox, Ossuary, Tidewalker, Glimmer (pack B); members carry `set` AND the set's tag),
   `FamiliarDef { id, name, desc, sprite, behavior: 'follow'|'hover'|'orbit'|'guard'|'chase', radius, attackScale
   (0 = never fires), fireRateMul?, contactDamage?, speed?, blocks? (swats enemy shots), glow? }` (§4.8),
   `AchievementDef { id, name, desc (≤ 52 chars), hidden?, condition, unlocks: UnlockRef[] }` — `condition` = `{ counter,
@@ -621,7 +653,9 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   `BossPatternSpec { kind: BOSS_PATTERN_KINDS, params?, enemy?, hook?, shot?, weight? }` (§6c). Content lives in
   `src/content/bosses/*.ts`; `validateBossDef` (sim/bosses/validate.ts, run by validateContent) checks it all.
 - `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7], weight? }`
-  (13 chars/row). Owned by `src/sim/floor/types.ts`; `sim/types.ts` re-exports `RoomTemplate`, `RoomType` and
+  (13 chars/row). Content: 25 generic templates, 60 chapter rooms (5 per chapter, `<prefix>.normal.<name>`, tagged with
+  that chapter only, difficulty following the chapter's depth) and 12 special variants (`special.<type>.<name>`, `['*']`)
+  — house rules stricter than the validator in docs/content-rooms.md. Owned by `src/sim/floor/types.ts`; `sim/types.ts` re-exports `RoomTemplate`, `RoomType` and
   `ROOM_TYPES` (`start, normal, treasure, shop, boss, miniboss, secret, deepSecret, challenge, cursed, nook` — the
   Broker's Nook ROOM type is `nook`, its item POOL is `broker`).
   Legend: `.` floor `#` rock `$` tinted rock `M` metal `O` pit `^` spikes `f` fire `x` crate `u` urn `e` enemy spawn
@@ -765,11 +799,21 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   world: WorldSnap, player: PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck
   bonus, temporary effects by value, trigger cooldowns by list position, the per-player timers that carry across
   rooms, the run's transformations and announced synergies (`sets`, `synergiesSeen`, optional), rng states, counters
-  (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode). The run save (§7) stores exactly this.
+  (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode, and — content merge, optional so older
+  snapshots load — `world.tonics`: the Mystery Tonic deal and the bottles identified; a snapshot without it is dealt from the
+  run seed by `Run.restore`, as `Run.start` does). The run save (§7) stores exactly this.
   `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB); `Sim.fromSnapshot(snap)` restores world + player
   and runs the same `enterCurrent()`, so play continues exactly as it did after the snapshot (same room, same future
   rolls and floors; a boss fight replays identically; tests step both side by side). Progress inside the current
   room is not part of it (resuming = walking into that room again).
+- **Item links** (content merge; `FLOOR_LINKS` in `sim/tonics.ts`, set at module load by run.ts, the world's Run found
+  through a WeakMap — outside a run they answer false and the item refunds): `revealMapBy(level)` (Treasure Map Sticker)
+  and `queueTeleport(to)` ('random' = any other room of the floor on the combatRng — Hopscotch Chalk; 'treasure' / 'shop' /
+  'secret' / 'start' = the first such room — Keepsake Sticker): the room is picked at once, the move happens at the end of the
+  tick in `update` (`teleportNow`: saved like a door transition, `entrySide` -1 = the middle of the room, checkpoint, a
+  'blink' where she lands); a locked room's locks open from the inside (a keyless teleport never traps her) and a secret room
+  reached this way goes on the map. Item rerolls (Shaken Snow Globe, Swirly Sticker) skip `world.lockedItems` and, while
+  anything else is left, `world.seenItems`; the run marks items shown by a 'pedestalRoll' as seen like taken ones.
 - Debug / tools: `run.goThroughDoor(side)`, `teleport(room)` (walks in through its first door), `skipFloor()` (on a
   final floor: floor 13 when the whirlpool is open, else the ending), `revealMap()`, `setCurse(c)`, `trackAfter`,
   `nookChance()`, `seen(id)`, `unlocked(id)`, `summary()` (`SimSummary.run`: + ending, plate, grate, exits, boss).
@@ -1005,7 +1049,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `pause.quit`; Esc / P resume, S settings, Q quit). Right — the six stats with icons (`ui/statRows.ts`; green above the
   character's base, red below), every held passive as a grid (×N for copies; scrolls), the active with its charge, trinkets,
   the consumable ("POCKET"), transformations; one tap area `pause.items` — tap anything for its name, kind, quality and
-  description underneath.
+  description underneath (this run's names: `itemName` / `itemDesc`, so an unidentified tonic stays '???').
 - Settings (`ui/settingsPanel.ts`, overlay 'settings', from the title or the pause menu): MASTER / MUSIC / EFFECTS / SHAKE
   sliders (tap the track to jump, drag to slide; volumes are heard live and committed on release — a quick tap is caught by
   the release), SHOW FPS, AIM 4-WAY / 360°, LEFT-HANDED, BUTTON SIZE 75-150 % (5 % steps), EXPORT / IMPORT SAVE (import
@@ -1079,7 +1123,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   flares; lasers: thin zaps); swipes as a sweeping crescent band; familiars; costume layers; the charge meter.
   `render/attackFx.ts` (owned by WorldFx): lance charge sparks, the blinding blue-white flash + heavy shake + recoil
   kick on release, sparks along the beam and at hits / the wall, shot trails, split shards, bounce sparks, chain
-  arcs, keeper sparkles, familiar poofs, costume sparks. The run scene's flash uses `fx.flashColor / flashMax`.
+  arcs, keeper sparkles, familiar poofs, costume sparks (item costumes and transformations' `set:<id>` costumes). The run scene's flash uses `fx.flashColor / flashMax`.
 - Particles are presentation-only, pooled, capped. Screen shake/hit flash scale with Settings.
 - Floor-run rendering (Phase 3A): `render/chapterArt.ts` recolours the chapter's tileset patterns and the shared rock /
   pit / corner maps with `ChapterDef.palette` into new SpriteDefs (cached per chapter); `RoomBackground.get(room,
@@ -1116,7 +1160,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - HUD (`render/hud.ts`), never over the room interior: hearts top-left (6 per row, wraps to a 2nd row), coin/bomb/key
   counters below (hop + flash when they rise), a segmented charge bar beside the active button (one segment per
   room; a continuous bar for timed items), the active/consumable buttons show the held items' icons, trinket icons
-  beside the consumable button, and the pickup banner in the top band. Short notices ("NO BOMBS") replace the room
+  beside the consumable button, and the pickup banner in the top band (content merge: named through `itemName` /
+  `itemDesc` — resolved on the next update — and also shown when a consumable is used, so a drunk tonic reveals itself; an
+  unidentified tonic in the consumable button wears a gold '?' badge). Short notices ("NO BOMBS") replace the room
   label in the top band.
 - Enemies (`render/enemyRenderer.ts`): floor layer (creep, shockwave rings, lob landing markers, burrow mounds, blink
   destinations), shadows, two depth passes around the player (walkers above her, then walkers below + flyers), shots
@@ -1201,11 +1247,18 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `e2e/menus.spec.ts` (Phase 4B) every title item by real touch taps + back, typed seed entry → a seeded run, settings
   across a reload, the pause menu's stats / items, the daily attempt, export → import, retry-seed and keyboard navigation.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.
+- Content merge: `tests/content-integration.test.ts` (validation, unique display names, chapter pools ≥ 3 enemies and ≥ 5
+  own templates used by runs, the nine sets transforming in a run, tonics dealt from the seed and kept by the run save,
+  every new active / consumable from the HUD's buttons and every trinket in a run, the map / teleport stickers and the
+  chalk, rerolls vs locked / seen items, pools, run pedestals, the debug menu lists); the pack tests
+  `tests/content-{items-a,items-b,items-c,items-c-consumables,enemies-a,enemies-b,rooms}.test.ts`; `e2e/content.spec.ts`
+  (a tonic drunk from the HUD survives reload + Continue, a new active from the HUD, new chapter enemies in WebKit).
 - The god-mode explorer (Phase 3-4 verification, `tests/helpers/explorer.ts` `Explorer`): walks every room of a floor through the
   real doors (pushing into the doorway), bombs secret walls, uses keys, presses the arena plate, kills through the real damage
   path (bosses go through their phases and death sequence; `fightFor` s of real aiming / firing first), takes / buys what it
   finds, and takes the trapdoor, the grate (`takeGrate`) or the whirlpool; it never throws — problems (exceptions, soft-locks,
-  doors that don't work, a boss that never spawns / dies, a missing trapdoor, an unexpected drop) land in its report. Its
+  doors that don't work, a boss that never spawns / dies, a missing trapdoor, an unexpected drop) land in its report. When an
+  active it uses teleports her (Hopscotch Chalk), the new room counts as an entry and is handled from the top. Its
   decisions depend only on the Sim's state, so an explorer on `Sim.fromSnapshot(sim.snapshot())` retraces the original exactly.
   `tests/explorer.test.ts`: `EXPLORE_SEEDS` (default 12; the verification ran 200) seeds × floors 1-4 with a snapshot fork per
   seed, plus whole runs to all three endings (`EXPLORE_FULL`, default 2). `tests/verify-3-4.test.ts`: the pass's regressions.

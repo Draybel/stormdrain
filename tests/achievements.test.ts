@@ -179,7 +179,9 @@ describe('item pool gating', () => {
       const w = sim.world;
       expect(w.lockedItems).not.toBeNull();
       let n = 0;
-      for (let i = 0; i < 300; i++) {
+      // Enough rolls that the gated trinket shows up often whatever the size of the chest pool.
+      const rolls = 60 * allItems().filter((d) => d.kind === 'trinket' && d.pools.includes('chest')).length;
+      for (let i = 0; i < rolls; i++) {
         w.pickups.clear();
         const pk = spawnLoot(w, PK.Trinket, 'chest', 50, 50);
         if (pk?.itemId === 't-gated-trinket') n++;

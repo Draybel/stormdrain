@@ -35,10 +35,12 @@ This is the integration guide for the item-C content pack. Totals with the start
   (lightning on every foe).
 - **Run state** `w.tonics: TonicState` = `{ v: 1, map: { bottleId: tonicId }, known: bottleId[] }` — plain JSON.
   It is declared on `World` by module augmentation in `sim/tonics.ts` (no edit to `world.ts`).
-  - **Run setup: call `initTonics(world, runSeed)`** so the deal depends on the seed alone. Without it the sim
-    deals on first need (a drink, a Cracked Monocle pickup) from `lootRng.fork('tonics')` — still seeded.
-  - **Saving:** `snapshotTonics(w)` (a copy, or `null` before the deal) → store it in the run save;
-    `restoreTonics(w, data)` on load (repairs damaged maps into a bijection, returns false for garbage).
+  - **Run setup (wired at the content merge):** `Run.start` calls `initTonics(world, runSeed)`, so the deal depends
+    on the seed alone. Outside runs (the training yard) the sim deals on first need (a drink, a Cracked Monocle
+    pickup) from `lootRng.fork('tonics')` — still seeded.
+  - **Saving (wired):** every checkpoint stores `snapshotTonics(w)` as `WorldSnap.tonics` (sim/run/snapshot.ts);
+    `restoreWorld` calls `restoreTonics(w, data)` (repairs damaged maps into a bijection, ignores garbage); a
+    snapshot from before the merge has none and `Run.restore` deals from the run seed.
   - Render / UI must only use the non-creating queries: `itemName(w, id)`, `itemDesc(w, id)`,
     `isIdentified`, `isUnidentifiedTonic`, `tonicOf`. `tonicState(w)` creates the state — sim only.
 - Use `itemName` / `itemDesc` anywhere an item is named during a run (pause menu item list, shop labels…):
@@ -59,13 +61,19 @@ the slot.
 
 ## Floor wiring (`FLOOR_LINKS` in `sim/tonics.ts`)
 
-Set these when floors are wired (both return true when something happened):
+Wired at the content merge by `sim/run/run.ts` (module level; the world's Run is found through a WeakMap). Both
+return true when something happened:
 - `FLOOR_LINKS.revealMap = (w, level) => …` — Treasure Map Sticker (`level` = `'full'`; the minimap model's
   `revealMap(level)` levels).
 - `FLOOR_LINKS.teleport = (w, to) => …` — Hopscotch Chalk (`'random'`: a random room) and the Keepsake
-  Sticker (`'treasure'`). Queue the room change for the end of the tick; don't load a room mid-update.
+  Sticker (`'treasure'`). `Run.queueTeleport` picks the room (random: any other room of the floor, on the
+  combatRng; a type: the first such room) and `Run.update` moves there at the end of the tick like a door
+  transition (saved room, checkpoint, entered in its middle); a locked Keepsake Room's locks open from inside so a
+  keyless teleport never traps her; a secret room reached this way goes on the map.
 
-Until then the map / Keepsake stickers refund themselves and Hopscotch Chalk blinks to open floor in the room.
+Outside a run (the training yard) the map / Keepsake stickers refund themselves and Hopscotch Chalk blinks to open
+floor in the room. Rerolls (`rerollPedestal`) never offer locked items in a run and avoid items seen this run
+(`world.seenItems`) while anything else is left; the run marks the new item seen ('pedestalRoll').
 
 ## Sets
 

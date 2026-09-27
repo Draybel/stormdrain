@@ -346,8 +346,8 @@ const items: ItemDef[] = [
     sprite: ICON_GRAVE_BELL,
   },
   {
-    id: 'whistling-kettle',
-    name: 'Whistling Kettle',
+    id: 'shrieking-kettle',
+    name: 'Shrieking Kettle',
     desc: 'STEAMED! HIT HARDER AND FASTER · ROOM',
     kind: 'active',
     quality: 2,

@@ -399,9 +399,9 @@ export const ICON_EARTHSTAR = drawIcon(
   },
 );
 
-/** Glowcap: a soft blue-green glowing mushroom. */
+/** Foxfire Cap: a soft blue-green glowing mushroom. */
 export const ICON_GLOWCAP = drawIcon(
-  'glowcap',
+  'foxfire-cap',
   { G: '#7ef0d8', h: '#e8fff8', g: '#3aa8a0', S: '#e8f0d8', s: '#a8b8a0', y: '#d8fff0' },
   (g) => {
     for (let y = 0; y < 7; y++) {

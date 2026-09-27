@@ -22,7 +22,7 @@ DESIGN.md set name; every set member also carries its set's tag, so synergies ca
 | Stormcaller | Brass Kite Key, Wool Mitten, Crackle Candy, Falling Barometer, Blinkbug, Static Cling | chain (+1 jump), damage +0.5 then ×1.15 | cape of static (back layer + clasp / back panel), blue glow, sparks |
 | Mothkin | Feathery Antennae, Pouch of Wing Dust, Porch Bulb, Eyespot Charm, Gloamwing, Snug Cocoon | flying, slow, puddle (dust), move +8 | flapping dusty wings with eyespots, dust sparks |
 | Clockwork | Pocket Metronome, Loose Mainspring, Tin Cuckoo, Ratchet Wrench, Clockwork Heart, Whirring Cog | fire rate +0.5 then ×1.2, bounce with `bounces: -1` = one ricochet (gear-shaped shots) | turning gear halo |
-| Sporeling | Earthstar, Glowcap, Fairy Ring, Toddlecap, Shelf Fungus | **+1 heart container (instant)**, every kill → `itemsA.sporeCloud` | toadstool cap |
+| Sporeling | Earthstar, Foxfire Cap, Fairy Ring, Toddlecap, Shelf Fungus | **+1 heart container (instant)**, every kill → `itemsA.sporeCloud` | toadstool cap |
 | Waxen | Trick Candle, Sealing Wax, Candelabra, Candle Snuffer, Tallow Tot | burn (+1 s), damage +0.5, `fireImmune`, `darkVision` | candle crown, flickering, warm glow |
 
 Notes for the set runtime:

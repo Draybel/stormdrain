@@ -177,6 +177,8 @@ test('backgrounding mid-room saves the room entry; damaged saves are reported at
   await waitScene(page, 'title');
   await tap(page, 'title.continue');
   await waitScene(page, 'run');
+  // The toast is queued with the scene change and shows from the next frame on.
+  await page.waitForFunction(() => window.__SD.toast() !== null, undefined, { timeout: 3000 });
   expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('RUN RESTORED');
   await tap(page, 'run.pause');
   await waitScene(page, 'pause');
@@ -191,6 +193,7 @@ test('backgrounding mid-room saves the room entry; damaged saves are reported at
   await page.reload();
   await waitScene(page, 'title');
   expect(await visible(page, 'title.continue')).toBe(false);
+  await page.waitForFunction(() => window.__SD.toast() !== null, undefined, { timeout: 3000 });
   expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('SAVED RUN LOST');
   expect(await page.evaluate(() => localStorage.getItem('stormdrain.run.corrupt'))).not.toBeNull();
 
@@ -201,11 +204,15 @@ test('backgrounding mid-room saves the room entry; damaged saves are reported at
   });
   await page.reload();
   await waitScene(page, 'title');
+  await page.waitForFunction(() => window.__SD.toast() !== null, undefined, { timeout: 3000 });
   expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('SAVE DAMAGED');
   await page.waitForFunction(() => localStorage.getItem('stormdrain.meta')?.startsWith('{"v":') ?? false);
   await page.reload();
   await waitScene(page, 'title');
   expect(await page.evaluate(() => window.__SD.meta().loaded)).toBe('ok');
+  // A boot toast would be showing within a few frames: give it the chance before checking there is none.
+  const t0 = await page.evaluate(() => window.__SD.ticks);
+  await page.waitForFunction((t) => window.__SD.ticks > t + 10, t0);
   expect(await page.evaluate(() => window.__SD.toast())).toBeNull();
   expect(errors).toEqual([]);
 });

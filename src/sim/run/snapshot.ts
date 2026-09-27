@@ -8,6 +8,7 @@
 import { Rng } from '../../engine/rng';
 import { recomputePlayer } from '../effects';
 import { initHealth } from '../health';
+import { restoreTonics, snapshotTonics } from '../tonics';
 import type { TempEffect } from '../loadout';
 import { TRIGGER_EVENTS, type Effect, type TriggerOn } from '../types';
 import type { World } from '../world';
@@ -148,6 +149,7 @@ export function captureWorld(w: World): WorldSnap {
     combat: w.combatRng.getState(),
     loot: w.lootRng.getState(),
     god: w.godMode,
+    tonics: snapshotTonics(w),
   };
 }
 
@@ -161,6 +163,9 @@ export function restoreWorld(w: World, s: WorldSnap): void {
   w.combatRng.setState(s.combat);
   w.lootRng.setState(s.loot);
   w.godMode = s.god;
+  // Mystery Tonics (identification included); an older snapshot has none — Run.restore deals them.
+  w.tonics = undefined;
+  if (s.tonics) restoreTonics(w, s.tonics);
 }
 
 /** A fresh Rng in a given state (tests / tools). */

@@ -7,11 +7,11 @@
  * real name everywhere for the rest of the run (`itemName` / `itemDesc`, used by the HUD banner).
  * The `readLabels` flag (Cracked Monocle) reads every label while held.
  *
- * Run state: `w.tonics` — a TonicState, plain JSON (bottle → effect map + identified bottles). Save
- * it with the run (`snapshotTonics`) and hand it back with `restoreTonics`. The run setup should call
- * `initTonics(world, runSeed)` so the shuffle depends on the run seed alone; without that the state
- * is made the first time the SIM needs it (a drink, a Cracked Monocle pickup) from a fork of the
- * run's lootRng — still seeded and replayable. Queries made by render / UI code (`itemName`,
+ * Run state: `w.tonics` — a TonicState, plain JSON (bottle → effect map + identified bottles). Floor
+ * runs deal it at the start with `initTonics(world, runSeed)` (sim/run/run.ts), so the shuffle depends
+ * on the run seed alone, and every checkpoint stores it (`WorldSnap.tonics`: `snapshotTonics` /
+ * `restoreTonics`, sim/run/snapshot.ts). Outside runs (the training yard) the state is made the first
+ * time the SIM needs it (a drink, a Cracked Monocle pickup) from a fork of the lootRng. Queries made by render / UI code (`itemName`,
  * `itemDesc`, `isIdentified`, `isUnidentifiedTonic`, `snapshotTonics`) never create it, so drawing
  * or saving can't change a run.
  *
@@ -20,7 +20,7 @@
  *
  * Also here: the services content/hooks/itemsC.ts needs (ITEMS_C_TOOLS, installed at load — content
  * hooks may not import sim modules) and FLOOR_LINKS, the floor code's entry points for the map-reveal
- * and teleport items (null until floors are wired: those items then refund themselves).
+ * and teleport items (set by sim/run/run.ts; outside a run they answer false and the items refund).
  */
 
 import { Rng } from '../engine/rng';
@@ -196,10 +196,10 @@ export function itemDesc(w: World | null, id: string): string {
 // ── Floor wiring ─────────────────────────────────────────────────────────────
 
 /**
- * Entry points the floor code sets once floors exist (src/sim/floor): the Treasure Map Sticker
- * reveals the map, the Keepsake Sticker / Hopscotch Chalk teleport. Return false when nothing
- * happened (the item then refunds itself / Hopscotch blinks inside the room instead). A teleport
- * should queue the room change for the end of the tick rather than load a room mid-update.
+ * Entry points the floor run sets at load (sim/run/run.ts: the world's Run, found through a WeakMap):
+ * the Treasure Map Sticker reveals the map, the Keepsake Sticker / Hopscotch Chalk teleport. Return
+ * false when nothing happened (the item then refunds itself / Hopscotch blinks inside the room
+ * instead). A teleport is queued: the room changes at the end of the tick, never mid-update.
  */
 export const FLOOR_LINKS: {
   revealMap: ((w: World, level: MapReveal) => boolean) | null;
@@ -210,6 +210,11 @@ export const FLOOR_LINKS: {
 
 const pedExclude = new Set<string>();
 
+/**
+ * A new item for a pedestal (Shaken Snow Globe, Swirly Sticker): same kind, its first pool first. In a run
+ * it never offers a locked item (`world.lockedItems`) and avoids items seen this run (`world.seenItems`,
+ * like the pre-rolled pools) unless nothing else is left; the run marks the new one seen ('pedestalRoll').
+ */
 function rerollPedestal(w: World, ped: Pedestal): boolean {
   const old = findItem(ped.item);
   if (!old) return false;
@@ -219,7 +224,14 @@ function rerollPedestal(w: World, ped: Pedestal): boolean {
     const o = peds.items[i]!;
     if (o.item) pedExclude.add(o.item);
   }
-  const def =
+  if (w.lockedItems) for (const id of w.lockedItems) pedExclude.add(id);
+  let def: ItemDef | null = null;
+  if (w.seenItems && w.seenItems.size > 0) {
+    const fresh = new Set(pedExclude);
+    for (const id of w.seenItems) fresh.add(id);
+    def = pickItem(w.lootRng, { pool: old.pools[0], kind: old.kind, exclude: fresh }) ?? pickItem(w.lootRng, { kind: old.kind, exclude: fresh });
+  }
+  def ??=
     pickItem(w.lootRng, { pool: old.pools[0], kind: old.kind, exclude: pedExclude }) ??
     pickItem(w.lootRng, { kind: old.kind, exclude: pedExclude });
   if (!def) return false;

@@ -255,8 +255,16 @@ export class Explorer {
     // Use the active item now and then (exercises item code in real rooms).
     const inv = w.player.inv;
     if (inv.active && inv.active.charge >= inv.active.max && (hashString(`${run.data.seed}:${run.data.floor}:${run.data.current}`) & 3) === 0) {
+      const before = `${run.data.floor}:${run.data.current}`;
       this.input.active = true;
       this.idle(30);
+      if (this.stopped) return;
+      if (`${run.data.floor}:${run.data.current}` !== before) {
+        // A teleport item (Hopscotch Chalk…) took her to another room: an entry, handled from the top.
+        this.noteEntry();
+        this.handleRoom();
+        return;
+      }
       // An active may start a fight or spawn things: settle it.
       this.clearRoom();
     }

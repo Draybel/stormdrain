@@ -51,6 +51,8 @@ import type { FloorThing } from '../roomProps';
 import { NPC_BROKER, NPC_MAGPIE } from '../roomProps';
 import { PROP_JAR, PROP_SLOTS, PROP_TRADER, breakSlots } from '../shopProps';
 import { Tile } from '../tiles';
+import { FLOOR_LINKS, initTonics } from '../tonics';
+import type { MapReveal, TeleportTarget } from '../../content/hooks/itemsC';
 import { RUN_TUNING, SHOP_TUNING } from '../tuning';
 import type { World } from '../world';
 import { chapterFor, chapterNumber } from './chapters';
@@ -104,6 +106,14 @@ export interface RunSummary {
   /** The room's boss id ('' none). */
   boss: string;
 }
+
+/** The run playing in a world: item hooks reach the floor through FLOOR_LINKS (sim/tonics.ts). */
+const RUNS = new WeakMap<World, Run>();
+
+// Map-reveal and teleport items (content/hooks/itemsC.ts): the floor answers through the world's run;
+// outside a run (the yard) they report "nothing happened" and the item refunds / blinks in the room.
+FLOOR_LINKS.revealMap = (w: World, level: MapReveal): boolean => RUNS.get(w)?.revealMapBy(level) ?? false;
+FLOOR_LINKS.teleport = (w: World, to: TeleportTarget): boolean => RUNS.get(w)?.queueTeleport(to) ?? false;
 
 /** Last floor of a route; floor 13 (The Undertow) comes after it through the whirlpool. */
 const LAST_FLOOR = 12;
@@ -194,6 +204,8 @@ export class Run {
   private pendingWaveT = 0;
   /** Markers of the current room (parseRoomLayout order). */
   private markers: RoomMarker[] = [];
+  /** A teleport item's destination room, taken at the end of the tick (-1 none). */
+  private pendingTeleport = -1;
 
   private constructor(host: RunHost, data: RunData) {
     this.host = host;
@@ -202,6 +214,8 @@ export class Run {
     this.unlockedSet = new Set(data.unlocked);
     this.seenSet = new Set(data.seen);
     host.world.lockedItems = this.lockedSet;
+    host.world.seenItems = this.seenSet;
+    RUNS.set(host.world, this);
     host.world.onSecretWallBombed = (x, y) => this.onBombed(x, y);
     host.world.onExplosion = (x, y, r) => this.onExplosion(x, y, r);
   }
@@ -243,6 +257,8 @@ export class Run {
       ending: 0,
     };
     if (opts.seedInfo) data.seedInfo = { ...opts.seedInfo };
+    // The Mystery Tonics' colours are dealt from the run seed alone (saved with every checkpoint).
+    initTonics(host.world, seed);
     const run = new Run(host, data);
     run.checkpoint();
     run.enterCurrent();
@@ -254,6 +270,8 @@ export class Run {
    * that); this re-enters the room exactly as the original did.
    */
   static restore(host: RunHost, snap: RunSnapshot): Run {
+    // A snapshot from before the tonics were saved: deal them from the seed, as a new run would.
+    if (!host.world.tonics) initTonics(host.world, snap.run.seed);
     const run = new Run(host, snap.run);
     run.checkpointJson = JSON.stringify(snap);
     run.enterCurrent();
@@ -1119,7 +1137,14 @@ export class Run {
     if (this.doorCooldown > 0) this.doorCooldown -= dt;
     if (!d.tookDamage && w.counters.hurts !== d.hurtsAtFloor) d.tookDamage = true;
     this.scanEvents();
-    if (p.dead || d.won) return;
+    if (p.dead || d.won) {
+      this.pendingTeleport = -1;
+      return;
+    }
+    if (this.pendingTeleport >= 0) {
+      this.teleportNow();
+      return;
+    }
     if (this.fighting && !w.arena.active) {
       this.fighting = false;
       this.onWaveCleared();
@@ -1188,7 +1213,8 @@ export class Run {
     const pr = w.props;
     for (let i = 0; i < q.count; i++) {
       const e = q.at(i);
-      if (e.type === 'item') this.markSeen(e.id);
+      // Taken, or shown by a reroll / a debug pedestal: pools leave it out from now on.
+      if (e.type === 'item' || e.type === 'pedestalRoll') this.markSeen(e.id);
       else if (pr.npc !== 0 && e.type === 'buy') {
         pr.npcMood = 1;
         pr.npcT = 0;
@@ -1197,6 +1223,69 @@ export class Run {
         pr.npcT = 0;
       }
     }
+  }
+
+  // ── Item links (FLOOR_LINKS) ────────────────────────────────────────────────
+
+  /** A map item (Treasure Map Sticker…) reveals the floor's map. */
+  revealMapBy(level: MapReveal): boolean {
+    if (this.data.won) return false;
+    revealMap(this.data.map, this.data.layout, level);
+    return true;
+  }
+
+  /**
+   * A teleport item (Hopscotch Chalk: 'random', Keepsake Sticker: 'treasure'…) picks its room now and
+   * moves there at the end of the tick (never mid-update). False = no such room (the item refunds).
+   */
+  queueTeleport(to: TeleportTarget): boolean {
+    const w = this.host.world;
+    const d = this.data;
+    if (d.won || w.player.dead || this.pendingTeleport >= 0) return false;
+    const dest = this.teleportDestination(to);
+    if (dest < 0) return false;
+    this.pendingTeleport = dest;
+    return true;
+  }
+
+  /** The room a teleport goes to (-1 none): a random other room (combatRng), or the first of a type. */
+  private teleportDestination(to: TeleportTarget): number {
+    const d = this.data;
+    const rooms = d.layout.rooms;
+    if (to === 'start') return d.current === d.layout.start ? -1 : d.layout.start;
+    if (to === 'random') {
+      let n = 0;
+      for (let i = 0; i < rooms.length; i++) if (i !== d.current && rooms[i] && d.rooms[i]) n++;
+      if (n === 0) return -1;
+      let k = this.host.world.combatRng.int(0, n - 1);
+      for (let i = 0; i < rooms.length; i++) {
+        if (i === d.current || !rooms[i] || !d.rooms[i]) continue;
+        if (k-- === 0) return i;
+      }
+      return -1;
+    }
+    for (let i = 0; i < rooms.length; i++) if (i !== d.current && rooms[i]?.type === to && d.rooms[i]) return i;
+    return -1;
+  }
+
+  /** Moves to the queued teleport room: saved like a door transition, entered in its middle. */
+  private teleportNow(): void {
+    const w = this.host.world;
+    const d = this.data;
+    const dest = this.pendingTeleport;
+    this.pendingTeleport = -1;
+    if (!d.rooms[dest] || dest === d.current) return;
+    this.saveRoom();
+    d.current = dest;
+    d.entrySide = -1;
+    // A secret room found this way is on the map from now on.
+    discoverRoom(d.map, d.layout, dest);
+    // Locks open from the inside (a keyless teleport into a locked Keepsake Room must not trap her).
+    const locks = d.layout.rooms[dest]!.lockedDoors;
+    for (let s = 0; s < 4; s++) if ((locks & DIR_BITS[s]!) !== 0) this.openDoorBit(dest, s);
+    this.checkpoint();
+    this.enterCurrent();
+    w.events.emit('blink', w.player.x, w.player.y, 1, 9);
   }
 
   // ── Debug / tools ─────────────────────────────────────────────────────────

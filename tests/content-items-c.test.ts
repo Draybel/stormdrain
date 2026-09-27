@@ -314,6 +314,8 @@ describe('active behaviours', () => {
     expect(sim.world.room.get(col, row)).toBe(Tile.Floor);
 
     const calls: string[] = [];
+    // Floor runs install their own link (sim/run/run.ts); put it back afterwards.
+    const prev = FLOOR_LINKS.teleport;
     FLOOR_LINKS.teleport = (_w, to) => {
       calls.push(to);
       return true;
@@ -324,7 +326,7 @@ describe('active behaviours', () => {
       expect(calls).toEqual(['random']);
       expect(s2.world.player.x).toBe(104);
     } finally {
-      FLOOR_LINKS.teleport = null;
+      FLOOR_LINKS.teleport = prev;
     }
   });
 
@@ -359,9 +361,9 @@ describe('active behaviours', () => {
     expect(sim.world.player.attack.stacksOf('orbit')).toBe(2);
   });
 
-  it('Whistling Kettle, Rain Stick, Weather Vane and Roller Skate buff you for the room / a while', () => {
+  it('Shrieking Kettle, Rain Stick, Weather Vane and Roller Skate buff you for the room / a while', () => {
     const k = room('kettle');
-    use(k, 'whistling-kettle');
+    use(k, 'shrieking-kettle');
     const kp = k.world.player;
     expect(kp.stats.damage).toBeCloseTo(WREN.stats.damage * 1.5, 6);
     expect(kp.stats.fireRate).toBeCloseTo(WREN.stats.fireRate + 0.75, 6);

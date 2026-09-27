@@ -20,6 +20,7 @@ import { drawPanel } from '../render/pixel';
 import { drawSprite, getFrame } from '../render/sprites';
 import { itemIcon } from '../render/worldRenderer';
 import type { Sim } from '../sim/sim';
+import { itemDesc, itemName } from '../sim/tonics';
 import type { App } from './app';
 import type { Scene } from './scene';
 import { STAT_ROWS, drawStatLine } from './statRows';
@@ -382,12 +383,14 @@ export class PauseScene implements Scene {
       return;
     }
     const def = findItem(e.id);
-    const name = (def?.name ?? e.id).toUpperCase();
+    // This run's names: an unidentified Mystery Tonic stays '??? <COLOUR> TONIC' (sim/tonics.ts).
+    const world = this.sim?.world ?? null;
+    const name = (def ? itemName(world, e.id) : e.id).toUpperCase();
     drawText(ctx, name, x, DETAIL_Y + 2, DETAIL_NAME);
     if (def) {
       const kind = `${def.kind.toUpperCase()} · QUALITY ${def.quality}${e.count > 1 ? ` · ×${e.count}` : ''}`;
       drawText(ctx, kind, x + w - measureText(kind), DETAIL_Y + 2, DIM);
-      drawWrapped(ctx, def.desc, x, DETAIL_Y + 12, w, INFO, 8, 2);
+      drawWrapped(ctx, itemDesc(world, e.id), x, DETAIL_Y + 12, w, INFO, 8, 2);
       if (def.set) {
         const set = findSet(def.set);
         if (set) drawText(ctx, `PART OF A SET: ${set.name.toUpperCase()}`, x, DETAIL_Y + 29, TAG);
