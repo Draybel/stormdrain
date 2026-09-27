@@ -1,6 +1,7 @@
 /**
  * Special synergies built on the other attack types (ARCHITECTURE §4.7, SYNERGIES.md): the Neon Tube's
- * lasers, the Rusty Boomerang's blades, the Broken Oar's swings and the orbiting blades.
+ * lasers, the Rusty Boomerang's blades, the Broken Oar's swings, the Coiled Spring's charge and the
+ * orbiting blades.
  */
 
 import type { SynergyDef } from '../../sim/types';
@@ -116,6 +117,34 @@ const synergies: SynergyDef[] = [
       when('fire', hook('syn.waves', { at: 'player', count: 1, radius: 52, speed: 160, dmg: 0.5, band: 6, look: 'splash' }), { cooldown: 0.5 }),
     ],
     style: { color: '#6fc0f0', shape: 'crescent', trail: 'drops' },
+    hook: DEBUT,
+  },
+
+  // ── Charge ──
+  {
+    // The coiled spring winds the kettle up: every charged release vents a cone of steam ahead.
+    id: 'full-steam-ahead',
+    name: 'Full Steam Ahead',
+    requires: ['coiled-spring', 'shrieking-kettle'],
+    effects: [
+      stat('shotSpeed', { add: 15 }),
+      when(
+        'fire',
+        hook('syn.cone', {
+          reach: 64,
+          spread: 0.55,
+          dmg: 0.9,
+          push: 260,
+          charge: 1,
+          status: 'burn',
+          time: 2,
+          power: 0.25,
+          color: '#e8f4f0',
+          sfx: 'fire_out',
+        }),
+      ),
+    ],
+    style: { color: '#dff4ec', shape: 'bubble', trail: 'wisps', glow: 1 },
     hook: DEBUT,
   },
 

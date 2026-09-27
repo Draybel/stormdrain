@@ -213,7 +213,8 @@ describe('special synergies: the catalogue', () => {
           if (k === 'kind') expect((PICKUP_NAMES as readonly string[]).includes(String(v)), `${s.id}: pickup ${v}`).toBe(true);
           if (k === 'color' || k === 'tether') expect(String(v), `${s.id}.${k}`).toMatch(/^#[0-9a-f]{6}$/i);
           if (k === 'hook') expect(hasHook(String(v)), `${s.id}: sub-hook ${v}`).toBe(true);
-          if (k === 'at') expect(v).toBe('player');
+          // 'sky': a forking bolt that strikes her first (Kite and Key).
+          if (k === 'at') expect(v === 'player' || (v === 'sky' && e.hook === 'syn.forkBolt'), `${s.id}: at ${v}`).toBe(true);
         }
       }
       for (const e of flat(s.effects)) {

@@ -55,6 +55,8 @@ const STYLE_ICE = ENEMY_SHOT_STYLES.indexOf('ice');
 
 const TGT_CAP = 96;
 const PICK_CAP = 16;
+/** Strikes per forking bolt (syn.forkBolt), however many forks and levels its params ask for. */
+const FORK_CAP = 16;
 
 /**
  * Scratch space of one running hook. Hooks re-enter: a bolt's damage can kill a foe, whose kill trigger
@@ -72,11 +74,29 @@ interface Scratch {
   /** The effect's centre (centreOf). */
   cx: number;
   cy: number;
+  /** A forking bolt's strikes so far (syn.forkBolt): who, where, and how many forks deep. */
+  readonly hit: Hittable[];
+  readonly hitX: Float64Array;
+  readonly hitY: Float64Array;
+  readonly hitLvl: Int8Array;
+  hitN: number;
 }
 const LEVELS = 6;
 const levels: Scratch[] = [];
 for (let i = 0; i < LEVELS; i++) {
-  levels.push({ tgt: new Array<Hittable>(TGT_CAP), tgtN: 0, pick: new Array<Hittable>(PICK_CAP), pickD: new Float64Array(PICK_CAP), cx: 0, cy: 0 });
+  levels.push({
+    tgt: new Array<Hittable>(TGT_CAP),
+    tgtN: 0,
+    pick: new Array<Hittable>(PICK_CAP),
+    pickD: new Float64Array(PICK_CAP),
+    cx: 0,
+    cy: 0,
+    hit: new Array<Hittable>(FORK_CAP),
+    hitX: new Float64Array(FORK_CAP),
+    hitY: new Float64Array(FORK_CAP),
+    hitLvl: new Int8Array(FORK_CAP),
+    hitN: 0,
+  });
 }
 let depth = -1;
 let S: Scratch = levels[0]!;
@@ -113,13 +133,23 @@ function collectTargets(w: World): number {
   return n;
 }
 
-/** Up to `max` targets nearest to (x, y) within `range` (edge distance), nearest first, into `S.pick`. */
-function pickNearest(x: number, y: number, range: number, max: number): number {
+/** True when `h` is already among this forking bolt's strikes (S.hit, at most FORK_CAP). */
+function struck(h: Hittable): boolean {
+  for (let i = 0; i < S.hitN; i++) if (S.hit[i] === h) return true;
+  return false;
+}
+
+/**
+ * Up to `max` targets nearest to (x, y) within `range` (edge distance), nearest first, into `S.pick`.
+ * `fresh`: skip the ones a forking bolt has already struck (and the ones that stopped being hittable).
+ */
+function pickNearest(x: number, y: number, range: number, max: number, fresh = false): number {
   const { tgt, tgtN, pick, pickD } = S;
   const want = Math.min(PICK_CAP, Math.max(0, Math.floor(max)));
   let k = 0;
   for (let i = 0; i < tgtN; i++) {
     const h = tgt[i]!;
+    if (fresh && (!h.hittable || struck(h))) continue;
     const dx = h.x - x;
     const dy = h.y - y;
     const d = Math.sqrt(dx * dx + dy * dy) - h.r;
@@ -245,7 +275,7 @@ function allyShot(w: World, x: number, y: number, vx: number, vy: number, damage
 /**
  * An allied puddle (hurts enemies standing in it: `perHalfSec` damage every 0.5 s, never the player).
  * One close by is refreshed, restyled and grown instead (the creep cap stays useful); a full pool
- * recycles the puddle closest to drying up.
+ * recycles the allied puddle closest to drying up.
  */
 function allyPuddle(w: World, x: number, y: number, r: number, life: number, perHalfSec: number, style: number): void {
   const pool = w.creep;
@@ -256,7 +286,8 @@ function allyPuddle(w: World, x: number, y: number, r: number, life: number, per
     const dy = c.y - y;
     if (dx * dx + dy * dy < c.r * c.r) {
       c.life = c.maxLife = Math.max(c.life, life);
-      c.r = Math.min(20, Math.max(c.r, r) + 0.5);
+      // Grows a little up to 20 px; never shrinks a bigger one (a big puddle-modifier stack makes those).
+      c.r = Math.max(c.r, Math.min(20, Math.max(c.r, r) + 0.5));
       c.dmg = Math.max(c.dmg, perHalfSec / (ALLY * 0.5));
       c.style = style;
       return;
@@ -264,8 +295,12 @@ function allyPuddle(w: World, x: number, y: number, r: number, life: number, per
   }
   let c = pool.alloc();
   if (!c) {
+    // Full: recycle the allied puddle closest to drying up (a foe's creep only when every one is a foe's).
     let best = pool.items[0]!;
-    for (let i = 1; i < pool.count; i++) if (pool.items[i]!.life < best.life) best = pool.items[i]!;
+    for (let i = 1; i < pool.count; i++) {
+      const o = pool.items[i]!;
+      if ((o.allied && !best.allied) || (o.allied === best.allied && o.life < best.life)) best = o;
+    }
     c = best;
   }
   c.x = Math.max(2, Math.min(ROOM_W - 2, x));
@@ -423,6 +458,63 @@ reg('syn.skyBolts', (ctx) => {
       }
     }
   }
+});
+
+/** One strike of a forking bolt: remembered in S.hit (with its fork level), an arc, damage, a status. */
+function strike(ctx: HookCtx, h: Hittable, fromX: number, fromY: number, lvl: number, dmg: number, color: string): void {
+  const i = S.hitN++;
+  const tx = h.x;
+  const ty = h.y - h.r * 0.6;
+  S.hit[i] = h;
+  S.hitX[i] = tx;
+  S.hitY[i] = ty;
+  S.hitLvl[i] = lvl;
+  arc(ctx.w, fromX, fromY, tx, ty, color);
+  const dx = tx - fromX;
+  const dy = ty - fromY;
+  const d = Math.max(1e-3, Math.sqrt(dx * dx + dy * dy));
+  h.hurt(dmg, SRC_AREA, (dx / d) * 60, (dy / d) * 60);
+  applyParamStatus(ctx, h);
+}
+
+/**
+ * Seeking, forking lightning: a bolt leaps from the player to the foe nearest to her (within `range`),
+ * then from every foe it strikes on to the `forks` nearest foes it hasn't struck yet (within
+ * `forkRange`), `depth` forks deep — at most `max` (≤ 16) strikes in all. `at: 'sky'`: the sky strikes
+ * her first (a kite in a thunderstorm). Each strike: `dmg` × damage × `decay` per fork level, a small
+ * shove along the arc, a status. { at, range, forkRange, forks, depth, dmg, decay, max, color, status,
+ * time, power, sfx }
+ */
+reg('syn.forkBolt', (ctx) => {
+  const w = ctx.w;
+  const p = w.player;
+  const hy = PLAYER_TUNING.shotHeight;
+  S.hitN = 0;
+  collectTargets(w);
+  if (pickNearest(p.x, p.y, numParam(ctx, 'range', 150), 1, true) === 0) return;
+  const color = strParam(ctx, 'color', '#e0ff7a');
+  if (strParam(ctx, 'at', '') === 'sky') {
+    arc(w, p.x + w.combatRng.range(-10, 10), SKY_Y, p.x, p.y - hy - 6, color);
+    w.events.emit('lobLand', p.x, p.y, 10, STYLE_ICE, 'bolt');
+  }
+  const forkRange = numParam(ctx, 'forkRange', 64);
+  const forks = Math.max(1, Math.min(4, Math.floor(numParam(ctx, 'forks', 2))));
+  const depth = Math.max(0, Math.min(4, Math.floor(numParam(ctx, 'depth', 2))));
+  const cap = Math.max(1, Math.min(FORK_CAP, Math.floor(numParam(ctx, 'max', FORK_CAP))));
+  const base = numParam(ctx, 'dmg', 0.6) * p.stats.damage;
+  const decay = Math.max(0, Math.min(1, numParam(ctx, 'decay', 0.85)));
+  strike(ctx, S.pick[0]!, p.x, p.y - hy, 0, base, color);
+  // Breadth first: every strike (in the order they landed) forks on until the depth or the cap is reached.
+  for (let i = 0; i < S.hitN && S.hitN < cap; i++) {
+    const lvl = S.hitLvl[i]!;
+    if (lvl >= depth) continue;
+    const fx = S.hitX[i]!;
+    const fy = S.hitY[i]!;
+    const k = pickNearest(fx, fy, forkRange, Math.min(forks, cap - S.hitN), true);
+    const dmg = base * Math.pow(decay, lvl + 1);
+    for (let j = 0; j < k && S.hitN < cap; j++) strike(ctx, S.pick[j]!, fx, fy, lvl + 1, dmg, color);
+  }
+  sfx(ctx, p.x, p.y);
 });
 
 /**
@@ -598,6 +690,59 @@ reg('syn.gust', (ctx) => {
     }
   }
   nova(ctx, p.x, p.y, radius * 0.6);
+  sfx(ctx, p.x, p.y);
+});
+
+/**
+ * A cone blast ahead of the player along her aim (a vent of scalding steam): foes within `reach` px and
+ * `spread` rad either side of the aim take `dmg` × damage, are shoved along the aim at `push` px/s and get
+ * a status; puffs of steam (`color`) fill the cone. `charge: 1` scales it by the volley's charge (the charge
+ * rider's release multiplier): a tap lets out a wisp, a full wind-up a blast. { reach, spread, dmg, push,
+ * charge, status, time, power, color, sfx }
+ */
+reg('syn.cone', (ctx) => {
+  const w = ctx.w;
+  const p = w.player;
+  const al = Math.sqrt(p.aimX * p.aimX + p.aimY * p.aimY);
+  if (al < 1e-6) return;
+  const ax = p.aimX / al;
+  const ay = p.aimY / al;
+  let k = 1;
+  if (numParam(ctx, 'charge', 0) > 0) {
+    const span = Math.max(1e-3, ATTACK_TUNING.chargeMaxMul - ATTACK_TUNING.chargeMinMul);
+    const mul = p.atk.src.mul;
+    k = Number.isFinite(mul) ? Math.max(0, Math.min(1.5, (mul - ATTACK_TUNING.chargeMinMul) / span)) : 1;
+  }
+  const reach = Math.max(8, numParam(ctx, 'reach', 56) * (0.55 + 0.45 * k));
+  const spread = Math.max(0.1, Math.min(1.4, numParam(ctx, 'spread', 0.5)));
+  const dmg = numParam(ctx, 'dmg', 0.8) * p.stats.damage * (0.35 + 0.65 * k);
+  const push = numParam(ctx, 'push', 220) * (0.5 + 0.5 * k);
+  const cosS = Math.cos(spread);
+  const n = collectTargets(w);
+  for (let i = 0; i < n; i++) {
+    const h = S.tgt[i]!;
+    if (!h.hittable) continue;
+    const dx = h.x - p.x;
+    const dy = h.y - p.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > reach + h.r) continue;
+    // Right on top of her counts; otherwise it has to be inside the cone.
+    if (d > h.r + 4 && (dx * ax + dy * ay) / d < cosS) continue;
+    h.hurt(dmg, SRC_AREA, ax * push, ay * push);
+    applyParamStatus(ctx, h);
+  }
+  // Three jets of puffs (splashes in `color`) fanning out to the cone's reach.
+  const color = strParam(ctx, 'color', '#e8f4f0');
+  const base = Math.atan2(ay, ax);
+  for (let r = -1; r <= 1; r++) {
+    const a = base + r * spread * 0.7;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    for (let q = 1; q <= 3; q++) {
+      const t = (reach * q) / 3;
+      w.events.emitFx('splash', p.x + c * t, p.y + s * t, 0, 4 + q * 2, color);
+    }
+  }
   sfx(ctx, p.x, p.y);
 });
 
@@ -837,7 +982,7 @@ reg('syn.puddles', (ctx) => {
     const c = pool.items[i]!;
     if (!c.allied) continue;
     c.style = style;
-    if (grow > 0) c.r = Math.min(20, c.r + grow);
+    if (grow > 0 && c.r < 20) c.r = Math.min(20, c.r + grow);
     lit++;
     for (let j = 0; j < n; j++) {
       const h = S.tgt[j]!;

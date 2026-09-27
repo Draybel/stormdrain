@@ -128,6 +128,76 @@ describe('synergy hooks, one by one', () => {
     expect(count(sim, 'lobLand', 'bolt')).toBe(2);
   });
 
+  it('syn.forkBolt: seeks the nearest foe, then forks on to the nearest ones it has not struck, level by level', () => {
+    const sim = room('h-fork');
+    // A chain of posts: the bolt reaches the first, forks to the next two, and those fork on.
+    const first = foe(sim, 90, 56);
+    const a = foe(sim, 130, 40);
+    const b = foe(sim, 130, 72);
+    const a2 = foe(sim, 170, 30);
+    const b2 = foe(sim, 170, 82);
+    const far = foe(sim, 200, 56 - 50);
+    run(sim, 'syn.forkBolt', { range: 150, forkRange: 50, forks: 2, depth: 2, dmg: 1, decay: 0.5, status: 'slow', time: 1 });
+    const d = sim.world.player.stats.damage;
+    expect(lost(first)).toBeCloseTo(d, 5);
+    expect(lost(a)).toBeCloseTo(d * 0.5, 5);
+    expect(lost(b)).toBeCloseTo(d * 0.5, 5);
+    expect(lost(a2)).toBeCloseTo(d * 0.25, 5);
+    expect(lost(b2)).toBeCloseTo(d * 0.25, 5);
+    // Out of reach of every fork (and depth 2 stops there anyway).
+    expect(lost(far)).toBe(0);
+    expect(has(a2, ST_SLOW)).toBe(true);
+    // One arc per strike, each from where the bolt was.
+    expect(count(sim, 'chainArc')).toBe(5);
+    // Nothing in range: nothing happens.
+    const lonely = room('h-fork-none');
+    foe(lonely, 200, 100);
+    run(lonely, 'syn.forkBolt', { range: 40 });
+    expect(count(lonely, 'chainArc')).toBe(0);
+  });
+
+  it('syn.forkBolt: never strikes a foe twice, stops at max strikes, and the sky can strike her first', () => {
+    const sim = room('h-fork-cap');
+    const posts: Enemy[] = [];
+    for (let i = 0; i < 12; i++) posts.push(foe(sim, 70 + (i % 6) * 22, 30 + Math.floor(i / 6) * 50));
+    run(sim, 'syn.forkBolt', { at: 'sky', range: 400, forkRange: 90, forks: 3, depth: 4, dmg: 1, decay: 1, max: 7 });
+    const d = sim.world.player.stats.damage;
+    const struck = posts.filter((e) => lost(e) > 0);
+    expect(struck.length).toBe(7);
+    for (const e of struck) expect(lost(e)).toBeCloseTo(d, 5);
+    // The strike on the kite (her) + 7 strikes; a thunderclap on her.
+    expect(count(sim, 'chainArc')).toBe(8);
+    expect(count(sim, 'lobLand', 'bolt')).toBe(1);
+    expect(sim.world.player.health.red).toBe(sim.world.player.health.redMax);
+  });
+
+  it('syn.cone: a blast along the aim only, scaled by the release charge', () => {
+    const blast = (mul: number): { ahead: Enemy; behind: Enemy; aside: Enemy; sim: Sim } => {
+      const sim = room(`h-cone-${mul}`);
+      const ahead = foe(sim, 86, 58);
+      const behind = foe(sim, 12, 56);
+      const aside = foe(sim, 44, 12);
+      sim.world.player.atk.src.mul = mul;
+      run(sim, 'syn.cone', { reach: 64, spread: 0.5, dmg: 1, push: 200, charge: 1, status: 'burn', time: 2 });
+      return { ahead, behind, aside, sim };
+    };
+    const full = blast(2.5);
+    expect(lost(full.ahead)).toBeCloseTo(full.sim.world.player.stats.damage, 5);
+    expect(full.ahead.kx).toBeGreaterThan(0);
+    expect(has(full.ahead, ST_BURN)).toBe(true);
+    expect(lost(full.behind)).toBe(0);
+    expect(lost(full.aside)).toBe(0);
+    expect(count(full.sim, 'splash', '#e8f4f0')).toBe(9);
+    // A tap: a wisp — shorter (the foe 40 px ahead is out of its reach) and weaker.
+    const tap = blast(0.5);
+    expect(lost(tap.ahead)).toBe(0);
+    const sim = room('h-cone-close');
+    const close = foe(sim, 66, 56);
+    sim.world.player.atk.src.mul = 0.5;
+    run(sim, 'syn.cone', { reach: 64, spread: 0.5, dmg: 1, charge: 1 });
+    expect(lost(close)).toBeCloseTo(0.35 * sim.world.player.stats.damage, 5);
+  });
+
   it('syn.lineStrikes: bolts and burning craters down the aim line to the wall', () => {
     const sim = room('h-line');
     const on = foe(sim, 130, 56);
@@ -494,5 +564,117 @@ describe('synergies end to end', () => {
     expect(has(pal, ST_CHARM)).toBe(true);
     stepN(sim, makeInput({ aimX: 0, aimY: 1, fireHeld: true }), 3);
     expect(allied(sim)).toBeGreaterThanOrEqual(4);
+  });
+
+  it('Fork in the Road: firing sends lightning seeking the nearest foe and forking through the others', () => {
+    const sim = room('e-fork');
+    sim.world.godMode = true;
+    sim.giveItem('lantern-moth');
+    sim.giveItem('brass-kite-key');
+    expect(sim.world.player.synergies).toContain('fork-in-the-road');
+    // Posts well off the aim line: only the forking bolt can reach them on the first tick.
+    const posts = [foe(sim, 80, 16), foe(sim, 120, 12), foe(sim, 150, 50)];
+    sim.step(makeInput({ aimX: 1, aimY: 0, fireHeld: true, firePressed: true }));
+    for (const e of posts) expect(lost(e)).toBeGreaterThan(0);
+    expect(count(sim, 'chainArc', '#c8ff4a')).toBe(3);
+    // Cooled down: the next volley doesn't fork again at once.
+    const before = posts.map(lost);
+    stepN(sim, makeInput({ aimX: 1, aimY: 0, fireHeld: true }), 10);
+    expect(posts.map(lost)).toEqual(before);
+  });
+
+  it('Full Steam Ahead: a charged release vents steam ahead — a full wind-up reaches further than a tap', () => {
+    const setup = (seed: string): { sim: Sim; e: Enemy } => {
+      const sim = room(seed);
+      sim.world.godMode = true;
+      sim.giveItem('coiled-spring');
+      setActive(sim.world.player.inv, getItem('shrieking-kettle'));
+      recomputePlayer(sim.world);
+      expect(sim.world.player.synergies).toContain('full-steam-ahead');
+      return { sim, e: foe(sim, 94, 56) };
+    };
+    const full = setup('e-steam-full');
+    release(full.sim);
+    // Right on the release tick: the steam has landed, the shot hasn't got there yet.
+    expect(lost(full.e)).toBeGreaterThan(0);
+    expect(has(full.e, ST_BURN)).toBe(true);
+    expect(count(full.sim, 'sfx', 'fire_out')).toBe(1);
+    const tap = setup('e-steam-tap');
+    const input = makeInput({ aimX: 1, aimY: 0, fireHeld: true, firePressed: true });
+    tap.sim.step(input);
+    clearEdges(input);
+    input.fireHeld = false;
+    input.aimX = 0;
+    input.fireReleased = true;
+    tap.sim.step(input);
+    expect(count(tap.sim, 'sfx', 'fire_out')).toBe(1);
+    expect(lost(tap.e)).toBe(0);
+  });
+
+  it('Kite and Key: using the kite calls lightning down onto her and forks it through the room', () => {
+    const sim = room('e-kite-key');
+    sim.world.godMode = true;
+    sim.giveItem('brass-kite-key');
+    setActive(sim.world.player.inv, getItem('storm-kite'));
+    recomputePlayer(sim.world);
+    expect(sim.world.player.synergies).toContain('kite-and-key');
+    const posts = [foe(sim, 90, 20), foe(sim, 150, 30), foe(sim, 190, 90), foe(sim, 120, 100)];
+    chargeActive(sim.world, 'full');
+    expect(useActive(sim.world)).toBe(true);
+    for (const e of posts) expect(lost(e)).toBeGreaterThan(0);
+    expect(count(sim, 'lobLand', 'bolt')).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Swamp Gas: a poisoned foe that falls goes up in flames and sets its neighbours alight', () => {
+    const sim = room('e-swamp');
+    sim.world.godMode = true;
+    sim.giveItem('toadstool-cap');
+    sim.giveItem('trick-candle');
+    expect(sim.world.player.synergies).toContain('swamp-gas');
+    const n = foe(sim, 140, 64);
+    const v = foe(sim, 120, 56, 't-syn-grunt');
+    v.applyStatus('poison', 3, 1, 0);
+    v.hurt(1000, 0, 0, 0);
+    expect(has(n, ST_BURN)).toBe(true);
+    expect(sim.world.atk.explosions.n).toBe(3);
+    expect(count(sim, 'nova', '#c0b030')).toBe(1);
+    // A plain kill does nothing of the sort.
+    const sim2 = room('e-swamp-plain');
+    sim2.giveItem('toadstool-cap');
+    sim2.giveItem('trick-candle');
+    const n2 = foe(sim2, 140, 64);
+    foe(sim2, 120, 56, 't-syn-grunt').hurt(1000, 0, 0, 0);
+    expect(has(n2, ST_BURN)).toBe(false);
+    expect(sim2.world.atk.explosions.n).toBe(0);
+  });
+
+  it('Under the Weather: getting hurt calls bolts down on the nearest foes and rains puddles over the room', () => {
+    const sim = room('e-weather');
+    sim.giveItem('grudge-pebble');
+    sim.giveItem('falling-barometer');
+    expect(sim.world.player.synergies).toContain('under-the-weather');
+    const posts = [foe(sim, 90, 30), foe(sim, 150, 80)];
+    sim.world.safeT = 0;
+    sim.hurtPlayer(1);
+    for (const e of posts) expect(lost(e)).toBeGreaterThan(0);
+    expect(alliedCreep(sim)).toBeGreaterThanOrEqual(3);
+    expect(count(sim, 'say', 'THE WEATHER TURNS!')).toBe(1);
+  });
+
+  it('Paper Snowflake: now and then a volley unfolds into six paper shards', () => {
+    const sim = room('e-snowflake');
+    sim.world.godMode = true;
+    sim.giveItem('tracing-paper');
+    sim.giveItem('kaleidoscope');
+    expect(sim.world.player.synergies).toContain('paper-snowflake');
+    const input = makeInput({ aimX: 1, aimY: 0, fireHeld: true });
+    let flakes = 0;
+    for (let t = 0; t < 900 && flakes === 0; t++) {
+      sim.step(input);
+      flakes = count(sim, 'nova', '#f8f4e0');
+    }
+    expect(flakes).toBe(1);
+    const shards = sim.world.enemyShots.items.slice(0, sim.world.enemyShots.count).filter((s) => s.allied && s.style === ICE);
+    expect(shards.length).toBe(6);
   });
 });

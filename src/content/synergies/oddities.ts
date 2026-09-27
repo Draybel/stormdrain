@@ -74,6 +74,42 @@ const synergies: SynergyDef[] = [
     hook: DEBUT,
   },
   {
+    // Two sore losers: a grudge and a falling barometer. Hurt her and the weather turns on you.
+    id: 'under-the-weather',
+    name: 'Under the Weather',
+    requires: ['grudge-pebble', 'falling-barometer'],
+    effects: [
+      stat('damage', { add: 0.3 }),
+      when(
+        'hurt',
+        [
+          hook('syn.skyBolts', { at: 'player', count: 3, dmg: 1.5, radius: 12, color: '#c8d8ff', status: 'slow', time: 1.5, power: 0.4 }),
+          hook('syn.puddleRain', { n: 5, r: 9, life: 4, dmg: 0.3, style: 'water', sfx: 'puddle_splash' }),
+        ],
+        { cooldown: 0.5, say: 'THE WEATHER TURNS!' },
+      ),
+    ],
+    style: { color: '#6a7a98', shape: 'spiky', trail: 'drops', glow: 1 },
+    hook: DEBUT,
+  },
+  {
+    // Fold it, snip it, unfold it: tracing paper through a kaleidoscope.
+    id: 'paper-snowflake',
+    name: 'Paper Snowflake',
+    requires: ['tracing-paper', 'kaleidoscope'],
+    effects: [
+      stat('damage', { mul: 1.1 }),
+      when('fire', hook('syn.ring', { at: 'player', n: 6, speed: 150, dmg: 0.5, style: 'ice', life: 0.9, look: '#f8f4e0', sfx: 'split_pop' }), {
+        chance: 0.12,
+        luck: 0.02,
+        maxChance: 0.3,
+        cooldown: 0.8,
+      }),
+    ],
+    style: { color: '#f8f4e0', shape: 'star', trail: 'dust', glow: 1 },
+    hook: DEBUT,
+  },
+  {
     id: 'haunted-house',
     name: 'Haunted House',
     requires: ['bedsheet-ghost', 'wisp-in-a-bottle'],

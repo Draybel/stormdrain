@@ -22,6 +22,40 @@ const synergies: SynergyDef[] = [
     hook: DEBUT,
   },
   {
+    // Homing + chain: the lightning goes looking for foes, and splits whenever it finds one.
+    id: 'fork-in-the-road',
+    name: 'Fork in the Road',
+    requires: ['lantern-moth', 'brass-kite-key'],
+    effects: [
+      mod('homing', 1, { radius: 24 }),
+      when(
+        'fire',
+        hook('syn.forkBolt', { range: 150, forkRange: 64, forks: 2, depth: 2, dmg: 0.6, decay: 0.85, color: '#c8ff4a', sfx: 'chain_zap' }),
+        { cooldown: 0.45 },
+      ),
+    ],
+    style: { color: '#c8ff4a', shape: 'spiky', trail: 'sparks', glow: 2 },
+    hook: DEBUT,
+  },
+  {
+    // Poison + fire: a poisoned foe is a bag of swamp gas waiting for a spark.
+    id: 'swamp-gas',
+    name: 'Swamp Gas',
+    requires: ['toadstool-cap', 'trick-candle'],
+    effects: [
+      when(
+        'kill',
+        [
+          hook('syn.blasts', { needs: 'poison', mode: 'ring', n: 3, dist: 9, radius: 15, dmg: 0.6 }),
+          hook('syn.burst', { needs: 'poison', radius: 32, status: 'burn', time: 3, power: 0.3, look: '#c0b030', sfx: 'fire_nova' }),
+        ],
+        { cooldown: 0.2 },
+      ),
+    ],
+    style: { color: '#c0b030', shape: 'bubble', trail: 'embers', glow: 1 },
+    hook: DEBUT,
+  },
+  {
     id: 'oil-slick',
     name: 'Oil Slick',
     requires: ['leaky-bucket', 'drippy-candle'],

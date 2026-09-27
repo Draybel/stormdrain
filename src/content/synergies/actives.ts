@@ -5,9 +5,24 @@
  */
 
 import type { SynergyDef } from '../../sim/types';
-import { DEBUT, familiar, hook, stat, when } from '../hooks/synergiesKit';
+import { DEBUT, familiar, hook, mod, stat, when } from '../hooks/synergiesKit';
 
 const synergies: SynergyDef[] = [
+  {
+    // A kite in a thunderstorm with a key on its string: the sky strikes, and the key passes it on.
+    id: 'kite-and-key',
+    name: 'Kite and Key',
+    requires: ['storm-kite', 'brass-kite-key'],
+    effects: [
+      mod('chain'),
+      when(
+        'use',
+        hook('syn.forkBolt', { at: 'sky', range: 400, forkRange: 84, forks: 3, depth: 3, dmg: 1.5, decay: 0.8, max: 16, color: '#fffad0', sfx: 'crackle' }),
+      ),
+    ],
+    style: { color: '#fffad0', shape: 'star', trail: 'sparks', glow: 4 },
+    hook: DEBUT,
+  },
   {
     id: 'mirror-lid',
     name: 'Mirror Lid',

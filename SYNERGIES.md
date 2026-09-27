@@ -28,7 +28,7 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | **Cyclone Sweep** | Storm Lance + Dizzy Top | +1 knockback. The beam already whirls a lap before it settles; now every release also blasts a gust around you (80 px: shoves foes away, 0.4 × damage, pops hostile shots). Aquamarine wisps. |
 | **Lightning Rod** | Storm Lance + Rooftop Rod | +1 chain with an extra jump. Every release calls three bolts from the sky onto the nearest foes (1.2 × damage each, splashing, a moment's slow). Yellow spiky sparks. |
 
-## Lasers, blades, swings and orbits
+## Lasers, blades, swings, charge and orbits
 
 | Synergy | Requires | What it does |
 |---|---|---|
@@ -42,14 +42,17 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | **Batter Up** | Broken Oar + Rubber Ball | +1 knockback. Every swing bats hostile shots in front of you (36 px, ±70°) straight back along your aim as your own (at least 1 × damage). Cream crescents. |
 | **Merry-Go-Round** | Broken Oar + Carousel Horse | +1 side shots, +1 back shot: you swing all the way round, and the spin throws off a little gust (0.3 × damage, a shove). Lilac crescents. |
 | **Rowing Stroke** | Broken Oar + 2 Water items | +1 puddle, +8 speed. Each stroke sends a knee-high wave out around you (a 52 px ring, 0.5 × damage) with a splash. Water-blue crescents. |
+| **Full Steam Ahead** | Coiled Spring + Shrieking Kettle (active) | +15 shot speed. Every charged release vents a cone of scalding steam ahead of you (64 px, 0.9 × damage, burn, a hard shove along your aim) — the longer the wind-up, the bigger the blast; a tap only lets out a wisp. Steam-white bubbles trailing wisps. |
 | **Orrery** | Tin Pinwheel + Tiny Moon | One more orbiting blade (an extra orbit carrier), +1 tiny-planet, +20 range: shots and blades share one little sky. Periwinkle glow. |
 | **Bell Tower** | Grave Bell (active) + Bone Jacks | +0.5 damage. DONG: using the bell also flings a ring of 12 bone shards and sends every foe within 90 px running. Bronze spikes. |
 
-## Frost, fire, blasts and helpers
+## Lightning, frost, fire, blasts and helpers
 
 | Synergy | Requires | What it does |
 |---|---|---|
+| **Fork in the Road** | Lantern Moth + Brass Kite Key | +1 homing (reaching further). Lightning that seeks and forks: about twice a second a bolt leaps from you to the nearest foe (150 px), then forks to the two nearest foes it hasn't struck, and forks again — up to 7 strikes (0.6 × damage, a little less each fork). Acid-lime spiky sparks. |
 | **Frost Nova** | Ice Cube Tray + Party Popper | +1 freeze. A frozen foe that falls bursts in a frost nova: a ring of 10 ice shards and everything within 34 px frozen for a moment. Ice shards. |
+| **Swamp Gas** | Toadstool Cap + Trick Candle | A poisoned foe that falls goes up like swamp gas: three little blasts (0.6 × damage each) and everything within 32 px catches fire, in a sulphur-yellow flash. Sulphur bubbles trailing embers. |
 | **Oil Slick** | Leaky Bucket + Drippy Candle | +1 puddle. As you keep firing, your puddles turn into burning oil slicks (orange with a friendly pink rim, smouldering) that grow a little and set every foe standing in them alight. Burnt-orange bubbles. |
 | **Cluster Crackers** | Firecracker Pouch + Geode | +1 split. Every fallen foe pops a ring of four little crackers (0.5 × damage each). Red bombs with sparks. |
 | **Surprise Party** | Party Popper + Jack-in-the-Box (active) | +1 luck. SURPRISE: using the Jack also pops a party blast on every foe in the room (1.2 × damage). Pink stars. |
@@ -87,6 +90,7 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 
 | Synergy | Requires | What it does |
 |---|---|---|
+| **Kite and Key** | Storm Kite (active) + Brass Kite Key | +1 chain. Flying the kite in a storm with a key on the string: when you use it, lightning strikes the kite above you and the key passes it on — a bolt that forks through the room (up to 16 strikes, 1.5 × damage, a little less each fork), on top of borrowing the Storm Lance. Pale lightning stars with a big glow. |
 | **Mirror Lid** | Pot Lid (active) + Rearview Mirror | CLANG: using the lid turns every hostile shot in the room around — they fly back the way they came, as yours (at least 1 × damage). Chrome shards. |
 | **Whirlpool** | Drain Plunger (active) + Snail Shell | The plunger's yank becomes a whirlpool: foes within 120 px are dragged in and around, hurt (1 × damage) and slowed, and six water puddles ring you. Deep-water bubbles. |
 | **Slow Dance** | Crank Radio (active) + Pocket Metronome | ×1.05 fire rate. The slow song slows the room's hostile shots too (to 35 % speed, no more speeding up). Dusk-grey dust. |
@@ -103,6 +107,8 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | **Moonwalk** | Backwards Cap + Rearview Mirror | +1 homing, +1 back shot, +0.5 damage: the shots you fire backwards turn around and find their way to foes. Moon-blue wisps. |
 | **Biscuit Dunk** | Crumbly Biscuit + Thermos of Soup | +1 puddle, +1 split: crumbs fall into the soup. Cleared rooms may heal half a heart (30 %). Biscuit-brown shards. |
 | **Tea Party** | Teacup Tempest + Shrieking Kettle (active) | Now and then (5 % + luck, every 6 s at most) the kettle sings: 4 s of two extra shots, burn, homing and +1 fire rate ("THE KETTLE SINGS!"). Mint-steam wisps. |
+| **Paper Snowflake** | Tracing Paper + Kaleidoscope | ×1.1 damage (making up for the Kaleidoscope's). Now and then (12 % + luck, at most every 0.8 s) a volley unfolds into a paper snowflake: six shards burst out all around you (0.5 × damage each). Paper-white stars trailing dust. |
+| **Under the Weather** | Grudge Pebble + Falling Barometer | +0.3 damage. Hurting you makes the weather turn ("THE WEATHER TURNS!"): bolts from the sky onto the three nearest foes (1.5 × damage, a moment's slow) and a burst of stinging rain puddles all over the room. Slate-grey spikes trailing raindrops. |
 | **Loaded Dice** | Weighted Die + Bent Horseshoe | +2 luck. Rarely (2 % + luck) a JACKPOT: 3 s of two extra shots, homing and pierce. Lucky-green stars. |
 | **Haunted House** | Bedsheet Ghost + Wisp in a Bottle | +1 fear. Every fallen foe comes back as a little ghost that flies at the nearest foe (1.2 × damage). Ghost-white bubbles. |
 | **Tin Can Knight** | Sardine Tin + Tin Ribcage + Pot Lid (active) | A Tin heart at the start of every floor; getting hit rattles eight tin shards out of your armour (0.8 × damage each). Tin-grey gears. |
@@ -119,6 +125,8 @@ Synergy effects are plain `Effect`s. The unusual parts are hooks run from the sy
 | `syn.debut` | The first-activation ring in the new shot colour. |
 | `syn.burst` | Damage / status / shove in a radius + a nova (`needs` = only when the fallen foe had a status). |
 | `syn.skyBolts` | Bolts from the sky onto the N nearest foes. |
+| `syn.forkBolt` | Seeking lightning that forks from every foe it strikes to the nearest ones it hasn't (breadth first, ≤ 16 strikes); optionally the sky strikes you first. |
+| `syn.cone` | A cone blast along your aim (steam), optionally scaled by the release's charge. |
 | `syn.lineStrikes` | Bolts (+ craters) along the aim line to the wall. |
 | `syn.orbs` | Slow-drifting allied orbs hung along the aim line. |
 | `syn.blasts` | Player blasts (never hurt you) in a ring, or on every foe. |

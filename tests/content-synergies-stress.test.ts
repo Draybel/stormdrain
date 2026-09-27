@@ -3,14 +3,14 @@
  * real fighting — charge-and-release firing in four directions, shooters and fodder respawning, statuses
  * on the crowd so the kill hooks' filters pass, bombs, active uses and the rarer triggers (hurt, pickup,
  * room clear, floor start) every so often. After every tick: no NaN anywhere, every pool within its cap,
- * the chain-arc / explosion / event guardrails hold, the synergy stays on and temps stay bounded.
+ * the chain-arc / explosion / event guardrails hold, the synergy stays on and its temps stay bounded.
  */
 
 import { describe, expect, it } from 'vitest';
 import { ITEMS, SYNERGIES, getItem } from '../src/content/registry';
 import { clearEdges } from '../src/engine/inputState';
 import { liveExplosions } from '../src/sim/attack/impacts';
-import { CAP_CREEP, CAP_ENEMIES, CAP_ENEMY_SHOTS, CAP_WAVES } from '../src/sim/constants';
+import { CAP_CREEP, CAP_ENEMIES, CAP_ENEMY_SHOTS, CAP_PROJECTILES, CAP_WAVES } from '../src/sim/constants';
 import { chargeActive, fireTrigger, recomputePlayer, useActive } from '../src/sim/effects';
 import { setActive } from '../src/sim/inventory';
 import type { Sim } from '../src/sim/sim';
@@ -31,6 +31,8 @@ const AIMS = [
   [-1, 0],
   [0, -1],
 ] as const;
+/** The active the "all at once" build holds (the others can't share the one active slot). */
+const ALL_ACTIVE = 'pot-lid';
 
 function tagged(tag: string, exclude: ReadonlySet<string>): ItemDef[] {
   return [...ITEMS.values()]
@@ -79,38 +81,85 @@ function stressSim(syn: SynergyDef): Sim {
   return sim;
 }
 
-function checkWorld(sim: Sim, syn: SynergyDef): void {
-  checkAttackInvariants(sim);
+/**
+ * After every tick. Plain comparisons that throw — no `expect` per tick: 60+ synergies × 300 ticks of
+ * matcher calls would make this file a CPU hog next to the timing-sensitive tests running beside it. The
+ * full attack invariants (beam segments, everything inside the room…) run every FULL_EVERY ticks.
+ */
+const FULL_EVERY = 30;
+
+function fail(label: string, what: string): never {
+  throw new Error(`${label}: ${what}`);
+}
+
+function checkWorld(sim: Sim, label: string, tick: number, mustHave?: string): void {
+  if (tick % FULL_EVERY === 0) checkAttackInvariants(sim);
   const w = sim.world;
-  expect(w.enemies.count).toBeLessThanOrEqual(CAP_ENEMIES);
-  expect(w.enemyShots.count).toBeLessThanOrEqual(CAP_ENEMY_SHOTS);
-  expect(w.creep.count).toBeLessThanOrEqual(CAP_CREEP);
-  expect(w.waves.count).toBeLessThanOrEqual(CAP_WAVES);
-  expect(w.atk.explosions.n).toBeLessThanOrEqual(w.atk.explosions.x.length);
-  expect(liveExplosions(w)).toBeLessThanOrEqual(ATTACK_TUNING.capExplosionsLive);
-  expect(w.atk.familiars.count()).toBeLessThanOrEqual(ATTACK_TUNING.familiarMax);
+  const a = w.atk;
+  if (w.projectiles.count > CAP_PROJECTILES) fail(label, `projectiles ${w.projectiles.count}`);
+  if (a.beams.count > ATTACK_TUNING.capBeams) fail(label, `beams ${a.beams.count}`);
+  if (a.swipes.count > ATTACK_TUNING.capSwipes) fail(label, `swipes ${a.swipes.count}`);
+  if (a.arcsThisTick > ATTACK_TUNING.capChainArcs) fail(label, `chain arcs ${a.arcsThisTick}`);
+  if (w.enemies.count > CAP_ENEMIES) fail(label, `enemies ${w.enemies.count}`);
+  if (w.enemyShots.count > CAP_ENEMY_SHOTS) fail(label, `enemy shots ${w.enemyShots.count}`);
+  if (w.creep.count > CAP_CREEP) fail(label, `puddles ${w.creep.count}`);
+  if (w.waves.count > CAP_WAVES) fail(label, `waves ${w.waves.count}`);
+  if (a.explosions.n > a.explosions.x.length) fail(label, 'explosion queue overflow');
+  if (liveExplosions(w) > ATTACK_TUNING.capExplosionsLive) fail(label, `live explosions ${liveExplosions(w)}`);
+  if (a.familiars.count() > ATTACK_TUNING.familiarMax) fail(label, `familiars ${a.familiars.count()}`);
+  for (let i = 0; i < w.projectiles.count; i++) {
+    const s = w.projectiles.items[i]!;
+    if (!Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.damage) || !Number.isFinite(s.size)) fail(label, `NaN shot kind ${s.kind}`);
+  }
+  for (let i = 0; i < a.beams.count; i++) {
+    const b = a.beams.items[i]!;
+    if (b.n > ATTACK_TUNING.beamBudget || !Number.isFinite(b.dmg)) fail(label, 'bad beam');
+    for (let k = 0; k < b.n; k++) if (!Number.isFinite(b.px[k]!) || !Number.isFinite(b.py[k]!)) fail(label, 'NaN beam point');
+  }
   for (let i = 0; i < w.enemies.count; i++) {
     const e = w.enemies.items[i]!;
     if (!Number.isFinite(e.x) || !Number.isFinite(e.y) || !Number.isFinite(e.kx) || !Number.isFinite(e.ky) || Number.isNaN(e.hp)) {
-      throw new Error(`${syn.id}: NaN enemy ${e.def.id}`);
+      fail(label, `NaN enemy ${e.def.id}`);
     }
   }
   for (let i = 0; i < w.enemyShots.count; i++) {
     const s = w.enemyShots.items[i]!;
     if (!Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.vx) || !Number.isFinite(s.vy) || !Number.isFinite(s.dmg)) {
-      throw new Error(`${syn.id}: NaN enemy shot`);
+      fail(label, 'NaN enemy shot');
     }
   }
   for (let i = 0; i < w.creep.count; i++) {
     const c = w.creep.items[i]!;
-    if (!Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.r) || !Number.isFinite(c.dmg) || c.r > 20.01) {
-      throw new Error(`${syn.id}: bad puddle`);
+    // Synergy hooks grow puddles to 20 px at most; a big puddle-modifier stack makes bigger ones itself
+    // (8 + 2 per stack) — still well inside the puddle sprite cache's key range.
+    if (!Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.r) || !Number.isFinite(c.dmg) || c.r <= 0 || c.r > 63) {
+      fail(label, `bad puddle x ${c.x} y ${c.y} r ${c.r} dmg ${c.dmg} allied ${c.allied} style ${c.style}`);
     }
   }
-  for (let i = 0; i < w.waves.count; i++) if (!Number.isFinite(w.waves.items[i]!.rad)) throw new Error(`${syn.id}: NaN wave`);
+  for (let i = 0; i < w.waves.count; i++) if (!Number.isFinite(w.waves.items[i]!.rad)) fail(label, 'NaN wave');
   const p = w.player;
-  for (const k of STAT_IDS) if (!Number.isFinite(p.stats[k])) throw new Error(`${syn.id}: NaN stat ${k}`);
-  expect(p.synergies, `${syn.id} switched off`).toContain(syn.id);
+  for (const k of STAT_IDS) if (!Number.isFinite(p.stats[k])) fail(label, `NaN stat ${k}`);
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) fail(label, 'NaN player');
+  if (mustHave !== undefined && !p.synergies.includes(mustHave)) fail(label, 'switched off');
+}
+
+function aimAt(input: ReturnType<typeof makeInput>, t: number): void {
+  const ph = t % 80;
+  input.fireHeld = ph < 74;
+  input.firePressed = ph === 0;
+  input.fireReleased = ph === 74;
+  const a = AIMS[Math.floor(t / 80) % 4]!;
+  input.aimX = input.fireHeld ? a[0] : 0;
+  input.aimY = input.fireHeld ? a[1] : 0;
+}
+
+/** Fodder keeps coming (shooters make hostile shots to bat back / slow / reflect). */
+function feed(sim: Sim, t: number): void {
+  const w = sim.world;
+  if (t % 15 === 0 && w.enemies.count < 14) {
+    const e = sim.spawnEnemy(FODDER[(t / 15) % FODDER.length]!, w.combatRng.range(16, 192), w.combatRng.range(12, 100), { champion: false });
+    if (e) e.spawnT = 0;
+  }
 }
 
 function stress(syn: SynergyDef, ticks: number): { ms: number; kills: number } {
@@ -118,23 +167,13 @@ function stress(syn: SynergyDef, ticks: number): { ms: number; kills: number } {
   const w = sim.world;
   const p = w.player;
   const input = makeInput();
-  const rng = w.combatRng;
   let total = 0;
+  let maxOwnTemps = 0;
   for (let t = 0; t < ticks; t++) {
-    const ph = t % 80;
-    input.fireHeld = ph < 74;
-    input.firePressed = ph === 0;
-    input.fireReleased = ph === 74;
-    const a = AIMS[Math.floor(t / 80) % 4]!;
-    input.aimX = input.fireHeld ? a[0] : 0;
-    input.aimY = input.fireHeld ? a[1] : 0;
+    aimAt(input, t);
     input.moveX = Math.sin(t * 0.05) * 0.7;
     input.moveY = Math.cos(t * 0.037) * 0.7;
-    // Fodder keeps coming (shooters make hostile shots to bat back / slow / reflect).
-    if (t % 15 === 0 && w.enemies.count < 14) {
-      const e = sim.spawnEnemy(FODDER[(t / 15) % FODDER.length]!, rng.range(16, 192), rng.range(12, 100), { champion: false });
-      if (e) e.spawnT = 0;
-    }
+    feed(sim, t);
     // Statuses on the crowd, so the kill hooks' `needs` filters (frozen / burning…) pass.
     if (t % 20 === 10) {
       for (let i = 0; i < w.enemies.count; i++) {
@@ -158,10 +197,16 @@ function stress(syn: SynergyDef, ticks: number): { ms: number; kills: number } {
     sim.step(input);
     total += performance.now() - t0;
     clearEdges(input);
-    checkWorld(sim, syn);
+    checkWorld(sim, syn.id, t, syn.id);
+    let own = 0;
+    for (let i = 0; i < p.temps.length; i++) if (p.temps[i]!.source === syn.id) own++;
+    if (own > maxOwnTemps) maxOwnTemps = own;
   }
   expect(sim.events.dropped, `${syn.id}: events dropped`).toBe(0);
-  expect(p.temps.length, `${syn.id}: temps piled up`).toBeLessThan(40);
+  // The synergy's own timed boosts never pile up (cooldowns + durations). The items' temps are theirs:
+  // "more damage this room" per hit, 8 hits in 5 s without i-frames, 2 copies each.
+  expect(maxOwnTemps, `${syn.id}: its temps piled up`).toBeLessThanOrEqual(8);
+  expect(p.temps.length, `${syn.id}: temps piled up`).toBeLessThan(120);
   return { ms: total / ticks, kills: w.counters.kills };
 }
 
@@ -189,33 +234,26 @@ describe('special synergies: 5 s stress with every item at 2 stacks', () => {
       if (d.kind === 'trinket') p.inv.trinkets.push(id, id);
       else p.inv.passives.push(id, id);
     }
-    setActive(p.inv, getItem('pot-lid'));
+    setActive(p.inv, getItem(ALL_ACTIVE));
     p.inv.version++;
     recomputePlayer(w);
-    expect(p.synergies.length).toBeGreaterThanOrEqual(all.length - 12);
+    // Every synergy is on except the ones that need another active in the one slot.
+    const needsOtherActive = (s: SynergyDef): boolean =>
+      s.requires.some((r) => typeof r === 'string' && getItem(r).kind === 'active' && r !== ALL_ACTIVE);
+    const expected = all.filter((s) => !needsOtherActive(s)).map((s) => s.id);
+    expect(expected.length).toBeGreaterThanOrEqual(44);
+    for (const id of expected) expect(p.synergies, id).toContain(id);
     const input = makeInput();
     for (let t = 0; t < 300; t++) {
-      const ph = t % 80;
-      input.fireHeld = ph < 74;
-      input.firePressed = ph === 0;
-      input.fireReleased = ph === 74;
-      const a = AIMS[Math.floor(t / 80) % 4]!;
-      input.aimX = input.fireHeld ? a[0] : 0;
-      input.aimY = input.fireHeld ? a[1] : 0;
-      if (t % 15 === 0 && w.enemies.count < 14) {
-        const e = sim.spawnEnemy(FODDER[(t / 15) % FODDER.length]!, w.combatRng.range(16, 192), w.combatRng.range(12, 100), { champion: false });
-        if (e) e.spawnT = 0;
-      }
+      aimAt(input, t);
+      feed(sim, t);
       if (t % 40 === 5) {
         fireTrigger(w, 'hurt', p.x, p.y);
         fireTrigger(w, 'pickup', p.x, p.y);
       }
       sim.step(input);
       clearEdges(input);
-      checkAttackInvariants(sim);
-      expect(w.creep.count).toBeLessThanOrEqual(CAP_CREEP);
-      expect(w.enemyShots.count).toBeLessThanOrEqual(CAP_ENEMY_SHOTS);
-      expect(w.waves.count).toBeLessThanOrEqual(CAP_WAVES);
+      checkWorld(sim, 'all at once', t);
     }
     expect(sim.events.dropped).toBe(0);
     expect(w.counters.kills).toBeGreaterThan(0);
