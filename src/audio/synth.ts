@@ -10,6 +10,8 @@ export interface Recipe {
   length: number;
   /** Base gain (before bus volumes). */
   gain: number;
+  /** Most simultaneous voices of this sound (default: only the global cap). */
+  maxVoices?: number;
   play(v: Voice): void;
 }
 

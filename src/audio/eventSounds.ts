@@ -5,7 +5,7 @@ import { ROOM_W } from '../sim/constants';
 import { PK } from '../sim/pickupKinds';
 import { Tile } from '../sim/tiles';
 import type { AudioOut } from './engine';
-import type { SfxName } from './sfx';
+import type { SfxName, SoundName } from './sfx';
 import { SRC_STATUS } from '../sim/hittable';
 
 const STATUS_SOUND: readonly SfxName[] = ['st_poison', 'st_burn', 'st_freeze', 'st_slow', 'st_charm', 'st_fear'];
@@ -120,7 +120,8 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
       audio.play('charged', pan);
       break;
     case 'sfx':
-      if (e.id) audio.play(e.id as SfxName, pan);
+      // Any built-in or library sound by name (unknown names are ignored by the player).
+      if (e.id) audio.play(e.id as SoundName, pan);
       break;
     // ── Enemies & room combat ──
     case 'enemySpawn':
