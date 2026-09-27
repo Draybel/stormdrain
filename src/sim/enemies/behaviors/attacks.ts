@@ -12,6 +12,7 @@ import { spawnCreep, spawnEnemyShot, spawnLob, spawnWave, type EnemyShot } from 
 import { spawnEnemy } from '../spawn';
 import { ST_CHARM, hasStatus } from '../status';
 import { ATTACK_COMMON, SHOT_COMMON, walkableAt, type AttackBehavior, type CompiledAttack, type ParamSpec } from './common';
+import { spiral } from './ext-a';
 
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
@@ -304,4 +305,5 @@ export const ATTACKS: Readonly<Record<AttackKind, AttackBehavior>> = {
   spawnMinion,
   landShockwave,
   leaveTrail,
+  spiral,
 };
