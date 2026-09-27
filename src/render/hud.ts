@@ -11,6 +11,7 @@
 import type { GameEvent } from '../engine/events';
 import { findItem } from '../content/registry';
 import { BONUS_EMBER } from '../sim/health';
+import { isUnidentifiedTonic, itemDesc, itemName } from '../sim/tonics';
 import type { World } from '../sim/world';
 import { UI } from '../content/sprites/palette';
 import { EMBER_HEART_SPRITE, HUD_BOMB_ICON, HUD_COIN_ICON, HUD_KEY_ICON, TIN_HEART_SPRITE } from '../content/sprites/pickups';
@@ -25,6 +26,8 @@ const COUNT: TextStyle = { color: '#e9edf7', shadow: UI.shadow };
 const COUNT_HOT: TextStyle = { color: '#ffffff', shadow: '#5a2410' };
 const BANNER_NAME: TextStyle = { color: UI.accent, shadow: '#3a2410', scale: 2 };
 const BANNER_DESC: TextStyle = { color: UI.text, shadow: UI.shadow };
+/** The '?' on an unidentified Mystery Tonic in the consumable button. */
+const TONIC_MARK: TextStyle = { color: '#3a2410' };
 
 /** Hearts: top-left corner, 6 per row. */
 export const HEARTS_X = 4;
@@ -80,6 +83,8 @@ export class Hud {
   private bannerDesc = '';
   private bannerW = 0;
   private bannerT = BANNER_TIME;
+  /** The banner still has to be named for this run (Mystery Tonics: '???' until identified). */
+  private bannerPending = false;
   private chargeFlash = 1;
   private deniedShake = 1;
   private heartHit = 1;
@@ -91,14 +96,13 @@ export class Hud {
   }
 
   onEvent(e: GameEvent): void {
-    if (e.type === 'item') {
+    // Item pickups, and consumables when used (a drunk Tonic reveals what it was).
+    if (e.type === 'item' || (e.type === 'activeUse' && e.a === 1)) {
       const def = findItem(e.id);
       if (!def) return;
-      this.bannerId = def.id;
-      this.bannerName = def.name.toUpperCase();
-      this.bannerDesc = def.desc;
-      this.bannerW = Math.max(measureText(this.bannerName, 2), measureText(this.bannerDesc)) + 18;
+      this.setBanner(def.id, def.name, def.desc);
       this.bannerT = 0;
+      this.bannerPending = true;
     } else if (e.type === 'charged') {
       this.chargeFlash = 0;
     } else if (e.type === 'denied' && e.id === 'notCharged') {
@@ -106,7 +110,21 @@ export class Hud {
     }
   }
 
+  private setBanner(id: string, name: string, desc: string): void {
+    this.bannerId = id;
+    this.bannerName = name.toUpperCase();
+    this.bannerDesc = desc;
+    this.bannerW = Math.max(measureText(this.bannerName, 2), measureText(this.bannerDesc)) + 18;
+  }
+
   update(dt: number, world: World): void {
+    if (this.bannerPending) {
+      // The names this run shows (sim/tonics.ts): unidentified Tonics read '??? <COLOUR> TONIC'.
+      this.bannerPending = false;
+      const name = itemName(world, this.bannerId);
+      const desc = itemDesc(world, this.bannerId);
+      if (name.toUpperCase() !== this.bannerName || desc !== this.bannerDesc) this.setBanner(this.bannerId, name, desc);
+    }
     for (let i = 0; i < 3; i++) {
       const v = counterValue(world, i);
       if (this.shown[i]! >= 0 && v > this.shown[i]!) this.bump[i] = 0;
@@ -136,7 +154,22 @@ export class Hud {
     this.drawCounters(ctx, world);
     this.drawCharge(ctx, world, buttons, time);
     this.drawTrinkets(ctx, world, buttons);
+    this.drawTonicMark(ctx, world, buttons);
     this.drawBanner(ctx);
+  }
+
+  /** An unidentified Mystery Tonic in the consumable button gets a gold '?' badge (top-right corner). */
+  private drawTonicMark(ctx: CanvasRenderingContext2D, world: World, buttons: HudButtons): void {
+    const c = world.player.inv.consumables;
+    if (c.length === 0 || !isUnidentifiedTonic(world, c[0]!)) return;
+    const b = buttons.consumable;
+    const x = Math.round(b.x + b.w) - 7;
+    const y = Math.round(b.y) + 1;
+    ctx.fillStyle = UI.shadow;
+    ctx.fillRect(x - 1, y - 1, 7, 9);
+    ctx.fillStyle = UI.accent;
+    ctx.fillRect(x, y, 5, 7);
+    drawText(ctx, '?', x + 1, y + 1, TONIC_MARK);
   }
 
   private drawHearts(ctx: CanvasRenderingContext2D, world: World): void {

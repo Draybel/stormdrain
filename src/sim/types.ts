@@ -250,6 +250,10 @@ export const PLAYER_FLAGS = [
   'darkVision',
   /** Shop and trader prices −25 % (Magpie's Stall, Old Pell). */
   'haggler',
+  /** Movement input is mirrored (the Dizzy Tonic, see sim/tonics.ts; read by sim/player.ts). */
+  'confused',
+  /** Mystery Tonic labels can be read: every bottle shows its real name (sim/tonics.ts). */
+  'readLabels',
 ] as const;
 export type PlayerFlag = (typeof PLAYER_FLAGS)[number];
 
@@ -411,6 +415,28 @@ export interface CostumeDef {
 /** One costume or several layers (e.g. an aura + glowing eyes). */
 export type CostumeSpec = CostumeDef | readonly CostumeDef[];
 
+/**
+ * Consumable flavours (ItemDef.consumable):
+ * - 'tonic': a MYSTERY Tonic bottle. Each run shuffles which bottle colour holds which TonicDef
+ *   (sim/tonics.ts); the bottle stays unidentified ('???' + its colour) until first drunk. Its own
+ *   `use` list is only the shared "glug" (the effect comes from the shuffle).
+ * - 'sticker': a named single-use card whose `use` list is its whole effect.
+ */
+export type ConsumableKind = 'tonic' | 'sticker';
+
+/** A Mystery Tonic effect (content/items/consumables-tonics.ts), dealt to a bottle colour per run. */
+export interface TonicDef {
+  id: string;
+  /** Shown once identified (e.g. 'Mending Tonic'). */
+  name: string;
+  /** ONE short line (≤ 46 chars, uppercase like item descriptions). */
+  desc: string;
+  /** Helps the player (false = a bad trip). */
+  good: boolean;
+  /** Executed when a bottle holding this effect is drunk (persistent types become temporary). */
+  use: readonly Effect[];
+}
+
 const NO_COSTUMES: readonly CostumeDef[] = [];
 
 /** A costume spec as a list of layers (allocates for a single def: callers cache the result). */
@@ -436,6 +462,8 @@ export interface ItemDef {
   active?: ActiveSpec;
   /** kind 'consumable': executed once when used. */
   use?: readonly Effect[];
+  /** kind 'consumable': a Mystery Tonic bottle or a sticker (see ConsumableKind). */
+  consumable?: ConsumableKind;
   /** 14×14 icon (a string is a placeholder reference until art exists). */
   sprite: SpriteDef | string;
   costume?: CostumeSpec;

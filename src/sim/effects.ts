@@ -35,6 +35,7 @@ import { spawnPedestal } from './pedestals';
 import { pickupKindOf } from './pickupKinds';
 import { spawnDrops, spawnItemPickup, spawnLoot } from './pickups';
 import { computeStats, type StatMod } from './stats';
+import { drinkTonic } from './tonics';
 import { ITEM_TUNING } from './tuning';
 import type {
   Effect,
@@ -479,6 +480,9 @@ export function useConsumable(w: World): boolean {
   const def = getItem(id);
   w.events.emit('activeUse', p.x, p.y - 10, 1, 0, def.id);
   executeEffects(w, def.use ?? [], p.x, p.y, def.id);
+  // Mystery Tonics: this run's colour → effect shuffle decides what the bottle does (sim/tonics.ts).
+  const tonic = drinkTonic(w, def);
+  if (tonic) executeEffects(w, tonic, p.x, p.y, def.id);
   recomputePlayer(w);
   return true;
 }

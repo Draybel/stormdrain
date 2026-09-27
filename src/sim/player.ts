@@ -161,6 +161,11 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   // Target velocity from analog input (magnitude clamped to 1).
   let ix = input.moveX;
   let iy = input.moveY;
+  // Dizzy Tonic (sim/tonics.ts): while confused, movement is mirrored.
+  if (p.flags.confused) {
+    ix = -ix;
+    iy = -iy;
+  }
   const im = Math.sqrt(ix * ix + iy * iy);
   if (im > 1) {
     ix /= im;
