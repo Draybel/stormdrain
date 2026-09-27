@@ -51,14 +51,14 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | Synergy | Requires | What it does |
 |---|---|---|
 | **Fork in the Road** | Lantern Moth + Brass Kite Key | +1 homing (reaching further). Lightning that seeks and forks: about twice a second a bolt leaps from you to the nearest foe (150 px), then forks to the two nearest foes it hasn't struck, and forks again — up to 7 strikes (0.6 × damage, a little less each fork). Acid-lime spiky sparks. |
-| **Frost Nova** | Ice Cube Tray + Party Popper | +1 freeze. A frozen foe that falls bursts in a frost nova: a ring of 10 ice shards and everything within 34 px frozen for a moment. Ice shards. |
+| **Frost Nova** | Ice Cube Tray + Party Popper | +1 freeze. A frozen foe that falls bursts in a frost nova: a ring of 10 ice shards and everything within 34 px frozen for a moment — the shards can set off the next frozen foe (one nova every 0.1 s at most). Ice shards. |
 | **Swamp Gas** | Toadstool Cap + Trick Candle | A poisoned foe that falls goes up like swamp gas: three little blasts (0.6 × damage each) and everything within 32 px catches fire, in a sulphur-yellow flash. Sulphur bubbles trailing embers. |
 | **Oil Slick** | Leaky Bucket + Drippy Candle | +1 puddle. As you keep firing, your puddles turn into burning oil slicks (orange with a friendly pink rim, smouldering) that grow a little and set every foe standing in them alight. Burnt-orange bubbles. |
 | **Cluster Crackers** | Firecracker Pouch + Geode | +1 split. Every fallen foe pops a ring of four little crackers (0.5 × damage each). Red bombs with sparks. |
 | **Surprise Party** | Party Popper + Jack-in-the-Box (active) | +1 luck. SURPRISE: using the Jack also pops a party blast on every foe in the room (1.2 × damage). Pink stars. |
 | **Fireworks Night** | Leather Apron + Sparkler Stub | Every bomb you place spits a ring of 10 sparks that fly off and pop on foes. Magenta spiky sparks. |
 | **Butterfingers** | Greasy Gloves + Earplugs | +1 explode, ×1.25 range (they slip out a bit later). Getting hit makes you fumble six blasts all around you (never hurt you, 1 × damage). Amber bombs. |
-| **Moth to a Flame** | 2 Mothkin items + 2 Waxen items | +1 homing, +1 burn. A burning foe that falls carries the flame on to the two nearest foes, moth-like, along ember arcs. Salmon wisps. |
+| **Moth to a Flame** | 2 Mothkin items + 2 Waxen items | +1 homing, +1 burn. A burning foe that falls carries the flame on to the two nearest foes, moth-like, along ember arcs (every 0.1 s at most). Salmon wisps. |
 | **Lantern Parade** | Lamplet + Tallow Tot + Wick Wisp | +1 burn. The three candle buddies drip wax as they march: burning puddles under every familiar that ignite foes nearby. Warm lantern gold. |
 | **Nightlight** | Gloamwing + Porch Bulb | +1 slow, +1 homing. The moths shed slowing dust where they flutter: dusty puddles under your familiars that slow what walks in. Dusty lilac wisps. |
 

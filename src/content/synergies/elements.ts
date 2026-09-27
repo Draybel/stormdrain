@@ -13,10 +13,15 @@ const synergies: SynergyDef[] = [
     requires: ['ice-cube-tray', 'party-popper'],
     effects: [
       mod('freeze'),
-      when('kill', [
-        hook('syn.ring', { needs: 'freeze', n: 10, speed: 160, dmg: 0.7, style: 'ice', life: 1, look: 'frost', sfx: 'freeze' }),
-        hook('syn.burst', { needs: 'freeze', radius: 34, status: 'freeze', time: 1.2 }),
-      ]),
+      // A frozen crowd can set off a chain of novas: at most one every 0.1 s.
+      when(
+        'kill',
+        [
+          hook('syn.ring', { needs: 'freeze', n: 10, speed: 160, dmg: 0.7, style: 'ice', life: 1, look: 'frost', sfx: 'freeze' }),
+          hook('syn.burst', { needs: 'freeze', radius: 34, status: 'freeze', time: 1.2 }),
+        ],
+        { cooldown: 0.1 },
+      ),
     ],
     style: { color: '#bff0ff', shape: 'shard', trail: 'ice', glow: 2 },
     hook: DEBUT,
@@ -112,7 +117,9 @@ const synergies: SynergyDef[] = [
     effects: [
       mod('homing'),
       mod('burn'),
-      when('kill', hook('syn.contagion', { needs: 'burn', radius: 56, max: 2, time: 3, power: 0.35, color: '#ffb040', sfx: 'burn' })),
+      when('kill', hook('syn.contagion', { needs: 'burn', radius: 56, max: 2, time: 3, power: 0.35, color: '#ffb040', sfx: 'burn' }), {
+        cooldown: 0.1,
+      }),
     ],
     style: { color: '#ffa878', trail: 'wisps', glow: 2 },
     hook: DEBUT,
