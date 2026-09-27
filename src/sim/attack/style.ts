@@ -36,6 +36,8 @@ export interface ShotStyle {
   readonly beamGlow: string;
   readonly beamEdge: string;
   readonly beamJitter: number;
+  /** A line from each projectile back to its owner in this colour ('' = none; StyleOverride.tether). */
+  readonly tether: string;
 }
 
 /** Candle-gold (Wren's marbles). */
@@ -173,6 +175,7 @@ function build(
   trailColors: readonly string[],
   glowR: number,
   jitter: number,
+  tether = '',
 ): ShotStyle {
   const line = darker(rim, 0.72);
   return {
@@ -191,6 +194,7 @@ function build(
     beamGlow: glowOf(body),
     beamEdge: lighter(body, 0.25),
     beamJitter: jitter,
+    tether,
   };
 }
 
@@ -268,7 +272,9 @@ export function composeStyle(p: AttackProfile, character: CharacterDef, override
     trailColors.push('#ffcf57');
   }
   let glowR = Math.min(6, 2 + Math.round(wSum * 0.5));
+  let tether = '';
   for (const o of overrides) {
+    if (o.tether) tether = o.tether;
     if (o.color) {
       body = mixVivid(body, o.color, 0.75);
       rim = darker(mix(body, o.color, 0.6), 0.28);
@@ -290,11 +296,11 @@ export function composeStyle(p: AttackProfile, character: CharacterDef, override
   }
   let jitter = p.primary === 'lance' ? 1 : 0.35;
   if (p.mod('chain') > 0) jitter += 0.4;
-  return build(body, rim, accents, shape, trails, trailColors, glowR, jitter);
+  return build(body, rim, accents, shape, trails, trailColors, glowR, jitter, tether);
 }
 
 /** Wren's keeper marble: the same combo, gilded, star-shaped, extra glow. */
 export function composeKeeperStyle(s: ShotStyle): ShotStyle {
   const body = mix(s.body, '#fff4c0', 0.55);
-  return build(body, '#e0a020', s.accents, 'star', s.trails, s.trailColors, 6, s.beamJitter);
+  return build(body, '#e0a020', s.accents, 'star', s.trails, s.trailColors, 6, s.beamJitter, s.tether);
 }

@@ -53,6 +53,7 @@ const SHOT_LOOKS: readonly ShotLook[] = [
 ];
 const CHARM_STYLE = ENEMY_SHOT_STYLES.indexOf('charm');
 const ICE_STYLE = ENEMY_SHOT_STYLES.indexOf('ice');
+const WATER_STYLE = ENEMY_SHOT_STYLES.indexOf('water');
 
 const shotCache = new Map<number, HTMLCanvasElement>();
 
@@ -101,16 +102,19 @@ function shotGlow(style: number, r: number): HTMLCanvasElement | null {
 
 const puddleCache = new Map<number, HTMLCanvasElement>();
 
-/** Flat creep puddle (2:1 ellipse), cached per (style, radius). */
-function puddleSprite(style: number, r: number): HTMLCanvasElement {
-  const key = style * 64 + r;
+/**
+ * Flat creep puddle (2:1 ellipse), cached per (style, radius, rim). `friendly`: an allied puddle that keeps
+ * its elemental look (a synergy's burning oil, spores, frost) gets the friendly pink rim instead of its own.
+ */
+function puddleSprite(style: number, r: number, friendly = false): HTMLCanvasElement {
+  const key = style * 64 + r + (friendly ? 4096 : 0);
   let c = puddleCache.get(key);
   if (c) return c;
   const L = SHOT_LOOKS[style] ?? SHOT_LOOKS[0]!;
   const ry = Math.max(2, Math.round(r / 2));
   c = makeCanvas(r * 2 + 3, ry * 2 + 3);
   const ctx = ctx2d(c);
-  ctx.fillStyle = L.rim;
+  ctx.fillStyle = friendly ? SHOT_LOOKS[CHARM_STYLE]!.rim : L.rim;
   ctx.globalAlpha = 0.75;
   fillPixelEllipse(ctx, r + 1, ry + 1, r, ry);
   ctx.fillStyle = L.body;
@@ -241,7 +245,9 @@ export class EnemyRenderer {
     const creep = world.creep;
     for (let i = 0; i < creep.count; i++) {
       const c = creep.items[i]!;
-      const img = puddleSprite(c.allied ? CHARM_STYLE : c.style, Math.round(c.r));
+      // Allied puddles are pink; elemental ones (not plain water) keep their look with a pink rim.
+      const elemental = c.allied && c.style !== WATER_STYLE && c.style !== CHARM_STYLE;
+      const img = puddleSprite(c.allied && !elemental ? CHARM_STYLE : c.style, Math.round(c.r), elemental);
       const fade = Math.min(1, c.life / (c.maxLife * 0.25));
       ctx.globalAlpha = fade;
       ctx.drawImage(img, Math.round(c.x + ox - img.width / 2), Math.round(c.y + oy - img.height / 2));
