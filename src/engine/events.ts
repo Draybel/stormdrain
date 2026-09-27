@@ -46,7 +46,7 @@ export type GameEventType =
   | 'heal'
   /** bonus hearts emptied: x,y; a = 1 tin; b = how many */
   | 'heartBreak'
-  /** fire nova (Ember heart broke, items): x,y; a = radius; id = flavour ('ember') */
+  /** nova ring (Ember heart broke, items, synergies): x,y; a = radius; id = flavour ('ember', 'frost', 'spore', 'charm', 'ink', 'gold', 'water', a '#rrggbb' colour; else the storm 'shock' — render/worldFx.ts novaColors) */
   | 'nova'
   /** a bomb was placed: x,y */
   | 'bombPlaced'

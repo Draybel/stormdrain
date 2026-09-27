@@ -140,8 +140,8 @@ The looks:
 - **ARCHITECTURE.md §6c Content:** list this pack.
 - **ARCHITECTURE.md §6c Hooks:** note that a boss hook may swap `enemy.sprite` for a phase look. This is
   presentation only; the renderer draws `enemy.sprite`.
-- **Possible framework follow-up:** a `PhaseSpec.sprite` field could replace the look hooks. The renderer
-  already draws `enemy.sprite`, so `startPhase` / `spawnPart` would only need to set it.
+- **Merged:** the hooks now declare their sprites (`BossHook.looks`), so validation checks every phase look and
+  `EnemyRenderer.prepare` rasterises them ahead of time (no first-use cost at the phase change).
 - **ARCHITECTURE.md §5:** `BOSS_PATTERN_KINDS` grew; no shapes changed.
 - **tests/bosses.test.ts:** its chapter-pool checks were relaxed to membership, and a new line tests the
   borrow rule on a chapter that has no bosses.

@@ -207,8 +207,16 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       (content merge: 56 enemies — 53 in chapter pools (every chapter ≥ 3) + the Glint Mite minion + 2 boss minions; enemy
       packs A (chapters 1 alt-3, 23) and B (chapters 4-6, 22), behaviours bounce / lurk / intercept / swoop / ambush and
       spiral / stream; docs/content-enemies-a.md, -b.md)
-- [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
-      (3B: the framework + 2 Gutterways bosses, 1 miniboss and placeholder versions of the 3 finals)
+- [x] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
+      (3B: the framework + 2 Gutterways bosses, 1 miniboss and placeholder versions of the 3 finals; content merge 2:
+      20 bosses, 8 minibosses, 3 finals — boss packs A (Drowned Nursery, Rootcellar, Candlewick Crypt + 2 minibosses,
+      docs/content-bosses-a.md), B (Grinding Works, Rust Foundry, Mushroom Hollow, Glimmer Grotto + 2,
+      docs/content-bosses-b.md), C (Bone Orchard, Frostbitten Vault, Eye of the Storm, Hollow Nest + 3,
+      docs/content-bosses-c.md): every chapter has a boss and a miniboss of its own, 2-3 phases each with a new look
+      per phase (`BossHook.looks`), HP rising with depth, 9 new pattern kinds; the full finals (docs/content-finals.md):
+      Old Thunderhead 3 phases (walking lightning, rain curtains, wind, a blackout), The Nestmother 3 (larvae, stinger
+      dives, paper walls), The Undertow 4 (the pull, flung debris, spout tentacles), a sprite per phase, themed
+      send-offs (`BossHook.dying`), 8 new pattern kinds; ids, keys and endings unchanged)
 - [x] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
       (97 templates: 25 generic + 60 chapter rooms (5 per chapter) + 12 special variants (docs/content-rooms.md); 3A: the 12
       chapter looks and all six curse effects)
@@ -222,8 +230,11 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       Wren's frame layout, `sim/mechanics.ts`, `innate` effects; 53 achievements (core / heroes / milestones) with badge
       icons and reward lines, 45 gated items, character / route unlocks, robbing Magpie's jar; docs/characters.md;
       tests/characters.test.ts, tests/achievements-content.test.ts, e2e/characters.spec.ts)
-- [ ] 40+ hand-crafted special synergies + SYNERGIES.md
-      (4A: the synergy engine is verified and tested; the content to do)
+- [x] 40+ hand-crafted special synergies + SYNERGIES.md
+      (4A: the synergy engine is verified and tested; synergies pass: 63 synergies in 7 files (lance, carriers, elements,
+      sets, trinkets, actives, oddities) with 26 generic `syn.*` hooks (sky bolts, forking lightning, steam cones,
+      tethers, lassos, puddles…), a look of their own each, SYNERGIES.md checked against the data; docs/content-synergies.md;
+      content merge 2: requirements read a per-recompute index of what is held — O(1) per requirement)
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
       (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
@@ -232,12 +243,18 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       (3B: routes, whirlpool and endings flow done with run options standing in for the meta unlocks; 4A: 'ending1' /
       'ending2' / item unlocks now come from the meta save; 4B: the ending screens — a painted vignette and a typed epilogue
       per ending, unlock notices, the run summary; the floor card got its opening animation and a floor-progress track.
-      The final bosses themselves are still the 3B placeholders — see "Bosses → 20+")
+      Content merge 2: the full final bosses replaced the 3B placeholders — see "Bosses → 20+")
 
 ## Phase 7 — Integration, balance & performance
-- [ ] Merge all content; full test suite green; bot clears every floor/track
+- [x] Merge all content; full test suite green; bot clears every floor/track
       (content merge 1: items A / B / C, enemies A / B and room templates merged into main — 46 unit-test files (2 179 tests), e2e green,
-      the explorer clean over 200 seeds × floors 1-4 + 10 whole runs; characters pass: characters + achievements done on main; bosses and synergies to come)
+      the explorer clean over 200 seeds × floors 1-4 + 10 whole runs; characters pass: characters + achievements done on main;
+      content merge 2: boss packs A / B / C, the finals and the synergies merged — tests/content-integration-bosses.test.ts
+      (own boss / miniboss per chapter in real runs, finals' endings, phase looks, UNDER THE ROOTS, a synergy in a run →
+      IT CLICKS); totals: 129 passives, 28 actives, 34 trinkets, 23 consumables, 56 enemies, 20 bosses, 8 minibosses,
+      3 finals, 97 room templates, 9 sets, 63 synergies, 53 achievements, 8 characters; the play-bot over every floor /
+      track with the new bosses (default + BOT_FULL: 83 runs, 3 of the boss fights needed the fallback), the synergy stress
+      test (+ STRESS=full), 62 unit-test files (2 652 tests), build and e2e (98 passed, 12 skipped by design) green)
 - [ ] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 

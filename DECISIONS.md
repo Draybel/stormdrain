@@ -415,3 +415,79 @@ Six content agents worked in separate worktrees branched before Phases 3-4; thei
   as walking, harmless; Mosswick's soak needs puddles at her feet (fire into a nearby wall), so it's a between-fights
   refill of up to three Tin hearts rather than in-fight healing — as designed ("slowly"), a balance-pass question;
   SMASH AND GRAB can also be earned in a practice run (it's a lifetime counter, like the other counter achievements).
+
+## Bosses, final bosses & synergies (Phase 6 content agents) and their merge
+Five content agents worked in parallel worktrees (boss packs A / B / C and the finals branched before the characters
+pass, the synergies after it); merged into main after the characters / Phase 5 track.
+- **Every boss changes SHAPE with its phase, not only colour** (all four boss agents chose it independently): each later
+  phase wears its own SpriteDef (cracks, a snapped arm, a split crock, burnt wings, the Ambergut's cocoon and hatchling,
+  one 56 px sprite per final phase), swapped into `enemy.sprite` by the boss's hook when the phase begins (under the roar's
+  white flash) and re-asserted in `tick` (split parts are born in the def's sprite). The renderer already drew
+  `enemy.sprite`, so no renderer change was needed; the phase `tint` still washes on top (the finals leave it off: the wash
+  muddied the custom art). The def's sprite stays the intro card's and the bestiary's picture.
+- **New pattern kinds live in the pack's own file** (`patterns-a.ts`: lineStrike, orbitDash, clusterLob; `-b`: podBurst,
+  closingRing, gearSpokes; `-c`: dropLine, halo, ricochet; `-finals`: strikes, curtain, gust, clap, brood, dive,
+  barricade, vortex), registered by one line at the END of `BOSS_PATTERN_KINDS` and a spread at the end of `PATTERNS`, so
+  existing kind indices (carried by 'bossTell') never move; each file copies the few private helpers it needs and only
+  type-imports patterns.ts (no runtime import cycle). Marked warnings (`air`) are never divided by the phase pace, so
+  strikes stay equally fair late in a fight; only intervals and gaps speed up. `closingRing` never spawns a shot within
+  16 px of her (an echo re-forming at the wall she leans on can't hit her unseen).
+- **Difficulty by depth:** chapter 1 alt 280-300 HP / 2 phases (like the Gutterways pair), chapter 2 400-450 / 3 phases
+  (pace up to 1.3; a test holds its shot density ≥ 1.3 × chapter 1 alt), chapter 3 480-540, chapter 4 580-600 (3 phases
+  on the alt track and the tougher ones), chapter 5 500-560 with denser patterns, the floor-11 bosses 640-660 / 3 phases;
+  heavies hit for a whole heart. Base-stat god-mode bots kill them in ≈ 30-40 s (chapter 1) up to 60-100 s (chapters 3-6).
+  Minibosses (150-240 HP) list every chapter they roam with the SHALLOWEST first (their home), so `bossHpFor` scales them up
+  deeper instead of making them tanky early; they drop 'champion' or nothing on top of the run's `minibossReward`.
+- **Pack C scales pace by depth** (its hooks: × (1 + 6 % per chapter past home), 0.85-1.25, set idempotently each tick),
+  so its roaming minibosses get livelier deeper down. The other packs rely on `bossHpFor` alone.
+- **Adds only reuse existing chapter enemies** (no pack added EnemyDefs); Puffcaps used as orbiting shields keep their
+  death ring, so popping one releases spores. Music: `boss_floodgate` / `boss_pressure` / `boss_undercurrent` by chapter
+  pair, `miniboss` for minibosses, the finals keep their own.
+- **Finals: ids, `final` keys, endings and HP-bar kinds unchanged;** HP 1400 / 1500 / 1900 keeps every final inside the
+  existing tests' 300 s base-bot limit (≈ 3-3.7 min in an open arena; a 4× damage build ≈ 40-60 s). Old Thunderhead
+  keeps its thresholds [1, 0.55, 0.2] and the Undertow its 4 Bubble Wards (existing tests check them).
+- **Finals: forces on the player go through `Player.pushX/Y`** (wind, the whirlpool pull, the vortex pull), the channel
+  enemy contact already used: adding v × `playerPushDecay` × dt per tick settles at exactly v px/s, sums with contact
+  shoves and respects walls, rocks and pits. This extends the "only enemy contact moves the player" rule (ARCHITECTURE §3).
+- **Finals: the blackout borrows the Curse of Darkness** (`world.curse`, the only darkness the renderer has) for ≈ 5 s,
+  keeping the floor's curse aside and putting it back when it ends, is cut short, the phase changes or the boss falls
+  (the HUD shows the darkness icon meanwhile). Strikes land inside Wren's own light; straight shots and the boss's adds
+  vanish when the lights go out; a harmless distant strike lights the room ≈ 0.24 s every ≈ 1.1-1.3 s. Known: a DEBUG
+  kill mid-blackout skips the death sequence and leaves the room dark until the next room entry.
+- **Finals: `BossHook.dying`** — one optional per-boss callback each tick of the death sequence (its first call may
+  lengthen `b.dieT`): Thunderhead's harmless lightning then sunshine, the hive crumbling, the whirlpool going still.
+  Paper walls are ordinary crate tiles placed by `barricade` (never on the player, a door front, an enemy, loot or a
+  pedestal; capped); shooting one open can drop normal crate loot, dives and the death sequence remove them without.
+- **Content hooks import only pure sim modules** (constants, tiles, tuning, bosses/hooks) — the finals write
+  `SRC_HAZARD = 5` as a literal (a test checks it still matches) — and cosmetic effects use only events nothing counts as
+  progress (lobLand, splash, eshotPop, sfx, shake, npcSay, tileBreak), never 'whirlpool' / 'keeper'.
+- **Synergies: 63 hand-made** (57 from the interrupted WIP after review + 6 filling gaps: the charge carrier had none;
+  "homing + chain → lightning that seeks and forks" = Fork in the Road; the Storm Kite active; weird / useless pairs).
+  Effects are ordinary Effects plus triggers running 26 generic `syn.*` hooks (content/hooks/synergies.ts): capped per
+  call, sharing the pipeline's 32-arcs-per-tick and explosion budgets, one scratch per trigger nesting level (a bolt that
+  kills can't scramble the list it walks), allied shots stop 80 short of the enemy-shot cap. Timed boosts from frequent
+  triggers carry a duration AND a cooldown (Frost Nova / Moth to a Flame kill hooks 0.1 s, so crowds can't chain them).
+- **Synergies: generic presentation touch points** instead of per-synergy render code: `StyleOverride.tether` (a line from
+  each thrown projectile back to its thrower, ≤ 24 a frame), 'nova' flavours (named palettes or any `#rrggbb`), allied
+  elemental puddles in their own look with the friendly pink rim. Hook puddles grow up to 20 px but never shrink a bigger
+  puddle-modifier puddle; a full creep pool recycles an allied puddle before an enemy's. `syn.cone` reads the volley's
+  charge multiplier (`player.atk.src.mul`) in the 'fire' trigger, so a charged release makes a bigger steam cone.
+- **Merge: kind lists are unions.** All four boss branches appended to `BOSS_PATTERN_KINDS` and `PATTERNS` at the same
+  spot; every side was kept (A, B, C, finals in that order). Nothing else conflicted; the synergy branch (based on the
+  characters pass) merged cleanly over Phase 5.
+- **Merge: `BossHook.looks`** (the one contract added at the merge): every look-swapping hook now declares its sprites, so
+  `validateBossDef` checks them like boss sprites (boss-sized, anchored in the lower body, idle + move — NOT the same
+  size: the Ambergut's cocoon and wasp are other shapes on the same feet) and `EnemyRenderer.prepare` rasterises them
+  with the rest, so a phase change never pays for a first draw mid-fight (the packs had them drawn lazily). Preferred
+  over a `PhaseSpec.sprite` field because Puddlestomp swaps only after its split and pack C's hooks also switch on
+  flight, and the hooks already worked and were tested.
+- **Merge: synergy / set requirements read an index built once per recompute** (`indexHeld` in sim/effects.ts: copies
+  per id, distinct items per tag and per set, reused maps) instead of rescanning the inventory per requirement; the
+  every-item ×3 build's recompute went 0.59 → 0.25 ms (the synergy agent measured the absurd-build timing test at
+  4.0-4.5 ms against its 4 ms budget in a loaded parallel run; it now has headroom again).
+- **Merge: small cleanups from the agents' notes:** the unused placeholder final sprites are gone from
+  content/sprites/bosses.ts; the creep puddle sprite cache key can no longer collide (a big puddle-modifier stack grows
+  puddles past 64 px); the 'nova' event's flavours are documented in engine/events.ts.
+- **Merge: a brand-new player can make 34 of the 63 synergies** from unlocked items; the rest need items the achievements
+  unlock (the pool grows as you play). IT CLICKS (one synergy) and MAD TINKERER (15) are earnable now and unlock Twin
+  Straws / the Tin Pinwheel; UNDER THE ROOTS fires on the Rootcellar's and the Candlewick Crypt's own bosses.

@@ -74,11 +74,12 @@ shots through the enemy pools, nothing allocated per tick). Self-contained (no i
 Every pack-C boss names a hook built by `phaseLook(name, { sprites, home, flyFrom? })`:
 - `phase(ctx, i)` swaps `enemy.sprite` to the phase's sprite the moment the roar starts (the white flash hides
   the swap) and `tick` re-asserts it (split parts, fights started without an intro). Only the renderer reads
-  `enemy.sprite`, and it caches frames per SpriteDef, so a later-phase sprite rasterises lazily on first use.
+  `enemy.sprite`; the hook lists its sprites in `BossHook.looks` (merge), so validation checks them and
+  `EnemyRenderer.prepare` rasterises them ahead of time.
 - `flyFrom`: from that phase on the boss flies (`enemy.flying`; the Ambergut hatches).
 - Depth pace: `pace` = the phase's pace × `depthPace(home, world.chapter)` = 1 + 6 % per chapter deeper than the
   home one (clamped 0.85-1.25; set, never compounded). It speeds up the multi-chapter minibosses deeper down and
-  slows a boss borrowed by a shallower chapter without its own. HP depth scaling stays `bossHpFor`'s.
+  slows a boss borrowed by a shallower chapter without its own (since the merge every chapter has its own bosses). HP depth scaling stays `bossHpFor`'s.
 
 ## Art
 

@@ -40,8 +40,11 @@ scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plug
 public/              static files copied verbatim (manifest, icons)
 docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8); content packs (Phase 6):
                      content-itemsA.md, content-itemsB.md, content-items-c.md, content-enemies-a.md,
-                     content-enemies-b.md, content-rooms.md; characters.md (characters, mechanics, achievements);
+                     content-enemies-b.md, content-rooms.md, content-bosses-a.md, content-bosses-b.md,
+                     content-bosses-c.md, content-finals.md (§6c), content-synergies.md (§4.7);
+                     characters.md (characters, mechanics, achievements);
                      testing.md (Phase 5: test layers, the stress test, the play-bot, e2e, CI, env switches)
+SYNERGIES.md         every special synergy: requirements by item name, what it does (tests check it matches the data)
 ```
 
 ### Content registries (IMPORTANT for parallel work)
@@ -232,9 +235,12 @@ Damage order: ember/tin (last gained first) → red; damage spills over from one
 heart is topped up by the same kind, otherwise a new heart starts. Cap: containers + bonus hearts ≤ 12 hearts
 (two HUD rows of 6). `damagePlayer(w, halves, source)` is the only way the player gets hurt: it respects i-frames
 (`PLAYER_TUNING.hurtInvuln` = 1 s, the renderer flickers the sprite), emits 'hurt', releases one nova per broken
-Ember heart, fires the 'hurt' trigger and kills at zero (red and bonus both empty). The only thing that moves the
-player is enemy CONTACT damage: a short shove apart (`Player.pushX/Y`, `ENEMY_TUNING.playerPush`, ≈8 px, decays in
-~0.15 s) so Wren isn't left standing inside what hit her. Shots, explosions and hazards never push her.
+Ember heart, fires the 'hurt' trigger and kills at zero (red and bonus both empty). Only enemies move the player,
+all through ONE channel (`Player.pushX/Y`, decaying like the contact shove, respecting walls, rocks and pits):
+CONTACT damage shoves her apart (`ENEMY_TUNING.playerPush`, ≈8 px, decays in ~0.15 s) so Wren isn't left standing
+inside what hit her, and the final bosses' wind / whirlpool pull (the `gust` / `vortex` patterns, the Undertow's hook)
+add `v × playerPushDecay × dt` per tick, which settles at exactly v px/s and adds up with contact shoves. Shots,
+explosions and hazards never push her.
 
 ### Stats (`sim/stats.ts`)
 `damage, fireRate (shots/sec), shotSpeed, range (px), moveSpeed, luck` + hidden `shotSize, knockback`.
@@ -261,6 +267,8 @@ object (its identity never changes).
   rebuild, because they may change items (`runFirstActivations`; no re-entrancy into a running recompute).
 - **Synergies** (`SynergyDef`, §4.7): active while every requirement holds (`requirementMet`: an item held, or `{ tag, count }`
   = that many DISTINCT held items with the tag), re-checked on every recompute, so they switch off when an item is lost.
+  Sets and synergies read one index of what is held, built once per recompute (`indexHeld`: copies per id, distinct items
+  per tag / per set — content merge 2: 63 synergies rescanning a 642-item inventory per requirement cost 0.6 ms a recompute).
   Active ones add persistent effects (source = the synergy id) and `style`. The first activation in a run (`player.synergiesSeen`,
   saved as `PlayerSnap.synergiesSeen`): a 'synergy' event (the SYNERGY: NAME pill), instants + `hook` once.
 - Instants run when a FRESH copy is first picked up, when an active/consumable is used, or when a trigger fires.
@@ -597,7 +605,9 @@ drawn as sparkle pixels on the shot — combos read at a glance). Shape hint: th
 melee crescent, bomb rider bomb), else the strongest shaped modifier (spiky, star, gear, shard, bubble…).
 Trail kinds (embers, bubbles, ice, sparks, wisps, dust, drops — up to 3, with colours; bomb shots always spark),
 glow radius. Last, the loadout's `styles` (transformations, active synergies) override in order: a colour takes 75 % of the
-body and becomes the first accent, a shape replaces the composed one, a trail goes first, glow adds to the radius. Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
+body and becomes the first accent, a shape replaces the composed one, a trail goes first, glow adds to the radius, a
+`tether` colour (the last one set wins; `ShotStyle.tether`) draws a crackling line from each thrown projectile back to its
+thrower (`AttackRenderer.drawTethers`, ≤ 24 a frame; split children and orbit blades excluded). Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
 frame) and a glow per (style, size); crescents and shards turn with the heading, blades / gears / stars spin.
 Beams get core / glow / edge colours and lightning jitter from the same style. Wren's keeper marble has its own
 gilded star style.
@@ -610,6 +620,17 @@ crackling blue aura (behind, animated, additive, sparks) and glowing storm eyes 
 to the loadout like items (persistent effects, source = the synergy id) and tint the shots (`style`); they switch off again
 when a requirement fails. The first activation per run emits 'synergy' (banner) and runs the instant effects and `hook` once.
 Automatic stacking is the default; special synergies add unique flourishes on top. All listed in SYNERGIES.md.
+- Content (synergies pass, guide docs/content-synergies.md): 63 synergies in `content/synergies/{storm, carriers, elements,
+  sets, trinkets, actives, oddities}.ts`, built with `content/hooks/synergiesKit.ts`; their effects are ordinary Effects
+  (mods, stats, familiars, flags) plus triggers running the generic `syn.*` hooks (`content/hooks/synergies.ts`: sky bolts,
+  forking bolts, line strikes, orbs, blasts, waves, gusts, cones, rings, ghosts, tethers, lassos, puddles, contagion,
+  vortex… — capped per call, sharing the pipeline's chain-arc and explosion budgets, one scratch per trigger nesting level,
+  allied shots / puddles only). A 'fire' hook may read `player.atk.src.mul` (the volley's charge multiplier: a charged
+  release makes a bigger cone). Timed boosts from frequent triggers always carry a duration and a cooldown.
+- Presentation touch points (generic, any content may use them): `StyleOverride.tether` (§4.6); the 'nova' event's
+  flavours (`ember, frost, spore, charm, ink, gold, water` or any `#rrggbb` — `WorldFx.novaColors`); allied puddles a
+  hook restyles (ember oil, muck, dust, ice) keep their element's look with the friendly pink rim and give off a wisp of
+  it (`puddleSprite(style, r, friendly)`, WorldFx); plain allied puddles stay pink.
 
 ### 4.8 Familiars (`attack/familiars.ts`, `content/familiars/*.ts`)
 Synced from the loadout (stable slots, cap 12). `follow` / `hover` join a follower chain trailing the player along
@@ -899,25 +920,63 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   `split` (parts sharing the fight's HP, smaller and faster — `spawnPart`), `shields` (orbiting tethered orbs,
   default 'bubble-ward'), `hazard` (lobbed globs leaving puddles), `hook` (named per-boss code). Everything goes
   through the enemy shot / lob / wave / creep pools (caps and the charm rules apply). Nothing allocates per tick.
-- **Hooks** (`hooks.ts`): `registerBossHook(name, { tick?, phase?, pattern? })`; a def's `hook` gets `tick` and
-  `phase(ctx, i)` (phase 0 when the intro ends), 'hook' patterns call `pattern(ctx)` until it returns true. The
-  context gives the World, the Enemy, its BossState and a small API (shoot, ring, drop, summon, random).
+  Content packs added generic kinds in their own files (any boss may use them; each registered by one line at the end of
+  `BOSS_PATTERN_KINDS` + a spread at the end of `PATTERNS`, so older kind indices — carried by 'bossTell' — never move;
+  each file keeps private copies of the few helpers it needs, type-only imports from patterns.ts, no import cycle):
+  `patterns-a.ts` — `lineStrike` (marked strikes rippling along lines at the target), `orbitDash` (a marked lap
+  round the room / her spot, squeezed inside the walls, firing on the way), `clusterLob` (marked lobs bursting into
+  rings); `patterns-b.ts` — `podBurst` (pods on marked spots bursting into rings, optional puddles), `closingRing` (a
+  ring closing in on her with a gap, or re-forming at the walls as an echo; never spawns within 16 px of her),
+  `gearSpokes` (turning spokes with gaps); `patterns-c.ts` — `dropLine` (domino lines / crosses of marked drops:
+  globs, debris, lightning), `halo` (shots orbit the boss, then released out / at her / as one ring), `ricochet` (a
+  telegraphed roll bouncing off walls, bursting at each bounce); `patterns-finals.ts` — `strikes` (marked strikes along
+  a line / cross / ring / snaking tentacles), `curtain` (rain sheets from the ceiling with a moving gap), `gust` (wind
+  pushing her — §3 health model), `clap` (flash, ring, shockwave), `brood` (adds with their own HP / size that fade
+  in), `dive` (rise, a shadow that follows her, lock, plunge), `barricade` (wads that set into crate walls, never on
+  her / a door front / an enemy / loot, capped), `vortex` (debris drawn into an orbit, then flung). Marked warnings
+  (`air`) are never divided by pace, so strikes stay equally fair in later phases.
+- **Hooks** (`hooks.ts`): `registerBossHook(name, { tick?, phase?, pattern?, dying?, looks? })`; a def's `hook` gets
+  `tick` and `phase(ctx, i)` (phase 0 when the intro ends), 'hook' patterns call `pattern(ctx)` until it returns true.
+  The context gives the World, the Enemy, its BossState and a small API (shoot, ring, drop, summon, random). `dying(ctx)`
+  (finals) runs every tick of the death sequence (`ctx.t` = seconds left; its first call may lengthen `b.dieT` for a
+  themed send-off). **Phase looks**: a hook may swap `enemy.sprite` (what the renderer draws; nothing in the sim reads
+  it, the def's sprite stays the intro card's / bestiary's picture) when a phase begins and re-assert it in `tick` (split
+  parts are born in the def's sprite); `looks` lists the sprites it uses — validateBossDef checks them like the boss
+  sprite (boss-sized, anchored in the lower body, idle + move) and `EnemyRenderer.prepare` rasterises them ahead of time.
+  Every boss but the three Gutterways originals changes its look per phase; the phase `tint` still washes on top.
 - **Death sequence**: the last part's killing blow (`bossLethal`) sets `dying` (untouchable, harmless, still alive
   for the arena) and emits 'bossDying' (the scene's slow motion + flash); the brain kills its adds, fizzles hostile
-  shots / creep / shockwaves, emits a 'bossBoom' every 0.15 s for 2.4 s, then 'bossDefeated' and the real kill
-  (drops — 'bossSpill' —, 'enemyKilled'), the fight ends and the room clears as usual. Other parts of a split boss
-  just die. Debug kills (`killEnemies`, `clearRoom`) skip the sequence.
+  shots / creep / shockwaves, calls the hook's `dying`, emits a 'bossBoom' every 0.15 s for 2.4 s (+ the send-off),
+  then 'bossDefeated' and the real kill (drops — 'bossSpill' —, 'enemyKilled'), the fight ends and the room clears as
+  usual. Other parts of a split boss just die. Debug kills (`killEnemies`, `clearRoom`) skip the sequence.
 - **Selection** (`select.ts`): `bossPool(chapter, kind)` = `bossesInChapter` (explicit list ∪ bosses listing the
-  chapter); a chapter with none borrows every boss of the kind; `pickBoss(seed, floor, track, chapter, kind, avoid)`
+  chapter); a chapter with none borrows every boss of the kind (since the boss packs every chapter has a boss and a
+  miniboss of its own — tests/content-integration-bosses.test.ts); `pickBoss(seed, floor, track, chapter, kind, avoid)`
   = a weighted pick on `floorRng(...).fork(kind)`, avoiding the previous floor's boss of the same chapter;
-  `finalBossDef(key)`; `bossHpFor(def, floor)` = hp × (1 + 0.14 × floors past its home chapter). Only when no BossDef
-  of a kind exists at all does a room fall back to the Phase 3A placeholder (a big sturdy chapter enemy).
-- Content (`src/content/bosses`): Gutterways — Sodden Snarl (boss; charge + debris, stepped rings, muck puddles;
-  splits in two at half), Brimwell (boss; jump-slams, stepped spirals, rain walls; overflowing: water jet sweep,
-  double slams, ceiling debris, a spiral), Pipewhip (miniboss; burrow, aimed spit, pipe-hopping teleport; thrashing:
-  rats, double dives, a spiral); finals (placeholder-but-playable, replaced later — keep ids and keys): Old
-  Thunderhead (thunderhead, ending 1), The Nestmother (nestmother, ending 2), The Undertow (undertow, ending 3). Boss
-  minions in `content/enemies/boss-minions.ts` (weight 0): Bubble Ward, Nest Drone. Tuning: `BOSS_TUNING`.
+  `finalBossDef(key)`; `bossHpFor(def, floor)` = hp × (1 + 0.14 × floors past its home chapter — the first in its
+  `chapters`). Only when no BossDef of a kind exists at all does a room fall back to the Phase 3A placeholder.
+- Content (`src/content/bosses`, one file per chapter + the minibosses per pack; 20 bosses, 8 minibosses, 3 finals; HP
+  and phases rise with depth — chapter 1 ≈ 280-300 HP / 2 phases, chapter 2 400-450 / 3, chapter 3 480-540, chapter 4
+  580-600, chapter 5 500-560 with denser patterns, the floor-11 bosses 640-660 / 3; minibosses 150-240, scaled deeper
+  by `bossHpFor`): Gutterways — Sodden Snarl (charge + debris, stepped rings, muck puddles; splits in two at half),
+  Brimwell (jump-slams, stepped spirals, rain walls; overflowing: water jet sweep, double slams, ceiling debris), Pipewhip
+  (miniboss; burrow, aimed spit, pipe-hopping teleport); boss pack A (docs/content-bosses-a.md) — Pirouetta, Sir
+  Sopsalot (Drowned Nursery), Grandmother Brine, Old Knotroot (Rootcellar), Vesperwing, Wickwarden (Candlewick Crypt),
+  minibosses Bumbershoot, Puddlestomp (chapters 1-2, both tracks; Puddlestomp splits into two boots); pack B
+  (docs/content-bosses-b.md) — Old Governor, Gnawgear (Grinding Works), Bellowbelly (Rust Foundry), Grandmother Gill,
+  Bramblehorn (Mushroom Hollow), Hushwing (Glimmer Grotto), minibosses Canshell, Glowtail (chapters 3-4); pack C
+  (docs/content-bosses-c.md) — Marrowbough, The Gloamkeeper (Bone Orchard), Hoarquill, The Vaultwarden (Frostbitten
+  Vault), Squallvane (Eye of the Storm, floor 11), Ambergut (Hollow Nest, floor 11: grub → cocoon → a hatched wasp that
+  flies), minibosses Tatterjack (Bone Orchard, Eye of the Storm), Shiverwing (Glimmer Grotto, Frostbitten Vault),
+  Slagjacket (Rust Foundry, Hollow Nest) — pack C's hooks also scale `pace` by depth (+6 % per chapter past home,
+  0.85-1.25). Finals (docs/content-finals.md; ids, keys and endings unchanged): Old Thunderhead (thunderhead, ending
+  1; 1400 HP, 3 phases: looming drift, walking lightning, rain curtains, wind, thunderclaps, cloudlets, a blackout that
+  borrows `world.curse = 'darkness'` for ≈ 5 s and puts the floor's curse back), The Nestmother (nestmother, ending 2;
+  1500 HP, 3 phases: larvae, stinger dives, paper walls, honey, a drone guard), The Undertow (undertow, ending 3; 1900
+  HP, 4 phases: holds the room's centre and pulls her in — 14 → 34 px/s, half for a flyer —, flung debris, spout
+  tentacles, spirals, 4 Bubble Wards). Adds only reuse chapter enemies; boss minions in `content/enemies/boss-minions.ts`
+  (weight 0): Bubble Ward, Nest Drone. Music: `boss_floodgate` (chapters 1-2), `boss_pressure` (3-4),
+  `boss_undercurrent` (5-6), `miniboss`, the finals' own. Tuning: `BOSS_TUNING`.
 
 ## 6d. Special rooms, economy, routes, endings (`sim/run/special.ts`, `sim/shopProps.ts`, `sim/roomProps.ts`)
 
@@ -1216,7 +1275,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   the Deluge, drips from hinted walls, rubble for blasted walls, key sparkles, trapdoor dust. The HUD hides hearts
   under the Curse of the Unknown; a 7 × 7 curse icon sits left of the minimap.
 - Bosses & special rooms (Phase 3B): the world renderer clips everything it draws to the room's outer rect (a big boss
-  near a wall never spills over the HUD). `EnemyRenderer` draws a boss with its pattern's pose (`BossState.anim`, with
+  near a wall never spills over the HUD). `EnemyRenderer` draws a boss's `enemy.sprite` (the phase look its hook swapped
+  in — §6c; `prepare()` rasterises every `BossHook.looks` sprite with the enemy and boss sprites, so a phase change never
+  hitches) with its pattern's pose (`BossState.anim`, with
   fallbacks), the phase's colour wash (`PhaseSpec.tint`, ramping in), a white flash + shudder on phase changes, the
   teleport fade, a shudder and white blinking while dying, the charge telegraph (marching dashes to the wall), landing
   / emerging markers, enemy beams (`drawBeams`: a flickering line, then glow + core + a white centre; lightning gets a
@@ -1227,7 +1288,8 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   the grate (cracked / open), the whirlpool (grows, spins), the skylight (a cached shaft of sun), the donation jar
   (fills up with the thresholds), the Gumball Gambler (spins, wrecked), Old Pell with his offer floating over him,
   shop goods on a cushion, and price tags for coins / heart containers / Tin hearts / keys (red when unaffordable).
-  Art: `content/sprites/bosses.ts` and `specialRooms.ts`, built with the pixel painter `content/sprites/paint.ts`
+  Art: `content/sprites/bosses.ts` (the Gutterways trio), `bossesA*.ts` / `bossesB*.ts` / `bossesC*.ts` (the packs, one
+  sprite per phase look), `finals-*.ts` (a 56 px sprite per final phase) and `specialRooms.ts`, built with the pixel painter `content/sprites/paint.ts`
   (shapes, lines, textures, an automatic 1 px outline → row strings). WorldFx adds roars, slams, splits, chain
   explosions, the big defeat burst, lightning flashes, grate drips / swirl, jar and gambler sparkles, moth dust.
 - The room background is pre-rendered and rebuilt only on `RoomGrid.version` changes; per-cell variation uses a
@@ -1373,6 +1435,14 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   chalk, rerolls vs locked / seen items, pools, run pedestals, the debug menu lists); the pack tests
   `tests/content-{items-a,items-b,items-c,items-c-consumables,enemies-a,enemies-b,rooms}.test.ts`; `e2e/content.spec.ts`
   (a tonic drunk from the HUD survives reload + Continue, a new active from the HUD, new chapter enemies in WebKit).
+- Content merge 2 (bosses, finals, synergies): `tests/content-integration-bosses.test.ts` (the Phase 6 totals; every chapter
+  with a boss and a miniboss of its own, picked in real runs at home HP, every one over seeds; the finals' ids / keys /
+  endings on floors 12 / 12 alt / 13; phase looks validated; UNDER THE ROOTS from a chapter-2 boss of its own; a synergy
+  switched on by walking onto pedestals in a run → the pill, the tracker, IT CLICKS → Twin Straws); the pack tests
+  `tests/content-bosses-{a,b,c,finals}.test.ts` (god-mode fights to the death through every phase and look, stalls, bounds,
+  caps, determinism, the new pattern kinds, boss rooms in runs) and `tests/content-synergies{,-hooks,-stress}.test.ts`
+  (catalogue, on / off with the requirements, effects and style, every hook, SYNERGIES.md vs the data, a stress per
+  synergy and all at once); `tests/bosses.test.ts` fights EVERY BossDef (150 s, finals 300 s).
 - The god-mode explorer (Phase 3-4 verification, `tests/helpers/explorer.ts` `Explorer`): walks every room of a floor through the
   real doors (pushing into the doorway), bombs secret walls, uses keys, presses the arena plate, kills through the real damage
   path (bosses go through their phases and death sequence; `fightFor` s of real aiming / firing first), takes / buys what it

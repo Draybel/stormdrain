@@ -24,7 +24,6 @@ import {
   addConsumable,
   addCounter,
   addTrinket,
-  countItem,
   isCharged,
   setActive,
   takeConsumable,
@@ -134,29 +133,56 @@ function forEachHeld(p: Player, fn: (def: ItemDef) => void): void {
   }
 }
 
-/** Scratch list of distinct item ids (set / tag counting; recompute only, never per tick). */
-const distinct: string[] = [];
+/**
+ * What is held, indexed once per recompute (content merge: 63 synergies and 9 sets used to rescan the whole
+ * inventory per requirement — an every-item build spent 0.6 ms per recompute doing it). Reused maps, filled
+ * by `indexHeld`: copies held per item id (passives, the active, trinkets) and DISTINCT held items per tag and
+ * per set — duplicates count once.
+ */
+const heldIds = new Map<string, number>();
+const heldTags = new Map<string, number>();
+const heldSets = new Map<string, number>();
 
-/** How many DISTINCT held items (passives, the active, trinkets) pass `test` — duplicates count once. */
-function countDistinct(p: Player, test: (d: ItemDef) => boolean): number {
-  distinct.length = 0;
-  forEachHeld(p, (d) => {
-    if (test(d) && !distinct.includes(d.id)) distinct.push(d.id);
-  });
-  const n = distinct.length;
-  distinct.length = 0;
-  return n;
+function noteHeld(id: string): void {
+  const n = heldIds.get(id) ?? 0;
+  heldIds.set(id, n + 1);
+  if (n > 0) return;
+  const d = findItem(id);
+  if (!d) return;
+  const tags = d.tags;
+  for (let t = 0; t < tags.length; t++) {
+    const tag = tags[t]!;
+    if (tags.indexOf(tag) === t) heldTags.set(tag, (heldTags.get(tag) ?? 0) + 1);
+  }
+  if (d.set) heldSets.set(d.set, (heldSets.get(d.set) ?? 0) + 1);
+}
+
+function indexHeld(p: Player): void {
+  heldIds.clear();
+  heldTags.clear();
+  heldSets.clear();
+  const inv = p.inv;
+  for (let i = 0; i < inv.passives.length; i++) noteHeld(inv.passives[i]!);
+  if (inv.active) noteHeld(inv.active.id);
+  for (let i = 0; i < inv.trinkets.length; i++) noteHeld(inv.trinkets[i]!);
+}
+
+/** A requirement against the index `indexHeld` just built. */
+function indexedRequirement(req: Requirement): boolean {
+  if (typeof req === 'string') return (heldIds.get(req) ?? 0) > 0;
+  return (heldTags.get(req.tag) ?? 0) >= (req.count ?? 1);
 }
 
 /** Distinct held items of an item set (a transformation needs `need` of them). */
 export function setProgress(p: Player, setId: string): number {
-  return countDistinct(p, (d) => d.set === setId);
+  indexHeld(p);
+  return heldSets.get(setId) ?? 0;
 }
 
 /** A synergy requirement: an item held, or at least `count` DISTINCT held items carrying the tag. */
 export function requirementMet(p: Player, req: Requirement): boolean {
-  if (typeof req === 'string') return countItem(p.inv, req) > 0;
-  return countDistinct(p, (d) => d.tags.includes(req.tag)) >= (req.count ?? 1);
+  indexHeld(p);
+  return indexedRequirement(req);
 }
 
 /** Sets / synergies that switched on for the first time during a recompute (their one-time part runs after it). */
@@ -190,11 +216,13 @@ export function recomputePlayer(w: World): void {
   const extraFlies = mechanicFamiliars(p);
   if (extraFlies > 0) p.loadout.addFamiliar(FIREFLY_ID, extraFlies);
 
-  // Item sets (transformations): earned once, kept for the run.
+  // Item sets (transformations): earned once, kept for the run. Sets and synergies read one index of what
+  // is held (nothing below changes the inventory; first activations run after the rebuild).
+  indexHeld(p);
   const sets = allSets();
   for (let s = 0; s < sets.length; s++) {
     const set = sets[s]!;
-    if (p.sets.includes(set.id) || setProgress(p, set.id) < Math.max(1, set.need)) continue;
+    if (p.sets.includes(set.id) || (heldSets.get(set.id) ?? 0) < Math.max(1, set.need)) continue;
     p.sets.push(set.id);
     firstSets.push(set);
   }
@@ -212,7 +240,7 @@ export function recomputePlayer(w: World): void {
   for (let s = 0; s < syns.length; s++) {
     const syn = syns[s]!;
     let ok = syn.requires.length > 0;
-    for (let r = 0; r < syn.requires.length && ok; r++) ok = requirementMet(p, syn.requires[r]!);
+    for (let r = 0; r < syn.requires.length && ok; r++) ok = indexedRequirement(syn.requires[r]!);
     if (!ok) continue;
     p.synergies.push(syn.id);
     if (syn.style) p.loadout.styles.push(syn.style);

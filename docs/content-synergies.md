@@ -77,13 +77,10 @@ House rules (the tests enforce them):
 
 - The hooks themselves are cheap: about 0.2 % of a step in the absurd every-item-×3 build
   (tests/attack-compose.test.ts), since they only run from triggers and every loop is capped.
-- The engine checks every requirement of every synergy on each `recomputePlayer` (sim/effects.ts
-  `requirementMet`: `countItem` / a distinct-tag count over the whole inventory). With a normal inventory
-  (10-40 items) that is a few microseconds. With the absurd build's 642 held items it costs ~0.45 ms per
-  recompute (0.58 ms instead of 0.085 ms); tag requirements are the dearer half.
-- Run alone, the absurd build averages 1.65 ms per step with the synergies instead of 1.44 ms. The
-  attack-compose test budgets 4 ms, but in the full parallel `npm test` on an 8-core machine that test
-  already measures 3.5-3.9 ms without any synergy, and 4.0-4.5 ms with them.
-- The engine-side fix (outside the synergy content): count the held item ids and the distinct items per tag
-  once at the start of `recomputePlayer` (two small maps) and let `requirementMet` read them: O(1) per
-  requirement instead of O(inventory).
+- The engine checks every requirement of every synergy on each `recomputePlayer`. Before the merge each check
+  rescanned the whole inventory (`countItem` / a distinct-tag count): ~0.45 ms per recompute with the absurd
+  build's 642 held items (0.58 ms instead of 0.085 ms). At the merge `recomputePlayer` got an index of what is held,
+  built once per recompute (sim/effects.ts `indexHeld`: copies per id, distinct items per tag and per set), so a
+  requirement is O(1): the same recompute takes ~0.25 ms, most of it adding the 642 items' own effects.
+- Run alone, the absurd build averages ~1.5 ms per step with the synergies (4 ms budget in
+  tests/attack-compose.test.ts).

@@ -94,6 +94,7 @@ function apply(ctx: BossHookCtx, spec: LookSpec, phase: number): void {
 function phaseLook(name: string, spec: LookSpec): void {
   BOSS_LOOKS_C.set(name, spec);
   registerBossHook(name, {
+    looks: spec.sprites,
     phase: (ctx, i) => apply(ctx, spec, i),
     tick: (ctx) => apply(ctx, spec, ctx.b.phase),
   });

@@ -47,6 +47,16 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
   room after the boss — entering it sends you to the ALT track for the next floor. Boss trapdoors keep your track.
 - Each chapter has its own tile palette, enemy pool, boss pool and **music loop**.
 
+## Bosses by chapter (every boss changes its look with each phase)
+| # | Main track | Alt track | Minibosses (roam both tracks) |
+|---|---|---|---|
+| 1 | Sodden Snarl, Brimwell | Pirouetta, Sir Sopsalot | Pipewhip (ch. 1), Bumbershoot, Puddlestomp (ch. 1-2) |
+| 2 | Grandmother Brine, Old Knotroot | Vesperwing, Wickwarden | (as above) |
+| 3 | Old Governor, Gnawgear | Bellowbelly | Canshell, Glowtail (ch. 3-4), Slagjacket (Rust Foundry, Hollow Nest) |
+| 4 | Grandmother Gill, Bramblehorn | Hushwing | Shiverwing (Glimmer Grotto, Frostbitten Vault) |
+| 5 | Marrowbough, The Gloamkeeper | Hoarquill, The Vaultwarden | Tatterjack (Bone Orchard, Eye of the Storm) |
+| 6 | Squallvane (floor 11) | Ambergut (floor 11) | |
+
 ## Final bosses & endings (unlocked progressively)
 1. **Old Thunderhead** — a colossal storm cloud with a grumpy face; end of Eye of the Storm II. Ending 1 "Clear Skies".
    Always available.

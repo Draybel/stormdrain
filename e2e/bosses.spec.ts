@@ -103,3 +103,59 @@ test("Magpie's Stall: walking onto an item with enough coins buys it", async ({ 
   expect(found).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('boss packs and finals wear a new look per phase in WebKit (pre-rendered, no errors)', async ({ page }, info) => {
+  // Rendering only: one profile is enough (the layout specs cover both).
+  test.skip(info.project.name !== 'iphone15-homescreen', 'rendering check on the home-screen profile');
+  test.setTimeout(120_000);
+  const errors = trackErrors(page);
+  await startRun(page);
+  // One boss per pack (A, B, C incl. the Ambergut's cocoon / wasp of other sizes) and a final.
+  for (const id of ['pirouetta', 'bellowbelly', 'ambergut', 'old-thunderhead']) {
+    await page.evaluate(() => {
+      window.__SD.debug.runAt(1, 'main', null, 7);
+      window.__SD.debug.god(true);
+    });
+    await page.waitForFunction(() => !window.__SD.presentation()!.card, undefined, { timeout: 6000 });
+    expect(await page.evaluate((b) => window.__SD.debug.boss(b), id)).toBe(true);
+    await page.waitForFunction(() => window.__SD.presentation()!.bossCard);
+    await page.waitForFunction(() => !window.__SD.presentation()!.bossCard, undefined, { timeout: 6000 });
+    const looks: string[] = [];
+    const phases = (await page.evaluate(() => window.__SD.run()!.boss!.phases))!;
+    for (let ph = 0; ph < phases; ph++) {
+      // The look worn now (the boss part's sprite), once the roar's flash is over.
+      expect(await page.evaluate(() => window.__SD.run()!.boss?.phase)).toBe(ph);
+      await page.waitForTimeout(1300);
+      looks.push(
+        await page.evaluate(() => {
+          const w = window.__SD.sim!.world;
+          for (let k = 0; k < w.enemies.count; k++) {
+            const e = w.enemies.items[k]!;
+            if (e.boss && !e.dead) return e.sprite === null ? '' : typeof e.sprite === 'string' ? e.sprite : e.sprite.id;
+          }
+          return '';
+        }),
+      );
+      await page.screenshot({ path: `e2e/__screens__/boss-${id}-phase${ph + 1}.png` });
+      // One blow takes it to the next threshold (bossDamage never skips a phase) — once it can be hit (not
+      // burrowed, mid-dive or roaring).
+      for (let tries = 0; ph < phases - 1 && tries < 12; tries++) {
+        await page.evaluate(() => {
+          const w = window.__SD.sim!.world;
+          for (let k = 0; k < w.enemies.count; k++) {
+            const e = w.enemies.items[k]!;
+            if (e.boss && !e.dead && e.hittable) e.hurt(99999, 0, 0, 0);
+          }
+        });
+        const moved = await page
+          .waitForFunction((want) => window.__SD.run()!.boss?.phase === want, ph + 1, { timeout: 1000 })
+          .then(() => true)
+          .catch(() => false);
+        if (moved) break;
+      }
+    }
+    expect(new Set(looks).size, `${id}: ${looks.join(', ')}`).toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__SD.debug.killEnemies());
+  }
+  expect(errors).toEqual([]);
+});

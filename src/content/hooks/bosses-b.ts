@@ -41,6 +41,7 @@ export function bossLookHook(id: string): string {
 function phaseLooks(looks: readonly SpriteDef[]): BossHook {
   const pick = (phase: number): SpriteDef => looks[Math.max(0, Math.min(phase, looks.length - 1))]!;
   return {
+    looks,
     phase(ctx, i) {
       ctx.e.sprite = pick(i);
     },

@@ -15,6 +15,7 @@
 
 import { lerp } from '../engine/math';
 import { BOSSES, ENEMIES } from '../content/registry';
+import { getBossHook } from '../sim/bosses/hooks';
 import { ROOM_H, ROOM_W } from '../sim/constants';
 import { STATUS_ICON_SPRITE } from '../content/sprites/combat';
 import { DEBRIS_SPRITE } from '../content/sprites/specialRooms';
@@ -107,7 +108,9 @@ const puddleCache = new Map<number, HTMLCanvasElement>();
  * its elemental look (a synergy's burning oil, spores, frost) gets the friendly pink rim instead of its own.
  */
 function puddleSprite(style: number, r: number, friendly = false): HTMLCanvasElement {
-  const key = style * 64 + r + (friendly ? 4096 : 0);
+  // Collision-free numeric key: a big puddle-modifier stack grows puddles past 64 px (8 + 2 px per stack).
+  r = Math.min(1023, Math.max(1, r));
+  const key = (style * 2 + (friendly ? 1 : 0)) * 1024 + r;
   let c = puddleCache.get(key);
   if (c) return c;
   const L = SHOT_LOOKS[style] ?? SHOT_LOOKS[0]!;
@@ -219,13 +222,18 @@ export class EnemyRenderer {
 
   /** Rasterise enemy frames ahead of time (first appearance never hitches). */
   prepare(): void {
-    for (const d of [...ENEMIES.values(), ...BOSSES.values()]) {
-      if (typeof d.sprite === 'string') continue;
-      for (let f = 0; f < d.sprite.frames.length; f++) {
-        getFrame(d.sprite, f);
-        getFlash(d.sprite, f);
-        getFlipped(d.sprite, f);
+    const warm = (s: SpriteDef): void => {
+      for (let f = 0; f < s.frames.length; f++) {
+        getFrame(s, f);
+        getFlash(s, f);
+        getFlipped(s, f);
       }
+    };
+    for (const d of [...ENEMIES.values(), ...BOSSES.values()]) if (typeof d.sprite !== 'string') warm(d.sprite);
+    // The phase looks boss hooks swap in (BossHook.looks), so a phase change never rasterises mid-fight.
+    for (const d of BOSSES.values()) {
+      const looks = d.hook ? getBossHook(d.hook)?.looks : undefined;
+      if (looks) for (const s of looks) warm(s);
     }
     for (let s = 0; s < SHOT_LOOKS.length; s++) for (let r = 2; r <= 4; r++) shotSprite(s, r);
   }

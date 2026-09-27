@@ -147,6 +147,7 @@ function lightsOn(d: Dark): World['curse'] {
 }
 
 registerBossHook('old-thunderhead', {
+  looks: THUNDERHEAD_PHASES,
   tick(ctx) {
     const { w, e, b, dt } = ctx;
     const blackout = b.pat !== null && b.pat.hook === BLACKOUT;
@@ -293,6 +294,7 @@ registerBossHook(BLACKOUT, {
 // ── The Nestmother ──────────────────────────────────────────────────────────
 
 registerBossHook('nestmother', {
+  looks: NESTMOTHER_PHASES,
   phase(ctx, i) {
     const { w, e } = ctx;
     phaseLook(ctx, NESTMOTHER_PHASES, i);
@@ -357,6 +359,7 @@ interface Churn {
 const churns = new WeakMap<object, Churn>();
 
 registerBossHook('undertow', {
+  looks: UNDERTOW_PHASES,
   tick(ctx) {
     const { w, e, b, dt } = ctx;
     // It keeps to the middle of the room.

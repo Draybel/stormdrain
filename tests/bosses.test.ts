@@ -9,7 +9,7 @@ import { BOSSES, CHAPTERS, bossesInChapter, registerBoss } from '../src/content/
 import { validateContent } from '../src/content/validate';
 import { BOSS_PATTERN_KINDS, type BossDef } from '../src/sim/types';
 import { compileBoss } from '../src/sim/bosses/compile';
-import { registerBossHook } from '../src/sim/bosses/hooks';
+import { getBossHook, registerBossHook } from '../src/sim/bosses/hooks';
 import { bossHpFor, bossPool, finalBossDef, pickBoss } from '../src/sim/bosses/select';
 import { validateBossDef } from '../src/sim/bosses/validate';
 import { PATTERNS } from '../src/sim/bosses/patterns';
@@ -91,8 +91,10 @@ describe('boss content', () => {
   });
 
   it('boss, NPC and prop sprites are well-formed', () => {
-    const all = [...Object.values(bossSprites), ...Object.values(roomSprites)] as SpriteDef[];
-    expect(all.length).toBeGreaterThanOrEqual(16);
+    // Every boss's sprite and the phase looks its hook swaps in (BossHook.looks), plus the room props / NPCs.
+    const bossArt = [...BOSSES.values()].flatMap((b) => [b.sprite, ...((b.hook && getBossHook(b.hook)?.looks) || [])]);
+    const all = [...Object.values(bossSprites), ...Object.values(roomSprites), ...bossArt].filter((s): s is SpriteDef => typeof s !== 'string');
+    expect(all.length).toBeGreaterThanOrEqual(60);
     for (const s of all) expect(validateSpriteDef(s), s.id).toEqual([]);
   });
 

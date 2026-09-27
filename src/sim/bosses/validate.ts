@@ -1,15 +1,16 @@
 /**
  * Sanity checks for BossDefs (run by content validation and the unit tests): ≥ 2 phases with falling
  * thresholds, known baseline movements / attacks / patterns with params inside their declared ranges,
- * adds that exist, registered hooks, finals with their key and ending, and big multi-frame sprites.
+ * adds that exist, registered hooks, finals with their key and ending, and big multi-frame sprites (the
+ * phase looks a hook swaps in too).
  */
 
 import { validateSpriteDef } from '../../content/sprites/validate';
 import { ATTACKS, MOVES } from '../enemies/behaviors/index';
 import type { ParamSpec, Params } from '../enemies/behaviors/common';
-import { ENEMY_SHOT_STYLES, type BossDef, type BossPatternSpec } from '../types';
+import { ENEMY_SHOT_STYLES, type BossDef, type BossPatternSpec, type SpriteDef } from '../types';
 import { BOSS_MOVES } from './compile';
-import { hasBossHook } from './hooks';
+import { getBossHook, hasBossHook } from './hooks';
 import { PATTERNS } from './patterns';
 
 function checkParams(spec: ParamSpec, params: Params | undefined, at: string, errs: string[]): void {
@@ -97,6 +98,18 @@ export function validateBossDef(d: BossDef, known: (id: string) => boolean): str
     if (Math.max(s.w, s.h) < min || s.w > 56 || s.h > 56) errs.push(`${at}: sprite ${s.w}×${s.h} is not boss-sized (${min}-56 px)`);
     if (s.frames.length < 2) errs.push(`${at}: sprite needs several frames`);
     if (!s.anims?.idle || !s.anims.move) errs.push(`${at}: sprite needs 'idle' and 'move' animations`);
+    // Phase looks its hook swaps in: real boss-sized art, anchored in the lower body like the boss sprite
+    // (a look may change shape — the Ambergut's cocoon — but its feet stay where the boss stands).
+    const looks = d.hook ? getBossHook(d.hook)?.looks : undefined;
+    if (looks) {
+      looks.forEach((l: SpriteDef, k) => {
+        const where = `${at} look ${k} (${l.id})`;
+        for (const e of validateSpriteDef(l)) errs.push(`${where}: ${e}`);
+        if (Math.max(l.w, l.h) < min || l.w > 56 || l.h > 56) errs.push(`${where}: ${l.w}×${l.h} is not boss-sized (${min}-56 px)`);
+        if ((l.anchorY ?? l.h) < l.h / 2) errs.push(`${where}: anchor above the lower body`);
+        if (l.frames.length < 2 || !l.anims?.idle || !l.anims.move) errs.push(`${where}: needs several frames and 'idle' + 'move'`);
+      });
+    }
   }
   return errs;
 }

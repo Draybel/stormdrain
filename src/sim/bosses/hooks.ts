@@ -9,7 +9,7 @@
  */
 
 import type { Enemy } from '../enemies/enemy';
-import type { EnemyShotStyle } from '../types';
+import type { EnemyShotStyle, SpriteDef } from '../types';
 import type { World } from '../world';
 import type { BossState } from './state';
 
@@ -50,6 +50,13 @@ export interface BossHook {
    * comes right after the room was swept (adds dead, shots fizzled); it may lengthen `ctx.b.dieT`.
    */
   dying?(ctx: BossHookCtx): void;
+  /**
+   * The sprites this hook dresses its boss in (phase looks swapped into `enemy.sprite`; the first is
+   * usually the def's own). Presentation data: validateContent checks them like the def's sprite (boss-sized,
+   * anchored in the lower body, idle + move) and the renderer rasterises them ahead of time, so a phase
+   * change never hitches.
+   */
+  readonly looks?: readonly SpriteDef[];
 }
 
 const hooks = new Map<string, BossHook>();

@@ -90,6 +90,10 @@ hidden routes forced: floor 1 main → grate → alt → rejoin at chapter 6 →
 1-11 with its grate forced. Together they must cover every floor of both tracks and floor 13, bomb secrets, buy, open
 chests, take items and grates, and kill most bosses by fighting.
 
+With the boss packs merged (content merge 2) every boss room it enters holds the chapter's own boss (20 bosses, 8
+minibosses, the full finals); `BOT_FULL` then played 83 runs, 25 766 doors, 3 095 purchases, and only 3 boss fights
+(and 49 room fights) needed the fallback after their time limit.
+
 Bugs it found and fixed (pinned in `tests/verify-5.test.ts`): doors ignored the Dizzy Tonic's mirrored movement (no
 door worked for 6 s); a prop could shove loot into the seam between two corner-touching blocks; loot dropped by a flyer
 over a crate pile or a pit spawned inside it; coins lodged in the 7 px seam between two neighbouring pit lips.
@@ -110,6 +114,8 @@ tab, god mode, reveal map, go to boss, skip floor, UNLOCK ALL / RESET UNLOCKS (`
 synthetic thumbs (`characters-play`, home-screen profile: an in-page driver moves the floating sticks every animation
 frame — strafe round the nearest foe, aim at it, lift the thumb for charge shots, tap DASH — until the wave is dead,
 then checks the character's mechanic in real play), and a new player's locked roster / queued toasts / achievements page.
+Content merge 2 (`bosses`, home-screen profile): one boss of each pack and a final taken through every phase in WebKit —
+each phase wears its own look (`BossHook.looks`, pre-rendered), screenshots to `e2e/__screens__/boss-*`, no errors.
 Screenshots from these land in `e2e/__screens__` (git-ignored) for a human look.
 
 Stable by construction: wait on state (`waitForFunction` on `__SD`), never on fixed sleeps longer than a frame or two,

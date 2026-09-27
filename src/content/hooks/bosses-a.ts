@@ -46,6 +46,7 @@ for (const name of Object.keys(BOSS_A_LOOKS)) {
   const lookFor = (i: number): SpriteDef => looks[i < 0 ? 0 : i > last ? last : i]!;
   const early = !AFTER_ENTRANCE.has(name);
   registerBossHook(name, {
+    looks,
     phase(ctx, i) {
       if (early) ctx.e.sprite = lookFor(i);
     },
