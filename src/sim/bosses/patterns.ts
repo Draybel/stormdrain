@@ -25,6 +25,7 @@ import type { World } from '../world';
 import type { CompiledPattern } from './compile';
 import type { BossState } from './state';
 import { PATTERNS_A } from './patterns-a';
+import { PATTERNS_B } from './patterns-b';
 
 export interface PatternBehavior {
   readonly params: ParamSpec;
@@ -1022,4 +1023,5 @@ export const PATTERNS: Readonly<Record<BossPatternKind, PatternBehavior>> = {
   hazard,
   hook,
   ...PATTERNS_A,
+  ...PATTERNS_B,
 };
