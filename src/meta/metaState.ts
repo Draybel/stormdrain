@@ -36,6 +36,11 @@ export interface MetaSettings {
   showFps: boolean;
   /** Mirror the touch layout (move stick on the right, shoot stick on the left). */
   leftHanded: boolean;
+  /**
+   * Cap every full-screen flash at a low alpha (polish batch 2). Additive: a save without it (every older one)
+   * normalizes to false, so no migration step is needed.
+   */
+  reduceFlashing: boolean;
 }
 
 export const UNLOCK_KINDS = ['characters', 'items', 'routes', 'endings', 'challenges'] as const;
@@ -187,6 +192,7 @@ export function defaultMetaSettings(): MetaSettings {
     buttonScale: 1,
     showFps: false,
     leftHanded: false,
+    reduceFlashing: false,
   };
 }
 
@@ -254,6 +260,7 @@ export function normalizeSettings(v: unknown): MetaSettings {
     buttonScale: num(s.buttonScale, d.buttonScale, R.buttonScale[0], R.buttonScale[1]),
     showFps: bool(s.showFps, d.showFps),
     leftHanded: bool(s.leftHanded, d.leftHanded),
+    reduceFlashing: bool(s.reduceFlashing, d.reduceFlashing),
   };
 }
 
@@ -365,6 +372,7 @@ export interface RuntimeSettingsLike {
   sfxVolume: number;
   leftHanded: boolean;
   showFps: boolean;
+  reduceFlashing: boolean;
 }
 
 export function toRuntimeSettings(s: MetaSettings): RuntimeSettingsLike {
@@ -377,6 +385,7 @@ export function toRuntimeSettings(s: MetaSettings): RuntimeSettingsLike {
     sfxVolume: s.sfxVol,
     leftHanded: s.leftHanded,
     showFps: s.showFps,
+    reduceFlashing: s.reduceFlashing,
   };
 }
 
@@ -390,6 +399,7 @@ export function fromRuntimeSettings(r: Partial<RuntimeSettingsLike>): Partial<Me
   if (r.sfxVolume !== undefined) p.sfxVol = r.sfxVolume;
   if (r.leftHanded !== undefined) p.leftHanded = r.leftHanded;
   if (r.showFps !== undefined) p.showFps = r.showFps;
+  if (r.reduceFlashing !== undefined) p.reduceFlashing = r.reduceFlashing;
   return p;
 }
 

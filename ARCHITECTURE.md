@@ -91,6 +91,10 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
 - Room: 13 × 7 tiles of 16 px = 208 × 112 px interior, 16 px walls → 240 × 144 outer, centered horizontally,
   flush toward the bottom leaving a HUD band. Side margins (72 px) hold HUD + buttons.
 - Fixed-timestep simulation at **60 Hz** (accumulator, max 4 catch-up steps, drop the rest). Render once per rAF.
+  Polish batch 2: besides the smoothed `updateMs` / `renderMs`, `Loop.stats` (`engine/frameStats.ts`) keeps the RAW
+  spikes in a fixed 512-frame ring (no allocation): over a rolling 1 s window the worst update + render cost, the worst
+  rAF-to-rAF gap (which also catches work done inside input handlers — a START tap, a room entry) and the frames over
+  20 ms; the perf overlay shows `WORST 28MS GAP 612MS >20: 7`, `__SD.perf` / `__SD.perfFrames(since)` expose them (§9).
 - `InputState` (plain object, reused, no allocations) is the ONLY way the sim reads input:
   `moveX, moveY` (analog −1..1), `aimX, aimY` (unit vector or 0,0), `fireHeld`, `firePressed`, `fireReleased`,
   `bomb`, `active`, `consumable`, `dash` (Pip's burrow; other characters ignore it), `pause`, `map` (edge-triggered
@@ -182,7 +186,10 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
   (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves,
   and every attack in flight (beams, swipes, queues; familiars regroup at the player — `resetAttackRoom`).
-  `world.godMode` (debug) makes `damagePlayer` refuse all damage. `damagePlayer(w, halves, source, by?)`: `by` = the
+  `world.godMode` (debug) makes `damagePlayer` refuse all damage. `damagePlayer(w, halves, source, by?, fromX?, fromY?)`:
+  `fromX / fromY` (polish batch 2) = where the hit came from — a cosmetic 'hurtFrom' event follows the 'hurt' so the screen
+  kicks away from it (contact: the foe; shots: behind the shot; creep, waves, lob splashes, blasts: their centre; boss
+  beams: the nearest point of the beam); nothing in the sim reads it. `by` = the
   attacker's enemy uid (contact, enemy shots / lob splashes, creep and shockwaves keep their owner's uid, boss beams); the
   killing blow sets `world.killer` (the enemy / boss def id, looked up over the whole enemy pool — a dead owner's slot keeps
   its uid until reused — '' when unknown) and `world.killedBy` (the DMG_* source): the game-over screen's "TAKEN BY".
@@ -339,6 +346,12 @@ placed bombs and novas hurt everything in reach.
   attack clocks are held ≥ 0.5 s while asleep). A behaviour writes a desired velocity (`tvx/tvy`); one
   integrator accelerates toward it, adds knockback (decays; frozen enemies slide), soft O(n²) separation, sub-stepped
   grid collision (WALK, or walls-only for flyers / airborne / underground), pedestals and dummies as solid.
+- Hit feedback (polish batch 2): a hit restarts the white flash (`ENEMY_TUNING.hitFlash`) at most every `hitFlashGap`
+  (0.2 s); re-hits in between refresh a pale tint (`Enemy.hitTint`, drawn as the flash frame at 30 %), so nothing inside a
+  lance (a damage tick every 3 ticks) turns into a flat white silhouette. A DIRECT hit — a projectile, a beam's first tick
+  on a target, a melee swipe (`attack/shot.ts stagger`; never DoT, statuses, creep or blasts) — staggers a non-boss enemy:
+  its own movement is held to `hitStunMul` (0.2) of its speed for `hitStun` (0.06 s), refreshed by the next hit, never
+  stacked (`Enemy.hitStunT`, applied to the desired velocity before the integrator); knockback is unchanged.
 - Attacks: `aimedShot, cardinal4, ringN (8 = the ring of 8), spreadFan, burst, lob` (arcing, lands on a marked spot:
   splash / creep / split), `spawnMinion` (capped per spawner), `landShockwave` (expanding ground ring), `leaveTrail`
   (passive damaging creep); Phase 6: `spiral` (ext-a: a rotating sprinkler stream or a hose sweep across her, stateless
@@ -428,9 +441,9 @@ and `rider(volley, stacks)` (as rider); riders merge in the order marble, melee,
 | `lance` (Storm Lance) | hold to charge (meter on the character); release: huge thick beam traced instantly to the far wall, pierces everything, ticks rapid damage over ~0.5 s; flash, shake, boom | — (always primary when held) |
 | `laser` | thin rapid beam, short duration, fires at fire-rate | shots/beams sprout thin side-lasers at nearby enemies; lance gets feathered sub-beams |
 | `boomerang` | thrown spinning blade: flies out, returns, pierces | adds `boomerang` motion: shots return; beams bend back into a U; melee crescents fly out and back |
-| `melee` | close-range arc swipe + a short crescent wave projectile | lance/laser sweep across an arc while active; marbles launch out of a swipe that also hits close |
+| `melee` | close-range arc swipe + a short crescent wave projectile | marbles launch out of a swipe that also hits close; lance releases / laser volleys get the same swipe plus a crescent along the aim, and the beams OPEN with a slash (out to one side, across, back onto the aim) added in front of their normal life — never less than the beam alone |
 | `bomb` | (rider only) shots look like tiny bombs and explode | explode on hit; beams explode at intervals along their length; swipes explode at the tip |
-| `charge` | (rider only) hold to charge, release = damage/size multiplier by charge % | lance overcharges (wider, longer); laser becomes a charged burst |
+| `charge` | (rider only) hold to charge, release = damage/size multiplier by charge % (release-to-fire, never auto-released) | lance overcharges (wider, longer); laser becomes a charged burst |
 | `orbit` | (rider only) spinning blades orbit the player and hit | blades inherit all hit modifiers and fire a mini version of the primary when you fire |
 
 Extra copies of a carrier make it stronger: lance +35 % damage and +3 px width per copy, laser +30 % and +1 px,
@@ -449,9 +462,13 @@ Numbers (defaults, `ATTACK_TUNING`):
   pierces everything both ways (re-hits after 14 ticks), phases through rocks on the way back, 1.35 × fire period.
 - **Melee**: swipe ±55° (~110°), reach 26 px, 0.16 s, 2.2 × damage, 2.5 × knockback, each target once, swats hostile
   enemy shots, cracks props; plus a crescent (1 × damage, 1.1 × speed, 0.55 × range, pierces 1). One swipe per
-  distinct direction (≥ 60° apart, max 4 per volley). 1.1 × fire period.
+  distinct direction (≥ 60° apart, max 4 per volley). 1.1 × fire period. As a rider on beams (polish batch 2): the rider
+  swipe (1.4 × damage) and a crescent at the muzzle every lance release / laser volley, and a slash of ±0.96 rad over
+  `beamSweepTime` (0.3) × the beam's life added IN FRONT of it (`beam.ts addSlash`) — it used to sweep across the whole
+  life and lose 40-80 % of the aimed damage.
 - **Charge rider**: `0.9 s × 3 / fireRate`; release multiplies damage 0.5 → 2.5 (+0.5 per extra copy) and size
-  0.8 → 1.8 by charge. **Orbit rider**: 1 + copies blades (max 8), radius 22 px, 0.9 × damage, re-hit every 12
+  0.8 → 1.8 by charge — marble and melee primaries (bomb shots too) 0.5 → 3.6 (`chargeMaxMulShot`, polish batch 2: a
+  perfectly timed full charge beats holding the trigger by ~10-20 %; it used to lose 20-30 %). **Orbit rider**: 1 + copies blades (max 8), radius 22 px, 0.9 × damage, re-hit every 12
   ticks, mini volleys at scale 0.4. **Bomb rider**: blasts 24 px (+6 per extra copy), ≥ 1.8 × shot damage, break rocks.
 
 ### 4.3 Shots: one abstraction for everything
@@ -468,7 +485,11 @@ All damage delivery is built from two primitives that share the same modifier ho
   decelerate change the cursor's speed to shape the beam, never how sharply homing / boomerang / spiral bend it).
   The cursor remembers what it passed through this trace (homing moves on to the next target). The beam re-traces every
   tick of its life, from its anchor's current position (so homing beams follow moving enemies and orbiting /
-  melee-rider beams sweep). `split` FORKS the trace at the first enemy on the path into 1 + stacks child traces
+  melee-rider beams sweep). Homing on beam cursors (polish batch 2): a target is kept until the cursor passes through it
+  (or it dies, leaves the reach, or 48 steps go by), only targets ahead (±~80°) are chased, at most 6 per trace segment and
+  never one already chased, and each segment remembers its picks (`Beam.homeMem`, 6 per segment) — the next trace takes
+  them in order while they are still good (with 1.3 × reach slack), so a homing lance keeps its path from tick to tick
+  instead of snapping between near-equal targets. `split` FORKS the trace at the first enemy on the path into 1 + stacks child traces
   (max 5, half damage, depth ≤ min(2, stacks)); points per beam ≤ 384 in ≤ 16 segments. Hit / expire hooks run at
   hit points, rate-limited per beam per target (one slot per target the snapshot can hold — 96 — never taken from a
   live target, so a crowd can't reset rate limits); expire hooks run once at the end point when the beam dies.
@@ -547,7 +568,7 @@ creep (they hurt enemies, never the player); charmed enemies are left out of the
 - Stacks add intensity: homing turn rate, split count, chain jumps, bounce count, explosion radius, status duration…
 - Multiplicative stat items multiply. Extra shots multiply with split, split with chain, etc. — it SHOULD get absurd.
 - Guardrails degrade gracefully instead of blocking: global caps (projectiles 700, enemy shots 400, beams 48,
-  swipes 16, particles 1500, explosions 48 live, chain arcs 32/tick, split depth 3, puddles 48). When a cap is hit,
+  swipes 16, particles 800, explosions 48 live, chain arcs 32/tick, split depth 3, puddles 48). When a cap is hit,
   children merge into bigger/stronger shots (damage is conserved) rather than vanishing:
   - a volley bigger than the free pool merges neighbouring specs (damage summed); a beam that can't spawn adds its
     damage to the volley's previous beam; a projectile that can't spawn adds its damage to the previous shot;
@@ -573,7 +594,7 @@ Per-modifier stacking (s = stacks; "dmg" = the shot's damage):
 | `homing` | motion | seeks within 104 px at 4.5 rad/s; target = the cheapest REACHABLE one (distance + turn radius × bearing; nothing deep inside its turning circle; not one it just hit) — ahead beats beside, a U-turn only when nothing is ahead | reach 80 + 24s, turn 2.5 + 2s (`params.radius/turn`) |
 | `wavy` | motion | ±0.47 rad heading wave per 44 px | amplitude 0.35 + 0.12s (max 1.1) |
 | `spiral` | motion | corkscrew: a loop OFFSET at 10.5 rad/s widening to 13 px on top of the path (heading at 0.6 × speed, or the orbit an earlier hook set), range ×1.6; loops close up on a boomerang's way home | loop speed 9 + 1.5s, radius 10 + 3s |
-| `orbitPlayer` | spawn / motion / beamTick | shots orbit their owner out to 27 px (then widen 12 px/s), range ×2; with homing they whip out to an enemy their sweep comes up on, then settle back; a heading turn (bounce) tilts the orbit, wavy makes it breathe; beams: every spec of the volley gets s copies, evenly spaced, the ring turning 3.6 rad/s | ring radius 20 + 7s, range ×(1.6 + 0.4s); beams: specs × (1 + s), 3 + 0.6s rad/s |
+| `orbitPlayer` | spawn / motion / beamTick | ADDS to the aimed attack (polish batch 2): every spec keeps its aim and damage and gets s ring copies (0.6 × damage, `SF_RING`) evenly spaced around it — moons that orbit their owner out to 27 px (then widen 12 px/s), range ×2 (with homing they whip out to an enemy their sweep comes up on, then settle back; a heading turn tilts the orbit, wavy makes it breathe), or ring beams (`Beam.ring`) that turn at least a full circle over the beam's life; the aimed shots / beams never turn | ring radius 20 + 7s, range ×(1.6 + 0.4s); copies per spec s, beam turns 1 + 0.5 (s − 1) per life |
 | `boomerang` | motion | turns back at 48 % of range (beams: after 95 px), steers home at 9 rad/s, caught by the owner | turn 7 + 2s rad/s, turn point +3 %/stack (beams +15 px) |
 | `grow` | motion | size ×(1 + 1.4·age) up to ×2, dmg +50 % of the growth | rate 1.1 + 0.3s, max 1.6 + 0.4s (≤ 3.6) |
 | `shrink` | motion | starts ×1.75 size & dmg, shrinks to ×0.5 at the end of its range | start 1.5 + 0.25s (≤ 2.75) |
@@ -608,12 +629,15 @@ rim in the
 dominant modifier's colour, dark outline, highlight, and up to **3 accent colours** (the top modifiers' colours,
 drawn as sparkle pixels on the shot — combos read at a glance). Shape hint: the carrier first (boomerang blade,
 melee crescent, bomb rider bomb), else the strongest shaped modifier (spiky, star, gear, shard, bubble…).
-Trail kinds (embers, bubbles, ice, sparks, wisps, dust, drops — up to 3, with colours; bomb shots always spark),
+Every player shot sprite has a WHITE-HOT centre pixel (`render/shotPixels.ts`; enemy shots never do — they carry a dark
+core, outline and drop-halo instead, §8). Trail kinds (embers, bubbles, ice, sparks, wisps, dust, drops — up to 3, with colours; bomb shots always spark),
 glow radius. Last, the loadout's `styles` (transformations, active synergies) override in order: a colour takes 75 % of the
 body and becomes the first accent, a shape replaces the composed one, a trail goes first, glow adds to the radius, a
 `tether` colour (the last one set wins; `ShotStyle.tether`) draws a crackling line from each thrown projectile back to its
 thrower (`AttackRenderer.drawTethers`, ≤ 24 a frame; split children and orbit blades excluded). Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
-frame) and a glow per (style, size); crescents and shards turn with the heading, blades / gears / stars spin.
+frame) and a glow per (style, size) — cached per LOOK (`style.key`: body, rim, accents, shape, glow radius — everything the
+rasteriser reads) in a small LRU of 8 looks, since composeStyle builds a fresh ShotStyle object on every recompute (polish
+batch 2; one ImageData + putImageData per sprite); crescents and shards turn with the heading, blades / gears / stars spin.
 Beams get core / glow / edge colours and lightning jitter from the same style. Wren's keeper marble has its own
 gilded star style.
 **Major items also add character costumes** (overlay sprite layers, `CostumeDef`, see §5): the Storm Lance adds a
@@ -1203,8 +1227,10 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Settings (`ui/settingsPanel.ts`, overlay 'settings', from the title or the pause menu): MASTER / MUSIC / EFFECTS / SHAKE
   sliders (tap the track to jump, drag to slide; volumes are heard live and committed on release — a quick tap is caught by
   the release), SHOW FPS, AIM 4-WAY / 360°, LEFT-HANDED, BUTTON SIZE 75-150 % (5 % steps), EXPORT / IMPORT SAVE (import
-  only from the title: it replaces the saved run). Ids `settings.<master|music|sfx|shake|fps|aim|lefty|buttons|export|
-  import|back>`. Everything persists through the meta save.
+  only from the title: it replaces the saved run), REDUCE FLASHING (polish batch 2: every full-screen flash capped at 0.2;
+  `MetaSettings.reduceFlashing`, additive — older saves normalize to off); the separate-saves note runs along the bottom
+  edge. Ids `settings.<master|music|sfx|shake|fps|aim|lefty|buttons|export|import|flash|back>`. Everything persists
+  through the meta save.
 - Collection (`ui/collection.ts`): every item — '?' never seen, a dark silhouette seen, full colour collected, a padlock
   locked — sorted by kind, quality, name; the detail shows name, kind, quality, description, counts, or the unlock hint.
   Bestiary (`ui/bestiary.ts`): tabs FOES / BOSSES; '?' never met, dimmed met, full colour + kill count defeated; the detail
@@ -1270,8 +1296,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
   White hit-flash and tinted variants cached lazily. Animations: idle/walk, hurt, death.
 - Layers: pre-rendered room background → shadows → pickups/props → enemies → familiars → player (costume layers
-  behind / in front) → swipes → projectiles → beams (`lighter`) → enemy shots → charge meter → particles → chain
-  arcs → full-screen flash → lighting/darkness → HUD → touch controls → UI overlays.
+  behind / in front) → the full-screen flash (clipped to the room) → swipes → projectiles → beams (`lighter`) → particles →
+  chain arcs → enemy beams → enemy shots → charge meter → lighting/darkness → the hurt vignette → HUD → touch controls → UI
+  overlays (polish batch 2: the flash sits UNDER shots and beams, and a foe's shot stays on top of the particle soup).
 - Attack visuals (`render/attackRenderer.ts`): shot sprites and glows cached per (ShotStyle, shape, size bucket,
   rotation frame) — no string keys per frame; beams drawn straight from the sim's trace arrays, clipped to the room
   (never over the HUD margins): a segment of even width is ONE stroked path per pass, a tapering / flaring one ONE
@@ -1280,10 +1307,30 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   cores / strands dim with the crowd (lance: layered
   additive glows dimmed when many overlap, a white-hot core, 2-3 jagged animated lightning strands, muzzle and wall
   flares; lasers: thin zaps); swipes as a sweeping crescent band; familiars; costume layers; the charge meter.
-  `render/attackFx.ts` (owned by WorldFx): lance charge sparks, the blinding blue-white flash + heavy shake + recoil
-  kick on release, sparks along the beam and at hits / the wall, shot trails, split shards, bounce sparks, chain
+  `render/attackFx.ts` (owned by WorldFx): lance charge sparks, a short blue-white flash (peak 0.45, gone in 2-4 frames) +
+  heavy shake + recoil kick on release, sparks along the beam and at hits / the wall, shot trails, split shards, bounce sparks, chain
   arcs, keeper sparkles, familiar poofs, costume sparks (item costumes and transformations' `set:<id>` costumes). The run scene's flash uses `fx.flashColor / flashMax`.
-- Particles are presentation-only, pooled, capped. Screen shake/hit flash scale with Settings.
+- Particles are presentation-only, pooled, capped (800). Polish batch 2: every spawn has a priority — 'cosmetic' (trails,
+  ambience, hit sparks: `spawnCosmetic` / `burstCosmetic`) are refused above 70 % of the cap (trails also thin out as the
+  pool fills); 'important' (the default: kills, hurts, explosions, room clears, items, pickups…) are never refused and at
+  the cap take over the oldest cosmetic particle, else the oldest important one (spawn-order rings, no scans). Colours are
+  interned to a palette index at spawn and `draw` buckets particles by (alpha level of 6, colour) with a counting sort
+  over preallocated arrays: canvas state changes once per bucket, not per particle.
+- Screen shake/hit flash scale with Settings. Shake (`render/shake.ts`) has CEILINGS: a source only raises trauma up to its
+  category's — hits 0.15, the player's own shot blasts 0.35, kills 0.4, the big moments (lance release, placed bombs,
+  hurts, boss roars / deaths, actives) 1 — and kicks are capped the same way (hits 1.5 px, others 6), so a stacked
+  build hums at ≤ 1 px and the big moments still stand out. Every full-screen flash goes through `WorldFx.flashAlpha`
+  (Settings → REDUCE FLASHING caps it at 0.2) and is drawn by WorldRenderer under shots and beams, clipped to the room.
+  A hurt: a hard shake no ceiling holds back, a kick away from the source ('hurtFrom'), a red edge vignette over the room
+  (0.3 s, `render/vignette.ts`), a 5-tick hit-stop and a mix duck. Hit-stop (`render/hitStop.ts`, run scene): lance
+  release 3 ticks, melee connect 1 (≤ 1 per 0.2 s), big kill 3, champion kill 2, boss phase 4, hurt 5; no new one within
+  0.25 s of the last except a hurt; a pending press cancels it; the flash / vignette timers keep running through it.
+- Warm-up (`render/warmup.ts`, polish batch 2): `WorldRenderer.prepare` builds only what the first frame shows (room
+  background, her sprite, a few props) and QUEUES the floor's chapter (its enemies, bosses, minibosses and finals with
+  their phase looks, enemy shot sprites r 1-8, the doors); the run scene runs the queue for 2 ms a frame. Boss intros
+  queue the phase tints and the boss-bar lettering, champion spawns their silhouettes and glow, new items their costume
+  and familiar frames. Anything not warmed yet still rasterises on its first draw. Glows, circles, font atlases and shot
+  sprites are built with one ImageData + putImageData each.
 - Floor-run rendering (Phase 3A): `render/chapterArt.ts` recolours the chapter's tileset patterns and the shared rock /
   pit / corner maps with `ChapterDef.palette` into new SpriteDefs (cached per chapter); `RoomBackground.get(room,
   world.chapter)` rebuilds on grid / seed / chapter changes and adds the chapter's decals, wall trims and wall
@@ -1331,11 +1378,13 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   label in the top band.
 - Enemies (`render/enemyRenderer.ts`): floor layer (creep, shockwave rings, lob landing markers, burrow mounds, blink
   destinations), shadows, two depth passes around the player (walkers above her, then walkers below + flyers), shots
-  last (outline + bright core + additive glow; allied ones pink). Per enemy: spawn fade/rise, idle/move/windup/air
+  last with the foe signature (`render/shotPixels.ts`, polish batch 2: dark 1 px outline, a DARK core disc, a dark
+  drop-halo baked into the sprite — never a player shot's white-hot centre or light halo; allied ones pink and bright with
+  an additive glow). Hit flashes are rate-limited (§3 Enemies: a pale tint between two flashes). Per enemy: spawn fade/rise, idle/move/windup/air
   frames, telegraph blink + squash, hit flash + jolt, frozen tint, status wash + 5 px status icons, champion silhouette
   outline (`getSilhouette`) + glow, phantom fade, split copies drawn smaller. Doors (`render/doors.ts`) are drawn on the
   four wall centres; bars slide down while `arena.doors` > 0. Death bursts use the def's `goo` colours; big kills get a
-  1-2 tick hit-stop in the run scene (presentation only: the scene skips sim steps unless an input edge is pending).
+  3-tick hit-stop in the run scene (presentation only: the scene skips sim steps unless an input edge is pending).
   No damage numbers.
 - Audio: procedural SFX recipes by name with voice limits; enemy/status/door sounds in `audio/sfxEnemies.ts` (names
   prefixed `foe_`, `eshot_`, `gate_`, `room_`, `st_`); step-sequencer music with lookahead scheduling,
@@ -1350,7 +1399,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `audio/sfxLibrary.ts` (~60 recipes: coin variants, doors, enemy / boss, fanfares, trapdoor, shop / slots, menus,
   player, curse…) self-registers when engine.ts imports it. Built-in names win a clash (`SHADOWED_SFX` must stay
   empty; a test checks). `SoundName` = built-in `SfxName` + `LibrarySfxName`; `Recipe` / `Voice` live in
-  `audio/synth.ts` and a recipe may set `maxVoices` (per-sound voice limit under the global 20).
+  `audio/synth.ts` and a recipe may set `maxVoices` (per-sound voice limit under the global 20). Polish batch 2: every sound has a PRIORITY (`sfxPriority`: hurt / death / lance / room clear
+  / pickups / items / bosses / UI 3 > kills 2 > everything else 1 > hit / splash / zap spam 0; a recipe may set its own);
+  with all 20 voices busy a new sound steals the oldest voice of the lowest priority below its own (a 5 ms fade, no click)
+  and is dropped only when everything playing ranks as high or higher; foe_hit / splash / shot_boom hold ≤ 3 voices,
+  chain_zap / split_pop ≤ 2. A hurt (`duck`) dips every other sound ≈ −6 dB for 0.25 s through the player's duck bus
+  (smooth ramps) and the engine dips the music with it (`MusicControl.duck`); the hurt itself bypasses the dip.
 - Music: `AudioOut.music` is a `MusicControl` (`audio/music/director.ts` `MusicDirector`, on WebAudio AND NullAudio —
   before unlock it records the wanted track): `play(id, { fade })` crossfades, `stop`, `stinger(id, { then | stopMusic
   })` (ducks the music, or hands off on the exact sample), `duck`, `pause` / `resume` (on a bar line), `muffle`. A
@@ -1369,11 +1423,14 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
   fps, `sim` handle) and `__SD.debug` actions (god mode, spawn, skip floor) used by E2E and the debug menu.
   Current shape (`src/debug/sdHooks.ts`): `scene`, `stack`, `fps`, `perf` (smoothed `updateMs` / `renderMs` of the loop,
-  `droppedSteps`), `ticks`, `view` (game image rect in CSS px +
+  `droppedSteps`; polish batch 2: the last second's raw `worstMs` / `gapMs` / `over20` / `p95Ms` and the newest `frame`
+  index), `perfFrames(after)` (the raw per-frame costs and rAF gaps since a frame index), `shake` (this frame's offset),
+  `ticks`, `view` (game image rect in CSS px +
   `scale` = CSS px per game px), `safe`, `portrait`, `buttons()` / `button(id)` (game rect + `css` rect with centre
   `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
   counters…), `hud()` (HUD element rects in game px), `counts`,
   `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, wave(count?), spawnEnemy(id, champion?),
+  enemyShot(x, y, vx?, vy?, style?, r?) (polish batch 2: a hostile shot anywhere),
   killEnemies, god(on), aim360, newRun, title, pause, spawnItem(id) (pedestal next to the player), giveRandom(n),
   items(), enemies(), heal, add(coins?, bombs?, keys?), clearRoom, resetItems, autoWaves(on), menu(open?)}` (the
   debug menu's actions, `debug/actions.ts`; Phase 3A: `yard()`, `door(side)`, `teleport(room?)` (default: the boss room),

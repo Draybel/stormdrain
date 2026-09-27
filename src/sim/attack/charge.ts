@@ -6,8 +6,9 @@
  *   0.25..2 s). Releasing at full charge fires the lance volley (flash, shake, boom); releasing early
  *   fizzles. While a lance beam is live the next charge waits. With the charge rider the meter keeps
  *   filling past 100 % (overcharge: wider, longer, stronger beam).
- * - Charge rider (any other primary): release fires one volley × (0.5 → 2.5 by charge); a laser
- *   primary instead fires a charged BURST of lasers.
+ * - Charge rider (any other primary): release fires one volley × (0.5 → 2.5 by charge; marble and melee primaries
+ *   0.5 → 3.6, so a perfectly timed full charge beats holding the trigger — polish batch 2); a laser primary instead
+ *   fires a charged BURST of lasers. Release-to-fire: never auto-released while held.
  * Familiars and orbit blades fire along with the player's volleys (they "charge with you").
  */
 
@@ -32,8 +33,9 @@ export class PlayerAttack {
   burstLeft = 0;
   burstT = 0;
   burstMul = 1;
-  /** Seconds the last lance beam is still live (no charging meanwhile). */
+  /** Seconds the last lance beam is still live (no charging meanwhile), and what it started at (the meter shows it). */
   busy = 0;
+  busyMax = 0;
   /** Wren's keeper marble is armed (first volley in an uncleared room). */
   keeper = false;
   /** Last aim (unit). */
@@ -47,6 +49,7 @@ export class PlayerAttack {
     this.soundT = 0;
     this.burstLeft = 0;
     this.busy = 0;
+    this.busyMax = 0;
   }
 }
 
@@ -184,13 +187,14 @@ export function updatePlayerAttack(w: World, input: InputState, dt: number): voi
     const over = Math.max(0, c - 1);
     const lifeMul = 1 + 0.5 * over;
     firePlayerVolley(w, dx, dy, 1 + 0.5 * over, 1 + 0.6 * over, lifeMul, true);
-    st.busy = prof.lanceLife * lifeMul * 0.9;
+    st.busy = st.busyMax = prof.lanceLife * lifeMul * 0.9;
     p.fireCooldown = 0.08;
     return;
   }
   // Charge rider.
   const full = Math.min(1, c);
-  const maxMul = T.chargeMaxMul + T.chargeMulStack * Math.max(0, prof.riderCharge - 1);
+  const shot = prof.primary === 'marble' || prof.primary === 'melee';
+  const maxMul = (shot ? T.chargeMaxMulShot : T.chargeMaxMul) + T.chargeMulStack * Math.max(0, prof.riderCharge - 1);
   const mul = T.chargeMinMul + (maxMul - T.chargeMinMul) * full;
   const sizeMul = 0.8 + (T.chargeSizeMax - 0.8) * full;
   w.events.emit('chargeRelease', p.x, p.y - 8, full, 0);

@@ -1105,6 +1105,12 @@ export class Bot {
           const plain = ped.hearts === 0 && ped.goods < 0 && !!ped.item;
           const buysBefore = this.buys;
           if (!this.touch(ped.x, ped.y, 6)) return;
+          if (plain && ped.price > 0 && this.buys === buysBefore && w.player.inv.coins < ped.price && ped.item) {
+            // The coins went on the way (she brushed the donation jar, an item spent some): top up and try again.
+            this.walkAway(ped.x, ped.y, 26);
+            this.ensure(ped.price, 0, 0, `a shop slot again (${ped.item})`);
+            if (!this.touch(ped.x, ped.y, 6)) return;
+          }
           if (priced) {
             if (this.buys > buysBefore) {
               bought++;

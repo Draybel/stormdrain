@@ -91,6 +91,8 @@ function updateEnemy(w: World, e: Enemy, dt: number): void {
   e.prevZ = e.z;
   e.age += dt;
   if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
+  if (e.hitTint > 0) e.hitTint = Math.max(0, e.hitTint - dt);
+  e.sinceFlash += dt;
   e.hurtT += dt;
   if (e.teleT > 0) e.teleT = Math.max(0, e.teleT - dt);
   if (e.allyT > 0) e.allyT -= dt;
@@ -168,6 +170,12 @@ function updateEnemy(w: World, e: Enemy, dt: number): void {
     // Plants its feet for the telegraph.
   } else {
     mv.beh.update(w, e, mv.p, dt, spd);
+  }
+  if (e.hitStunT > 0) {
+    // Staggered by a direct hit: its own movement holds back for a moment (knockback still applies in full).
+    e.hitStunT = Math.max(0, e.hitStunT - dt);
+    e.tvx *= ENEMY_TUNING.hitStunMul;
+    e.tvy *= ENEMY_TUNING.hitStunMul;
   }
 
   integrate(w, e, dt, frozen);
@@ -367,7 +375,7 @@ function contact(w: World, e: Enemy): void {
   const rr = cr + p.r;
   const d2 = dx * dx + dy * dy;
   if (d2 >= rr * rr) return;
-  if (damagePlayer(w, dmg, DMG_ENEMY, e.uid)) {
+  if (damagePlayer(w, dmg, DMG_ENEMY, e.uid, e.x, e.y)) {
     // A short shove apart so you aren't left standing inside it.
     const d = Math.sqrt(d2);
     const nx = d > 1e-4 ? dx / d : -p.faceX;

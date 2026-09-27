@@ -5,8 +5,9 @@
  */
 
 import { ATTACK_TUNING } from '../../tuning';
-import { BK_FEATHER, BK_LANCE, BK_LASER, spawnBeam } from '../beam';
+import { BK_FEATHER, BK_LANCE, BK_LASER, addSlash, spawnBeam } from '../beam';
 import { noteBeam } from '../fire';
+import { SF_RING } from '../state';
 import { ownerTag, type Carrier } from './carrier';
 
 const T = ATTACK_TUNING;
@@ -30,8 +31,9 @@ export const LASER: Carrier = {
     b.life *= src.lifeMul;
     b.ownerKind = src.ownerKind;
     b.vIndex = i;
+    b.ring = (ctx.flags[i]! & SF_RING) !== 0;
     b.bomb = p.riderBomb > 0;
-    b.sweep = p.riderMelee > 0 ? T.beamSweep : 0;
+    if (p.riderMelee > 0) addSlash(b);
     noteBeam(v, b);
     if (i === 0) v.w.events.emit('laserFire', v.x, v.y, b.width, b.ang, ownerTag(v));
   },
@@ -49,6 +51,8 @@ export const LASER: Carrier = {
           f.dmg *= v.src.mul;
           f.life = b.life;
           f.sweep = b.sweep;
+          f.sweepTime = b.sweepTime;
+          f.ring = b.ring;
           f.ownerKind = b.ownerKind;
           f.vIndex = b.vIndex;
         }

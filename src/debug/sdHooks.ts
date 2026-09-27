@@ -8,7 +8,9 @@ import type { Sim, SimSummary } from '../sim/sim';
 import { vec2 } from '../engine/math';
 import type { App } from '../ui/app';
 import type { PerfOverlay } from './perfOverlay';
+import type { FrameSample } from '../engine/frameStats';
 import type { Loop } from '../engine/loop';
+import { spawnEnemyShot } from '../sim/enemies/shots';
 import type { ButtonRegistry } from '../engine/buttons';
 import type { HudRect } from '../render/hud';
 import type { PickupName } from '../sim/types';
@@ -78,8 +80,25 @@ export interface SDHooks {
   readonly scene: string;
   readonly stack: string[];
   readonly fps: number;
-  /** Loop cost (smoothed ms): one sim tick incl. event handling, one render; steps dropped so far. */
-  readonly perf: { updateMs: number; renderMs: number; droppedSteps: number };
+  /**
+   * Loop cost: smoothed ms of one sim tick incl. event handling and of one render; steps dropped so far; and the raw
+   * spikes over the last second (polish batch 2): the worst update + render cost of a frame, the worst rAF-to-rAF gap
+   * (catches work done in input handlers), frames over 20 ms, the p95 of the raw costs, and the newest frame index.
+   */
+  readonly perf: {
+    updateMs: number;
+    renderMs: number;
+    droppedSteps: number;
+    worstMs: number;
+    gapMs: number;
+    over20: number;
+    p95Ms: number;
+    frame: number;
+  };
+  /** The screen-shake offset of the frame on screen (game px; polish batch 2 — e2e pixel reads). */
+  readonly shake: { x: number; y: number; trauma: number };
+  /** Raw per-frame costs and rAF gaps (ms) of the frames after index `after` (still in the loop's 512-frame ring). */
+  perfFrames(after: number): FrameSample;
   readonly ticks: number;
   /** Where the game image is drawn (CSS px) + viewport info. */
   readonly view: { x: number; y: number; w: number; h: number; scale: number; cssW: number; cssH: number; dpr: number };
@@ -126,6 +145,11 @@ export interface SDHooks {
     wave(count?: number): number;
     /** Spawns one enemy by id (optionally forcing a champion id, or false for none). */
     spawnEnemy(id: string, champion?: string | false): boolean;
+    /**
+     * Polish batch 2: a hostile enemy shot at (x, y) room px, moving (vx, vy) px/s (default: still), in an
+     * ENEMY_SHOT_STYLES index (default 0, muck) and radius (default 3). Owned by nobody. Returns false when the pool is full.
+     */
+    enemyShot(x: number, y: number, vx?: number, vy?: number, style?: number, r?: number): boolean;
     /** Kills every enemy in the room. */
     killEnemies(): void;
     /** God mode: the player takes no damage. */
@@ -238,7 +262,23 @@ export function installSdHooks(d: SdDeps): SDHooks {
       return loop.fps;
     },
     get perf() {
-      return { updateMs: loop.updateMs, renderMs: loop.renderMs, droppedSteps: loop.droppedSteps };
+      const st = loop.stats;
+      return {
+        updateMs: loop.updateMs,
+        renderMs: loop.renderMs,
+        droppedSteps: loop.droppedSteps,
+        worstMs: st.worstMs,
+        gapMs: st.gapMs,
+        over20: st.over20,
+        p95Ms: st.percentile(0.95),
+        frame: st.frames,
+      };
+    },
+    perfFrames(after: number) {
+      return loop.stats.since(after);
+    },
+    get shake() {
+      return { x: app.shake.x, y: app.shake.y, trauma: app.shake.trauma };
     },
     get ticks() {
       return loop.ticks;
@@ -336,6 +376,10 @@ export function installSdHooks(d: SdDeps): SDHooks {
       },
       spawnEnemy(id: string, champion?: string | false) {
         return !!d.getSim()?.spawnEnemy(id, undefined, undefined, { champion: champion === undefined ? true : champion });
+      },
+      enemyShot(x: number, y: number, vx = 0, vy = 0, style = 0, r = 3) {
+        const sim = d.getSim();
+        return !!sim && spawnEnemyShot(sim.world, x, y, vx, vy, 1, r, style, false, 0) !== null;
       },
       killEnemies() {
         d.getSim()?.killEnemies();

@@ -129,7 +129,7 @@ export function explode(w: World, x: number, y: number, radius: number = BOMB_TU
     const dx = p.x - x;
     const dy = p.y - y;
     const rr = radius + p.r * 0.5;
-    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, T.playerDamage, DMG_EXPLOSION);
+    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, T.playerDamage, DMG_EXPLOSION, 0, x, y);
   }
 
   // Tiles scale with the blast (a standard bomb clears about a 3×3 area).

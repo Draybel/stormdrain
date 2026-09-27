@@ -22,9 +22,9 @@ import { ATTACK_TUNING } from '../tuning';
 import type { World } from '../world';
 import { bombBlastMul, bombBlastRadius, queueExplosion } from './impacts';
 import type { AttackProfile } from './profile';
-import { reflect, runExpireHooks, runHitHooks, runWallHooks } from './shot';
+import { reflect, runExpireHooks, runHitHooks, runWallHooks, stagger } from './shot';
 import { TARGET_CAP } from './targets';
-import { F_CAUGHT, F_PHASE, OWN_PLAYER, SK_BEAM, ShotState, forgetHits, recentlyHit, rememberHit, type Anchor } from './state';
+import { F_CAUGHT, F_PHASE, HOME_MEM, OWN_PLAYER, SK_BEAM, ShotState, forgetHits, recentlyHit, rememberHit, type Anchor } from './state';
 import type { ShotStyle } from './style';
 
 /** Beam kinds. */
@@ -55,8 +55,12 @@ export class Beam implements Poolable {
   ang = 0;
   orbitAng = 0;
   spinAng = 0;
-  /** Melee rider: half-arc (rad) swept across over the beam's life (0 = none). */
+  /** Melee rider: half-arc (rad) of the opening slash (0 = none); see `sweepTime`. */
   sweep = 0;
+  /** Seconds of the opening slash (melee rider) at the start of the beam's life (0 = none). */
+  sweepTime = 0;
+  /** A tiny-planet ring copy: only these turn with the orbit (the aimed beams stay on the aim). */
+  ring = false;
   spin = 1;
   /** Origin distance from the anchor along the beam (px, on top of the muzzle). */
   offset = 0;
@@ -102,6 +106,14 @@ export class Beam implements Poolable {
   ox = 0;
   oy = 0;
 
+  /**
+   * Homing memory per trace segment (polish batch 2): the targets homing picked along it last tick, in order
+   * (HOME_MEM per segment). The next trace takes its picks from here while they are still good, so ties can't make
+   * a homing beam snap about from one tick to the next.
+   */
+  readonly homeMem: (Hittable | null)[] = new Array<Hittable | null>(MAX_SEG * HOME_MEM).fill(null);
+  readonly homeMemN = new Int8Array(MAX_SEG);
+
   // ── Rate limits ──
   readonly hitRefs: (Hittable | null)[] = new Array<Hittable | null>(HIT_SLOTS).fill(null);
   readonly hitNext = new Int32Array(HIT_SLOTS);
@@ -136,6 +148,8 @@ export function spawnBeam(
   b.ang = b.dir = ang;
   b.orbitAng = b.spinAng = 0;
   b.sweep = 0;
+  b.sweepTime = 0;
+  b.ring = false;
   b.spin = 1;
   b.offset = 0;
   b.age = 0;
@@ -156,6 +170,8 @@ export function spawnBeam(
   b.hitCnt.fill(0);
   b.hitUsed = 0;
   b.tileNext.fill(0);
+  b.homeMem.fill(null);
+  b.homeMemN.fill(0);
   const s = Math.sqrt(scale);
   switch (kind) {
     case BK_LANCE:
@@ -282,7 +298,8 @@ function beamHit(w: World, b: Beam, h: Hittable): void {
   b.hitNext[slot] = tick + b.every;
   const cnt = ++b.hitCnt[slot]!;
   const th = C.ang + C.angOff;
-  h.hurt(C.damage, SRC_PLAYER, Math.cos(th) * C.knock, Math.sin(th) * C.knock);
+  // Only the beam's first tick on a target staggers it (its later ticks are damage, not blows).
+  if (h.hurt(C.damage, SRC_PLAYER, Math.cos(th) * C.knock, Math.sin(th) * C.knock) && cnt === 1) stagger(h);
   if ((cnt - 1) % b.hookEvery === 0) runHitHooks(w, C, h);
   if (b.kind === BK_LANCE && (cnt & 1) === 1 && sparksLeft > 0) {
     sparksLeft--;
@@ -338,8 +355,16 @@ function traceSegment(
   C.ownerKind = b.ownerKind;
   C.ax = b.anchor ? b.anchor.x : ox;
   C.ay = b.anchor ? b.anchor.y : oy;
+  const seg = b.nseg++;
   C.homeRef = null;
   C.homeT = 0;
+  // Last tick's homing picks along this segment.
+  const mn = b.homeMemN[seg]!;
+  for (let k = 0; k < mn; k++) C.homeMem[k] = b.homeMem[seg * HOME_MEM + k]!;
+  C.homeMemN = mn;
+  C.homeSeqN = 0;
+  C.homeMemo = false;
+  C.homeWait = 0;
   C.ovr = false;
   // What this trace passed through (homing moves on to the next target instead of looping back).
   forgetHits(C);
@@ -353,7 +378,6 @@ function traceSegment(
   const forkDepth = Math.min(T.beamForkDepth, splitStacks);
   let forked = !(splitStacks > 0 && depth < forkDepth);
 
-  const seg = b.nseg++;
   b.segStart[seg] = b.n;
   b.segDepth[seg] = depth;
   push(b, ox, oy, C.size * 2);
@@ -450,6 +474,11 @@ function traceSegment(
     if (C.traveled >= C.range) break;
   }
   b.segLen[seg] = b.n - b.segStart[seg]!;
+  // This trace's picks are the next trace's memory.
+  const sn = C.homeSeqN;
+  for (let k = 0; k < sn; k++) b.homeMem[seg * HOME_MEM + k] = C.homeSeq[k]!;
+  for (let k = sn; k < HOME_MEM; k++) b.homeMem[seg * HOME_MEM + k] = null;
+  b.homeMemN[seg] = sn;
   if (seg === 0) {
     // Where the main line ends (on a wall when endWall): wall sparks, expire hooks.
     b.endX = C.x;
@@ -520,6 +549,25 @@ function endBeam(w: World, b: Beam): void {
   w.atk.beams.release(b);
 }
 
+/**
+ * The melee rider's opening slash at progress u (0..1): from −arc out across to +arc (first half), then back onto
+ * the aim (second half); 0 afterwards.
+ */
+export function slash(arc: number, u: number): number {
+  if (u >= 1) return 0;
+  return u < 0.5 ? arc * (4 * u - 1) : arc * (2 - 2 * u);
+}
+
+/**
+ * Melee rider on a beam: the opening slash (`ATTACK_TUNING.beamSweep`) is added in front of the beam's life, so the
+ * beam still spends its whole normal life on the aim.
+ */
+export function addSlash(b: Beam): void {
+  b.sweep = T.beamSweep;
+  b.sweepTime = b.life * T.beamSweepTime;
+  b.life += b.sweepTime;
+}
+
 export function updateBeams(w: World, dt: number): void {
   const pool = w.atk.beams;
   // Guardrail: share this tick's trace budget; crowded beams get fewer points and a coarser step.
@@ -541,7 +589,7 @@ export function updateBeams(w: World, dt: number): void {
       const hooks = prof.beamHooks;
       for (let k = 0; k < hooks.length; k++) hooks[k]!.def.beamTick!(b, hooks[k]!.stack, w, dt);
     }
-    const sweep = b.sweep !== 0 ? b.sweep * (2 * Math.min(1, b.age / b.life) - 1) * b.spin : 0;
+    const sweep = b.sweep !== 0 && b.age < b.sweepTime ? slash(b.sweep, b.age / b.sweepTime) * b.spin : 0;
     const dir = b.ang + b.orbitAng * b.spin + b.spinAng + sweep;
     b.dir = dir;
     const cx = b.anchor ? b.anchor.x : b.fx;

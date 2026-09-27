@@ -127,7 +127,7 @@ const items: ItemDef[] = [
   {
     id: 'tiny-moon',
     name: 'Tiny Moon',
-    desc: 'SHOTS CIRCLE YOU LIKE LITTLE MOONS',
+    desc: 'EVERY SHOT BRINGS A LITTLE MOON TO CIRCLE YOU',
     kind: 'passive',
     quality: 2,
     pools: ['treasure'],

@@ -121,6 +121,9 @@ export function spawnEnemy(w: World, def: EnemyDef, x: number, y: number, opts: 
   e.surfCell = -1;
   e.stun = 0;
   e.flash = 0;
+  e.sinceFlash = 9;
+  e.hitTint = 0;
+  e.hitStunT = 0;
   e.hurtT = 9;
   e.face = rng.next() < 0.5 ? -1 : 1;
   e.moving = false;

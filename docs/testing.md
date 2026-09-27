@@ -40,7 +40,7 @@ the event queue never overflows.
 
 `checkWorld(sim, particles)` is the per-tick invariant check (shared with the bot): finite numbers everywhere, the caps
 (projectiles 700, beams 48 × ≤ 384 points, swipes 16, chain arcs 32/tick, live explosions 48, explosion queue 64,
-enemies 64, enemy shots 400, puddles 48, shockwaves 16, pickups 64, bombs 16, pedestals 12, particles 1500, events 1024)
+enemies 64, enemy shots 400, puddles 48, shockwaves 16, pickups 64, bombs 16, pedestals 12, particles 800, events 1024)
 and nothing more than 16 px outside the room (familiars 32). The particle cap is real: a headless `WorldFx` +
 `ParticleSystem` consume the events exactly like the run scene does.
 
@@ -131,3 +131,10 @@ and every run is seeded or driven by debug actions.
 - A CI change: `tests/ci-workflow.test.ts` checks the workflow as text (actions on Node-24 majors, the permissions).
 - A new floor exit or special room interaction: teach the bot (`collect`, `moveOn`, `stepOnto`) so runs keep ending.
 - A new timing assertion: `perfBudget(ms)` + `steadyTiming(first, budget, again)` so a busy CI box doesn't fail it.
+- Feel and render numbers (polish batch 2): `tests/helpers/dps.ts` `aimedDps` (a pinned boss-sized target, perfect play) for
+  "a synergy never weakens the aimed attack" checks (tests/attack-dps.test.ts); the real `WorldFx` + `ScreenShake` +
+  `ParticleSystem` headless for shake / flash / particle budgets (tests/juice.test.ts, tests/particles.test.ts);
+  `tests/helpers/fakeCanvas.ts` `installFakeCanvas()` (a stub `document` whose canvases accept every call and count
+  them) for render caches and warm-up counts (tests/render-cache.test.ts, tests/warmup.test.ts); shot sprites are pure
+  pixel maps (`render/shotPixels.ts`) a test can read directly (tests/shot-looks.test.ts). In e2e, time frames with
+  `__SD.perf` / `__SD.perfFrames(since)` (raw per-frame costs and rAF gaps) — never the smoothed `renderMs` alone.

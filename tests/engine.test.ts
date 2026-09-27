@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FRAME_RING, FrameStats, percentileOf } from '../src/engine/frameStats';
+import { Loop } from '../src/engine/loop';
 import { EventQueue } from '../src/engine/events';
 import { Pool, type Poolable } from '../src/engine/pool';
 import { AIM_STICK, MOVE_STICK, VirtualStick } from '../src/engine/sticks';
@@ -163,5 +165,84 @@ describe('math', () => {
     expect(Math.hypot(v.x, v.y)).toBeCloseTo(10, 9);
     expect(snap4(v, 0.2, -0.9)).toEqual({ x: 0, y: -1 });
     expect(snap4(v, -0.9, 0.2)).toEqual({ x: -1, y: 0 });
+  });
+});
+
+describe('FrameStats (raw frame spikes, polish batch 2)', () => {
+  it('keeps the worst cost, the worst gap and the frames over 20 ms of the last second', () => {
+    const st = new FrameStats();
+    let t = 0;
+    for (let i = 0; i < 30; i++) st.record((t += 16.7), 5, 16.7);
+    expect(st.worstMs).toBe(5);
+    expect(st.over20).toBe(0);
+    expect(st.gapMs).toBeCloseTo(16.7, 3);
+    st.record((t += 612), 28, 612); // a long input handler, then a heavy frame
+    st.record((t += 16.7), 22, 16.7);
+    expect(st.worstMs).toBe(28);
+    expect(st.gapMs).toBeCloseTo(612, 3);
+    expect(st.over20).toBe(2);
+    // The window rolls: a second of normal frames later the spike is forgotten.
+    for (let i = 0; i < 61; i++) st.record((t += 16.7), 4, 16.7);
+    expect(st.worstMs).toBe(4);
+    expect(st.over20).toBe(0);
+    expect(st.gapMs).toBeCloseTo(16.7, 3);
+  });
+
+  it('gives the p95 of the window and the raw frames since an index', () => {
+    const st = new FrameStats();
+    let t = 0;
+    for (let i = 1; i <= 60; i++) st.record((t += 16), i, 16); // costs 1..60 ms within one second
+    expect(st.percentile(0.95)).toBe(57);
+    expect(st.percentile(0.5)).toBe(30);
+    const s = st.since(55);
+    expect(s.frame).toBe(60);
+    expect(s.costs).toEqual([56, 57, 58, 59, 60]);
+    expect(s.gaps).toEqual([16, 16, 16, 16, 16]);
+    // Only what is still in the ring comes back.
+    for (let i = 0; i < FRAME_RING + 10; i++) st.record((t += 16), 1, 16);
+    expect(st.since(0).costs.length).toBe(FRAME_RING);
+    expect(percentileOf([3, 1, 2], 3, 0.5)).toBe(2);
+  });
+});
+
+describe('Loop stats from synthetic frame times', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records update + render cost and the rAF gap per frame', () => {
+    let clock = 0;
+    vi.stubGlobal('performance', { now: () => clock });
+    let updates = 0;
+    let updateCost = 1;
+    const loop = new Loop({
+      update() {
+        updates++;
+        clock += updateCost;
+      },
+      render() {
+        clock += 2;
+      },
+    });
+    let raf = 0;
+    for (let i = 0; i < 20; i++) loop.tick((raf += 1000 / 60));
+    expect(updates).toBeGreaterThanOrEqual(19);
+    expect(loop.stats.worstMs).toBeCloseTo(3, 5);
+    expect(loop.stats.over20).toBe(0);
+    expect(loop.stats.gapMs).toBeCloseTo(1000 / 60, 3);
+    // A 600 ms freeze between frames (an input handler) and a 25 ms tick.
+    updateCost = 25;
+    loop.tick((raf += 600));
+    expect(loop.stats.gapMs).toBeCloseTo(600, 3);
+    expect(loop.stats.worstMs).toBeGreaterThanOrEqual(27);
+    expect(loop.stats.over20).toBe(1);
+    // The smoothed numbers barely move — why the raw ones exist.
+    expect(loop.renderMs).toBeLessThan(3);
+    updateCost = 1;
+    for (let i = 0; i < 70; i++) loop.tick((raf += 1000 / 60));
+    expect(loop.stats.gapMs).toBeLessThan(20);
+    expect(loop.stats.worstMs).toBeLessThan(5);
+    // After a clock reset (back from the background) the hidden time is not a gap.
+    loop.resetClock();
+    loop.tick((raf += 5000));
+    expect(loop.stats.gapMs).toBeLessThan(20);
   });
 });

@@ -1,7 +1,22 @@
 /**
  * Trauma-based screen shake: events add trauma (0..1) which decays; the offset grows with
  * trauma² so small bumps stay subtle and big hits really kick. Scaled by Settings (0 = off).
+ *
+ * Ceilings (polish batch 2): every source says how high its trauma may go — an add can only raise the trauma UP TO
+ * its ceiling (never above it, never lowering what is already there). Hits reach 0.15, the player's own shot blasts
+ * 0.35, kills 0.4; only the big moments (the Storm Lance release, placed bombs, getting hurt, boss roars and deaths,
+ * actives) may take it to 1. So a stacked build's hundreds of hits and blasts a second hum along at ≤ 1 px instead of
+ * pinning the screen at ±5 px, and the lance, a bomb or a hurt still stand out.
  */
+
+/** Trauma ceilings per kind of source. */
+export const SHAKE_HIT = 0.15;
+export const SHAKE_BLAST = 0.35;
+export const SHAKE_KILL = 0.4;
+export const SHAKE_BIG = 1;
+/** Kick ceilings (px): hits, and the big default (lance recoil, hurts, placed bombs). */
+export const KICK_HIT = 1.5;
+export const KICK_MAX = 6;
 
 export class ScreenShake {
   trauma = 0;
@@ -19,13 +34,28 @@ export class ScreenShake {
   private kickX = 0;
   private kickY = 0;
 
-  add(amount: number): void {
-    this.trauma = Math.min(1, this.trauma + amount);
+  /** Adds trauma, raising it at most up to `ceiling` (a source's category, SHAKE_*). */
+  add(amount: number, ceiling: number = SHAKE_BIG): void {
+    if (!(amount > 0) || this.trauma >= ceiling) return;
+    this.trauma = Math.min(ceiling, 1, this.trauma + amount);
   }
 
-  kick(dx: number, dy: number): void {
-    this.kickX += dx;
-    this.kickY += dy;
+  /**
+   * A directional kick (px) that springs back. Like trauma it has a ceiling: kicks add up to at most `max` px (a
+   * burst of melee hits in one tick can't stack into a 15 px lurch; the lance and hurts may go further).
+   */
+  kick(dx: number, dy: number, max = KICK_MAX): void {
+    const before = Math.hypot(this.kickX, this.kickY);
+    let kx = this.kickX + dx;
+    let ky = this.kickY + dy;
+    const m = Math.hypot(kx, ky);
+    const cap = Math.max(max, before);
+    if (m > cap) {
+      kx *= cap / m;
+      ky *= cap / m;
+    }
+    this.kickX = kx;
+    this.kickY = ky;
   }
 
   update(dt: number): void {
@@ -41,6 +71,11 @@ export class ScreenShake {
     const ny = (Math.sin(t * 67.1 + 2.1) + Math.sin(t * 37.9 + 0.4)) * 0.5;
     this.x = Math.round(nx * s + this.kickX * this.scale);
     this.y = Math.round(ny * s + this.kickY * this.scale);
+  }
+
+  /** Offset magnitude this frame (px, for tests and tools). */
+  get offset(): number {
+    return Math.hypot(this.x, this.y);
   }
 
   reset(): void {

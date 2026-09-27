@@ -263,11 +263,24 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       always recreate their run (canonical unlocks for codes and dailies, retries replay their snapshot, no daily across
       UTC midnight), HEALTH in the pause stats, the README (tests/start-route, run-fixes, curses, seeded-runs,
       pause-health; e2e menus + floors)
-- [ ] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
+- [x] Polish batch 2 — game feel and performance (owner priority 1): the juice pass and the perf pass below, plus the
+      aimed-attack rules for synergies (docs in ARCHITECTURE §2 / §3 / §4 / §8, DECISIONS "Polish batch 2", SYNERGIES.md)
+- [x] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
+      (polish batch 2: raw frame-spike stats — worst frame, worst rAF gap, frames over 20 ms — in the overlay and `__SD.perf`,
+      the e2e absurd build judged on the raw p95 + max gap; lances batched per pass into one union path (48 lances: median
+      render 14 → 8 ms, no white-out); shot sprites cached per look (8-look LRU); a particle budget (cap 800, cosmetic spawns
+      yield, important bursts never refused, bucketed drawing); no START freeze (61 canvases at START instead of ~2,500, the
+      floor's chapter warmed 2 ms a frame: rAF gap 441 → 38 ms); ImageData for glows, circles, fonts and shots; SFX voice
+      priorities with stealing (tests/engine, particles, render-cache, warmup, sfx; e2e attack / menus)
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 
 ## Phase 8 — Polish
-- [ ] Juice pass (hit-stop, shake, flashes, floor transition), Storm Lance showcase, costume layers
+- [x] Juice pass (hit-stop, shake, flashes, floor transition), Storm Lance showcase, costume layers
+      (polish batch 2: a short lance flash drawn under shots and beams, REDUCE FLASHING, shake / kick ceilings per source,
+      a real hurt — hard shake, a kick away from the source, a red vignette, hit-stop, a mix duck —, rate-limited hit-stop on
+      the big beats, no white-out in the lance, hits that stagger light foes, enemy shots that never look like yours,
+      synergies that never weaken the aimed attack (Tiny Moon / Crown of Storms, melee and charge riders, homing lances, the
+      Lasso), a recharging meter; tests/juice, stagger, attack-dps, shot-looks; e2e attack / menus / enemies)
 - [ ] Mobile UX pass (button sizes, safe areas, tap targets), e2e re-run on both iPhone viewports
 
 ## Phase 9 — Docs & finish

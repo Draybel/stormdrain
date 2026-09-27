@@ -345,19 +345,25 @@ describe('Storm Lance', () => {
     expect(b.segDepth[1]).toBe(1);
   });
 
-  it('beam + orbitPlayer makes a rotating ring of beams', () => {
+  it('beam + orbitPlayer adds a turning ring beam; the aimed beam stays on the aim', () => {
     const sim = emptySim('beam-orbit', 104, 56);
     give(sim, carrierItem('lance'));
     give(sim, modItem('orbitPlayer'));
     holdRelease(sim, 64);
     const beams = sim.world.atk.beams;
     expect(beams.count).toBeGreaterThanOrEqual(2);
-    const a0 = beams.items[0]!.dir;
-    const a1 = beams.items[1]!.dir;
-    const gap = Math.abs(Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)));
-    expect(gap).toBeCloseTo(Math.PI, 1);
+    const all = beams.items.slice(0, beams.count);
+    const aimed = all.find((b) => !b.ring)!;
+    const ring = all.find((b) => b.ring)!;
+    const a0 = aimed.dir;
+    const r0 = ring.dir;
+    const gap = Math.abs(Math.atan2(Math.sin(r0 - a0), Math.cos(r0 - a0)));
+    // Opposite the aim (it has already turned for a tick: a full turn over the beam's life).
+    expect(Math.abs(gap - Math.PI)).toBeLessThan(0.35);
     idle(sim, 10);
-    const turned = Math.atan2(Math.sin(beams.items[0]!.dir - a0), Math.cos(beams.items[0]!.dir - a0));
+    // Polish batch 2: the aimed beam never turns away from its target; the ring copy does.
+    expect(aimed.dir).toBeCloseTo(a0, 9);
+    const turned = Math.atan2(Math.sin(ring.dir - r0), Math.cos(ring.dir - r0));
     expect(Math.abs(turned)).toBeGreaterThan(0.3);
   });
 
@@ -478,7 +484,8 @@ describe('rider merges are visible', () => {
     holdRelease(sim, 80);
     const s = sim.world.projectiles.items[0]!;
     expect(sim.world.projectiles.count).toBe(1);
-    expect(s.baseDamage).toBeCloseTo(sim.world.player.stats.damage * ATTACK_TUNING.chargeMaxMul, 5);
+    // Marble / melee primaries charge up to chargeMaxMulShot (polish batch 2: a full charge beats holding the trigger).
+    expect(s.baseDamage).toBeCloseTo(sim.world.player.stats.damage * ATTACK_TUNING.chargeMaxMulShot, 5);
   });
 
   it('orbit rider: blades circle you and fire mini volleys with you', () => {

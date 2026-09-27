@@ -18,7 +18,7 @@ import { chapterArt } from './chapterArt';
 import { DK, DS } from '../sim/doors';
 import { ROOM_OUTER_H, ROOM_OUTER_W, ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
 import { P_RING, P_SQUARE, P_STREAK, type ParticleSystem } from './particles';
-import type { ScreenShake } from './shake';
+import { KICK_HIT, SHAKE_BIG, SHAKE_BLAST, SHAKE_HIT, SHAKE_KILL, type ScreenShake } from './shake';
 
 const MARBLE_BITS = [GLOW.core, GLOW.hot, GLOW.rim, GLOW.core] as const;
 const STRAW_BITS = ['#dcbc86', '#b89363', '#8a6a42', '#e8d3a0'] as const;
@@ -148,6 +148,15 @@ function tileColors(t: number): readonly string[] {
   }
 }
 
+/** Every full-screen flash is capped at this alpha with Settings → REDUCE FLASHING on. */
+export const REDUCED_FLASH_MAX = 0.2;
+/** The red hurt vignette: how long it lasts (s) and its peak alpha (lower with reduce flashing). */
+export const HURT_VIGNETTE_TIME = 0.3;
+export const HURT_VIGNETTE_MAX = 0.6;
+export const HURT_VIGNETTE_REDUCED = 0.3;
+/** Screen kick (px) away from whatever hurt the player. */
+const HURT_KICK = 5;
+
 export class WorldFx {
   /** Full-screen flash (0..1), drawn by the run scene; decays at `flashDecay` per second. */
   flash = 0;
@@ -155,8 +164,13 @@ export class WorldFx {
   flashColor = '#fff6e0';
   flashMax = 0.45;
   flashDecay = 7;
+  /** Seconds left of the red hurt vignette (polish batch 2). */
+  hurtT = 0;
   /** Attack-pipeline effects (lance, trails, chain arcs...). */
   readonly attack: AttackFx;
+  /** Where the player stood when last hurt (the 'hurtFrom' kick points away from the source). */
+  private hurtX = 0;
+  private hurtY = 0;
   /** Reused colour list for champion sparkles (no per-event allocation). */
   private readonly champBits: string[] = ['#ffffff', '#ffffff'];
   /** Reused colour list for style-coloured splashes. */
@@ -195,17 +209,44 @@ export class WorldFx {
     this.flashDecay = 7;
   }
 
+  /**
+   * The full-screen flash's alpha this frame: its peak (`flashMax`) scaled by what is left, softer with the shake
+   * turned down, and never above REDUCED_FLASH_MAX with reduce flashing on. The run scene draws it clipped to the room,
+   * UNDER shots and beams (WorldRenderer.draw), so enemy shots and the lance's core never wash out.
+   */
+  flashAlpha(shakeSetting: number, reduce: boolean): number {
+    if (this.flash <= 0) return 0;
+    const max = this.flashMax;
+    const a = Math.min(max, this.flash * max) * (0.4 + 0.6 * Math.min(1, Math.max(0, shakeSetting)));
+    return reduce ? Math.min(REDUCED_FLASH_MAX, a) : a;
+  }
+
+  /** The hurt vignette's alpha this frame (0 when none). */
+  hurtAlpha(reduce: boolean): number {
+    if (this.hurtT <= 0) return 0;
+    const k = this.hurtT / HURT_VIGNETTE_TIME;
+    return (reduce ? HURT_VIGNETTE_REDUCED : HURT_VIGNETTE_MAX) * k * k;
+  }
+
+  /**
+   * Real-time presentation timers (flash, hurt vignette): the run scene calls this every tick — hit-stops and
+   * transitions included — so a flash fades in real time even while the picture holds.
+   */
+  tickFlash(dt: number): void {
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * this.flashDecay);
+    if (this.hurtT > 0) this.hurtT = Math.max(0, this.hurtT - dt);
+  }
+
   /** Per-tick ambient effects from world state (fuse sparks, embers). */
   tick(world: World, dt: number): void {
     const P = this.particles;
-    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * this.flashDecay);
     this.attack.tick(world, dt);
     this.ambience(world, dt);
     const bombs = world.bombs;
     for (let i = 0; i < bombs.count; i++) {
       const b = bombs.items[i]!;
       if (Math.random() < 0.55) {
-        const p = P.spawn(b.x + ROOM_X + 3, b.y + ROOM_Y - 8, (Math.random() - 0.5) * 40, -20 - Math.random() * 40, 0.18 + Math.random() * 0.12, Math.random() < 0.5 ? '#fff3b0' : '#ffcf57');
+        const p = P.spawnCosmetic(b.x + ROOM_X + 3, b.y + ROOM_Y - 8, (Math.random() - 0.5) * 40, -20 - Math.random() * 40, 0.18 + Math.random() * 0.12, Math.random() < 0.5 ? '#fff3b0' : '#ffcf57');
         if (p) {
           p.gravity = 160;
           p.drag = 2;
@@ -220,7 +261,7 @@ export class WorldFx {
       const ex = e.x + ROOM_X;
       if (e.burrowed) {
         if (e.moving && Math.random() < 0.25) {
-          const p = P.spawn(ex + (Math.random() - 0.5) * e.r * 2, e.y + ROOM_Y, (Math.random() - 0.5) * 20, -20 - Math.random() * 20, 0.35, DIRT[(Math.random() * 4) | 0]!);
+          const p = P.spawnCosmetic(ex + (Math.random() - 0.5) * e.r * 2, e.y + ROOM_Y, (Math.random() - 0.5) * 20, -20 - Math.random() * 20, 0.35, DIRT[(Math.random() * 4) | 0]!);
           if (p) p.gravity = 200;
         }
         continue;
@@ -238,7 +279,7 @@ export class WorldFx {
     for (let r = 0; r < ROOM_ROWS; r++) {
       for (let c = 0; c < ROOM_COLS; c++) {
         if (room.tiles[r * ROOM_COLS + c] !== Tile.Fire || Math.random() > 0.12) continue;
-        const p = P.spawn(
+        const p = P.spawnCosmetic(
           c * TILE + ROOM_X + 4 + Math.random() * 8,
           r * TILE + ROOM_Y + 4 + Math.random() * 4,
           (Math.random() - 0.5) * 10,
@@ -257,7 +298,7 @@ export class WorldFx {
       if (!c.allied || Math.random() > 0.08) continue;
       const bits = PUDDLE_BITS[c.style];
       if (!bits) continue;
-      const p = P.spawn(
+      const p = P.spawnCosmetic(
         c.x + ROOM_X + (Math.random() - 0.5) * c.r * 1.4,
         c.y + ROOM_Y + (Math.random() - 0.5) * c.r * 0.6,
         (Math.random() - 0.5) * 8,
@@ -284,7 +325,7 @@ export class WorldFx {
     switch (art.ambience) {
       case 'drips':
         if (Math.random() < dt * 3) {
-          const p = P.spawn(x0 + Math.random() * w, y0 - 2, 0, 40, 0.9, art.glow);
+          const p = P.spawnCosmetic(x0 + Math.random() * w, y0 - 2, 0, 40, 0.9, art.glow);
           if (p) {
             p.gravity = 260;
             p.floorY = y0 + 6 + Math.random() * (h - 8);
@@ -293,31 +334,31 @@ export class WorldFx {
         break;
       case 'spores':
         if (Math.random() < dt * 5) {
-          const p = P.spawn(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 6, -4 - Math.random() * 6, 2.5, Math.random() < 0.5 ? art.accentLight : art.glow);
+          const p = P.spawnCosmetic(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 6, -4 - Math.random() * 6, 2.5, Math.random() < 0.5 ? art.accentLight : art.glow);
           if (p) p.drag = 0.2;
         }
         break;
       case 'embers':
         if (Math.random() < dt * 6) {
-          const p = P.spawn(x0 + Math.random() * w, y0 + h - Math.random() * 12, (Math.random() - 0.5) * 10, -14 - Math.random() * 18, 1.6, Math.random() < 0.6 ? '#ffcf57' : '#ff7a2a');
+          const p = P.spawnCosmetic(x0 + Math.random() * w, y0 + h - Math.random() * 12, (Math.random() - 0.5) * 10, -14 - Math.random() * 18, 1.6, Math.random() < 0.6 ? '#ffcf57' : '#ff7a2a');
           if (p) p.drag = 0.4;
         }
         break;
       case 'snow':
         if (Math.random() < dt * 8) {
-          const p = P.spawn(x0 + Math.random() * w, y0 - 2, 4 + Math.random() * 6, 10 + Math.random() * 8, 5, Math.random() < 0.7 ? '#ffffff' : '#c8e6f5');
+          const p = P.spawnCosmetic(x0 + Math.random() * w, y0 - 2, 4 + Math.random() * 6, 10 + Math.random() * 8, 5, Math.random() < 0.7 ? '#ffffff' : '#c8e6f5');
           if (p) p.floorY = y0 + 4 + Math.random() * (h - 6);
         }
         break;
       case 'motes':
         if (Math.random() < dt * 3) {
-          const p = P.spawn(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 3, art.accentLight);
+          const p = P.spawnCosmetic(x0 + Math.random() * w, y0 + Math.random() * h, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 3, art.accentLight);
           if (p) p.drag = 0.1;
         }
         break;
       case 'wind':
         if (Math.random() < dt * 4) {
-          const p = P.spawn(x0 - 2, y0 + Math.random() * h, 140 + Math.random() * 60, 6, 1.6, 'rgba(196,202,216,0.45)', 1);
+          const p = P.spawnCosmetic(x0 - 2, y0 + Math.random() * h, 140 + Math.random() * 60, 6, 1.6, 'rgba(196,202,216,0.45)', 1);
           if (p) p.endSize = 1;
         }
         break;
@@ -330,7 +371,7 @@ export class WorldFx {
         if (Math.random() > dt * 70) continue;
         const vy = 210 + Math.random() * 60;
         const floor = ROOM_OUTER_Y + 10 + Math.random() * (ROOM_OUTER_H - 12);
-        const p = P.spawn(ROOM_OUTER_X + Math.random() * ROOM_OUTER_W, ROOM_OUTER_Y - 4, -vy * 0.12, vy, Math.max(0.05, (floor - ROOM_OUTER_Y) / vy), RAIN, 5, P_STREAK);
+        const p = P.spawnCosmetic(ROOM_OUTER_X + Math.random() * ROOM_OUTER_W, ROOM_OUTER_Y - 4, -vy * 0.12, vy, Math.max(0.05, (floor - ROOM_OUTER_Y) / vy), RAIN, 5, P_STREAK);
         if (p) p.fade = false;
       }
     }
@@ -340,14 +381,14 @@ export class WorldFx {
       const gx = g.x + ROOM_X;
       const gy = g.y + ROOM_Y;
       if (g.state === 0) {
-        const p = P.spawn(gx + (Math.random() - 0.5) * 8, gy - 14, 0, 20, 0.5, '#8fb8dc');
+        const p = P.spawnCosmetic(gx + (Math.random() - 0.5) * 8, gy - 14, 0, 20, 0.5, '#8fb8dc');
         if (p) {
           p.gravity = 180;
           p.floorY = gy;
         }
       } else {
         const a = Math.random() * Math.PI * 2;
-        const p = P.spawn(gx + Math.cos(a) * 6, gy + Math.sin(a) * 3, -Math.sin(a) * 14, Math.cos(a) * 7 - 4, 0.6, Math.random() < 0.5 ? '#8fc8f0' : '#ffffff');
+        const p = P.spawnCosmetic(gx + Math.cos(a) * 6, gy + Math.sin(a) * 3, -Math.sin(a) * 14, Math.cos(a) * 7 - 4, 0.6, Math.random() < 0.5 ? '#8fc8f0' : '#ffffff');
         if (p) p.drag = 1;
       }
     }
@@ -355,7 +396,7 @@ export class WorldFx {
     for (let side = 0; side < 4; side++) {
       const d = world.doors.slots[side]!;
       if (d.kind !== DK.Secret || d.state !== DS.Hidden || !d.hint || Math.random() > dt * 0.8) continue;
-      const p = P.spawn(SLOT_SX[side]! + (Math.random() - 0.5) * 6, SLOT_SY[side]!, 0, 10, 0.8, '#8fb8dc');
+      const p = P.spawnCosmetic(SLOT_SX[side]! + (Math.random() - 0.5) * 6, SLOT_SY[side]!, 0, 10, 0.8, '#8fb8dc');
       if (p) p.gravity = 120;
     }
   }
@@ -363,22 +404,22 @@ export class WorldFx {
   private statusAmbience(mask: number, x: number, y: number, r: number): void {
     const P = this.particles;
     if (mask & (1 << ST_BURN) && Math.random() < 0.35) {
-      const p = P.spawn(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.3) * r, (Math.random() - 0.5) * 10, -25 - Math.random() * 25, 0.3 + Math.random() * 0.25, Math.random() < 0.5 ? '#ffcf57' : '#ff7a2a');
+      const p = P.spawnCosmetic(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.3) * r, (Math.random() - 0.5) * 10, -25 - Math.random() * 25, 0.3 + Math.random() * 0.25, Math.random() < 0.5 ? '#ffcf57' : '#ff7a2a');
       if (p) p.drag = 1;
     }
     if (mask & (1 << ST_POISON) && Math.random() < 0.1) {
-      const p = P.spawn(x + (Math.random() - 0.5) * r * 2, y, 0, -12 - Math.random() * 10, 0.5, Math.random() < 0.5 ? '#7ee06a' : '#c8ff9a', 1);
+      const p = P.spawnCosmetic(x + (Math.random() - 0.5) * r * 2, y, 0, -12 - Math.random() * 10, 0.5, Math.random() < 0.5 ? '#7ee06a' : '#c8ff9a', 1);
       if (p) p.drag = 1;
     }
     if (mask & (1 << ST_FREEZE) && Math.random() < 0.06) {
-      P.spawn(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.5) * r * 1.5, 0, -4, 0.35, '#ffffff');
+      P.spawnCosmetic(x + (Math.random() - 0.5) * r * 2, y + (Math.random() - 0.5) * r * 1.5, 0, -4, 0.35, '#ffffff');
     }
     if (mask & (1 << ST_CHARM) && Math.random() < 0.05) {
-      const p = P.spawn(x + (Math.random() - 0.5) * r, y - r, (Math.random() - 0.5) * 8, -18, 0.6, '#ff8ad0', 2);
+      const p = P.spawnCosmetic(x + (Math.random() - 0.5) * r, y - r, (Math.random() - 0.5) * 8, -18, 0.6, '#ff8ad0', 2);
       if (p) p.drag = 1.5;
     }
     if (mask & (1 << ST_FEAR) && Math.random() < 0.05) {
-      const p = P.spawn(x + r * 0.8, y - r * 0.6, 8, -10, 0.4, '#c9a0ff');
+      const p = P.spawnCosmetic(x + r * 0.8, y - r * 0.6, 8, -10, 0.4, '#c9a0ff');
       if (p) p.gravity = 120;
     }
   }
@@ -392,7 +433,7 @@ export class WorldFx {
         // Tiny muzzle sparkle along the shot direction.
         for (let i = 0; i < (e.id === 'mini' ? 1 : 2); i++) {
           const sp = 30 + Math.random() * 30;
-          const p = P.spawn(x, y, e.a * sp + (Math.random() - 0.5) * 20, e.b * sp + (Math.random() - 0.5) * 20, 0.12, GLOW.hot);
+          const p = P.spawnCosmetic(x, y, e.a * sp + (Math.random() - 0.5) * 20, e.b * sp + (Math.random() - 0.5) * 20, 0.12, GLOW.hot);
           if (p) p.drag = 8;
         }
         break;
@@ -400,7 +441,7 @@ export class WorldFx {
       case 'splash': {
         if (e.a === 2) {
           // Fell into a pit: a faint glint, then gone.
-          P.spawn(x, y, 0, 6, 0.2, GLOW.rim);
+          P.spawnCosmetic(x, y, 0, 6, 0.2, GLOW.rim);
           break;
         }
         // Burst where the shot visibly was (b = its height), droplets rain down to the floor - in the
@@ -412,25 +453,25 @@ export class WorldFx {
           this.splashBits[0] = e.id;
           this.splashBits[3] = e.id;
         }
-        const flash = P.spawn(x, by, 0, 0, wall ? 0.08 : 0.06, GLOW.hot, wall ? 4 : 3);
+        const flash = P.spawnCosmetic(x, by, 0, 0, wall ? 0.08 : 0.06, GLOW.hot, wall ? 4 : 3);
         if (flash) flash.endSize = 1;
         const n = wall ? 8 : 6;
         for (let i = 0; i < n; i++) {
           const ang = Math.random() * Math.PI * 2;
           const sp = 30 + Math.random() * 50;
-          const p = P.spawn(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 35, 0.3 + Math.random() * 0.18, bits[i & 3]!, i < 2 ? 2 : 1);
+          const p = P.spawnCosmetic(x, by, Math.cos(ang) * sp, Math.sin(ang) * sp * 0.6 - 35, 0.3 + Math.random() * 0.18, bits[i & 3]!, i < 2 ? 2 : 1);
           if (!p) break;
           p.gravity = 300;
           p.drag = 2;
           p.floorY = y + 1 + Math.random() * 2;
         }
-        const ring = P.spawn(x, y, 0, 0, wall ? 0.22 : 0.28, wall ? e.id || GLOW.core : WATER_RING, 1, P_RING);
+        const ring = P.spawnCosmetic(x, y, 0, 0, wall ? 0.22 : 0.28, wall ? e.id || GLOW.core : WATER_RING, 1, P_RING);
         if (ring) ring.endSize = wall ? 5 : 6;
         break;
       }
       case 'hit': {
-        P.burst(x, y, 5, 20, 60, 0.3, STRAW_BITS, 1, 200, 2);
-        this.shake.add(0.07);
+        P.burstCosmetic(x, y, 5, 20, 60, 0.3, STRAW_BITS, 1, 200, 2);
+        this.shake.add(0.07, SHAKE_HIT);
         break;
       }
       case 'pop': {
@@ -454,8 +495,8 @@ export class WorldFx {
         }
         const r1 = P.spawn(x, y + 8, 0, 0, 0.3, '#f3e6c8', 2, P_RING);
         if (r1) r1.endSize = 11;
-        this.shake.add(0.38);
-        this.shake.kick(e.a * 2, e.b * 2);
+        this.shake.add(0.38, SHAKE_KILL);
+        this.shake.kick(e.a * 2, e.b * 2, KICK_HIT);
         break;
       }
       case 'spawn': {
@@ -465,17 +506,30 @@ export class WorldFx {
         break;
       }
       case 'hurt': {
+        // A real hurt reaction: a hard shake that no ceiling holds back, a red edge vignette (the run scene also
+        // holds a hit-stop and ducks the mix), and a kick away from the source ('hurtFrom', right after).
         P.burst(x, y, 10, 30, 80, 0.4, HURT_BITS, 1, 200, 2);
-        this.shake.add(0.5);
+        this.shake.add(0.9, SHAKE_BIG);
+        this.hurtT = HURT_VIGNETTE_TIME;
+        this.hurtX = e.x;
+        this.hurtY = e.y + 8;
+        break;
+      }
+      case 'hurtFrom': {
+        const dx = this.hurtX - e.x;
+        const dy = this.hurtY - e.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 1e-3) this.shake.kick((dx / d) * HURT_KICK, (dy / d) * HURT_KICK);
         break;
       }
       case 'death': {
         P.burst(x, y, 24, 30, 110, 0.8, HURT_BITS, 2, 220, 1.5);
-        this.shake.add(0.7);
+        this.shake.add(0.7, SHAKE_BIG);
         break;
       }
       case 'shake':
-        this.shake.add(e.a);
+        // Asked for by actives, consumables and the finals: their own big moments.
+        this.shake.add(e.a, SHAKE_BIG);
         break;
       case 'pickup': {
         const colors = pickupColors(e.a);
@@ -494,9 +548,9 @@ export class WorldFx {
       }
       case 'land': {
         if (e.b > 90) {
-          const p = P.spawn(x - 2, y, -12, -4, 0.18, '#5c6580');
+          const p = P.spawnCosmetic(x - 2, y, -12, -4, 0.18, '#5c6580');
           if (p) p.drag = 6;
-          const q = P.spawn(x + 2, y, 12, -4, 0.18, '#5c6580');
+          const q = P.spawnCosmetic(x + 2, y, 12, -4, 0.18, '#5c6580');
           if (q) q.drag = 6;
         }
         break;
@@ -516,7 +570,7 @@ export class WorldFx {
         P.burst(x, y, 14, 30, 80, 0.45, ITEM_RAYS, 1, 60, 3);
         const r = P.spawn(x, y + 16, 0, 0, 0.35, '#ffd76a', 1, P_RING);
         if (r) r.endSize = 14;
-        this.shake.add(0.12);
+        this.shake.add(0.12, SHAKE_KILL);
         break;
       }
       case 'chest': {
@@ -525,7 +579,7 @@ export class WorldFx {
         P.burst(x, y - 2, 8, 20, 60, 0.4, GOLD, 1, 60, 3);
         const r = P.spawn(x, y + 3, 0, 0, 0.3, '#fff4b0', 1, P_RING);
         if (r) r.endSize = 12;
-        this.shake.add(0.2);
+        this.shake.add(0.2, SHAKE_KILL);
         break;
       }
       case 'heal': {
@@ -556,7 +610,7 @@ export class WorldFx {
         const core = P.spawn(x, y, 0, 0, 0.12, '#ffffff', 6);
         if (core) core.endSize = 1;
         this.warmFlash(0.35);
-        this.shake.add(0.35);
+        this.shake.add(0.35, SHAKE_BLAST);
         break;
       }
       case 'bombPlaced': {
@@ -568,7 +622,7 @@ export class WorldFx {
         if (e.id === 'shot') {
           // A player shot's blast: a smaller, snappier boom.
           this.warmFlash(0.25);
-          this.shake.add(0.22);
+          this.shake.add(0.22, SHAKE_BLAST);
           P.burst(x, y - 3, 12, 30, 40 + radius * 2, 0.3, FIRE, 2, -10, 5);
           P.burst(x, y - 3, 6, 10, 30, 0.6, SMOKE, 2, -20, 2);
           const sr = P.spawn(x, y, 0, 0, 0.25, '#fff3b0', 1, P_RING);
@@ -576,7 +630,7 @@ export class WorldFx {
           break;
         }
         this.warmFlash(1);
-        this.shake.add(0.75);
+        this.shake.add(0.75, SHAKE_BIG);
         this.shake.kick((Math.random() - 0.5) * 4, -2);
         // Fireball core.
         for (let i = 0; i < 26; i++) {
@@ -613,8 +667,8 @@ export class WorldFx {
         break;
       }
       case 'tileHit': {
-        P.burst(x, y, 5, 20, 60, 0.3, tileColors(e.a), 1, 220, 2);
-        if (e.a === Tile.Fire) P.burst(x, y - 4, 6, 10, 40, 0.5, SMOKE, 2, -30, 2);
+        P.burstCosmetic(x, y, 5, 20, 60, 0.3, tileColors(e.a), 1, 220, 2);
+        if (e.a === Tile.Fire) P.burstCosmetic(x, y - 4, 6, 10, 40, 0.5, SMOKE, 2, -30, 2);
         break;
       }
       case 'tileBreak': {
@@ -630,7 +684,7 @@ export class WorldFx {
         }
         if (e.a === Tile.Fire) P.burst(x, y - 4, 12, 10, 40, 0.9, SMOKE, 3, -40, 1.5);
         else P.burst(x, y + 4, 8, 10, 30, 0.4, DUST, 1, -10, 3);
-        this.shake.add(0.14);
+        this.shake.add(0.14, SHAKE_HIT);
         break;
       }
       case 'activeUse': {
@@ -651,7 +705,7 @@ export class WorldFx {
         P.burst(x, y - 8, 16, 30, 90, 0.5, SHOCK, 1, 0, 3);
         const r = P.spawn(x, y - 6, 0, 0, 0.4, '#bfe8ff', 1, P_RING);
         if (r) r.endSize = 22;
-        this.shake.add(0.15);
+        this.shake.add(0.15, SHAKE_KILL);
         break;
       }
       case 'pedestalRoll': {
@@ -666,7 +720,7 @@ export class WorldFx {
           if (r) r.endSize = 14 + k * 10;
         }
         P.burst(x, y, 6, 20, 50, 0.3, GOLD, 1, 0, 3);
-        if (e.a === 1) this.shake.add(0.1);
+        if (e.a === 1) this.shake.add(0.1, SHAKE_KILL);
         break;
       }
       // ── Enemies & room combat ──
@@ -685,8 +739,8 @@ export class WorldFx {
       }
       case 'enemyHit': {
         const status = e.b === SRC_STATUS;
-        P.burst(x, y, status ? 2 : 7, 20, 75, 0.35, gooOf(e.id), 1, 240, 2);
-        if (!status) this.shake.add(0.06);
+        P.burstCosmetic(x, y, status ? 2 : 7, 20, 75, 0.35, gooOf(e.id), 1, 240, 2);
+        if (!status) this.shake.add(0.06, SHAKE_HIT);
         break;
       }
       case 'enemyKilled': {
@@ -710,33 +764,33 @@ export class WorldFx {
         const flash = P.spawn(x, by, 0, 0, 0.08, '#ffffff', Math.round(r * 1.2));
         if (flash) flash.endSize = 1;
         if ((e.b & 2) !== 0) P.burst(x, by, 14, 30, 90, 0.6, STARS, 1, 60, 2);
-        this.shake.add(big ? 0.45 : 0.22);
+        this.shake.add(big ? 0.4 : 0.22, SHAKE_KILL);
         break;
       }
       case 'enemyShoot': {
         const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
-        P.burst(x, y - 5, 3 + Math.min(4, e.a), 10, 40, 0.2, bits, 1, 0, 5);
+        P.burstCosmetic(x, y - 5, 3 + Math.min(4, e.a), 10, 40, 0.2, bits, 1, 0, 5);
         break;
       }
       case 'enemyLob': {
         const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
-        P.burst(x, y - 6, 6, 20, 50, 0.3, bits, 1, 150, 3);
+        P.burstCosmetic(x, y - 6, 6, 20, 50, 0.3, bits, 1, 150, 3);
         break;
       }
       case 'enemyHop': {
-        P.burst(x, y + 1, 4, 10, 30, 0.25, DUST, 1, 0, 6);
+        P.burstCosmetic(x, y + 1, 4, 10, 30, 0.25, DUST, 1, 0, 6);
         break;
       }
       case 'enemyLand': {
-        P.burst(x, y + 1, 6 + Math.round(e.a), 15, 45, 0.3, DUST, 1, 0, 6);
-        const r = P.spawn(x, y + 1, 0, 0, 0.2, '#8691ad', 1, P_RING);
+        P.burstCosmetic(x, y + 1, 6 + Math.round(e.a), 15, 45, 0.3, DUST, 1, 0, 6);
+        const r = P.spawnCosmetic(x, y + 1, 0, 0, 0.2, '#8691ad', 1, P_RING);
         if (r) r.endSize = Math.round(e.a + 4);
-        if (e.a >= 7) this.shake.add(0.12);
+        if (e.a >= 7) this.shake.add(0.12, SHAKE_KILL);
         break;
       }
       case 'enemyDash': {
         for (let i = 0; i < 6; i++) {
-          const p = P.spawn(x + (Math.random() - 0.5) * 6, y + (Math.random() - 0.5) * 3, -e.a * (30 + Math.random() * 40), -e.b * (30 + Math.random() * 40) - 8, 0.3, DUST[i % 3]!);
+          const p = P.spawnCosmetic(x + (Math.random() - 0.5) * 6, y + (Math.random() - 0.5) * 3, -e.a * (30 + Math.random() * 40), -e.b * (30 + Math.random() * 40) - 8, 0.3, DUST[i % 3]!);
           if (p) p.drag = 4;
         }
         break;
@@ -745,7 +799,7 @@ export class WorldFx {
         P.burst(x, y - 4, 10, 30, 80, 0.45, STARS, 1, 120, 2);
         const r = P.spawn(x, y, 0, 0, 0.2, '#fff27a', 1, P_RING);
         if (r) r.endSize = Math.round(e.a + 4);
-        this.shake.add(0.25);
+        this.shake.add(0.25, SHAKE_KILL);
         break;
       }
       case 'burrow': {
@@ -755,7 +809,7 @@ export class WorldFx {
           P.burst(x, y, e.a === 2 ? 16 : 10, 25, 80, 0.5, DIRT, 1, 260, 1.5);
           const r = P.spawn(x, y, 0, 0, 0.25, '#7e664e', 1, P_RING);
           if (r) r.endSize = Math.round(e.b + 5);
-          if (e.a === 2) this.shake.add(0.12);
+          if (e.a === 2) this.shake.add(0.12, SHAKE_KILL);
         }
         break;
       }
@@ -767,12 +821,12 @@ export class WorldFx {
       }
       case 'shockwave': {
         P.burst(x, y, 12, 30, 70, 0.4, DUST, 1, -30, 3);
-        this.shake.add(0.18);
+        this.shake.add(0.18, SHAKE_KILL);
         break;
       }
       case 'eshotPop': {
         const bits = SHOT_BITS[e.b] ?? SHOT_BITS[0]!;
-        P.burst(x, y - 5, e.a === 1 ? 5 : 2, 15, 45, 0.25, bits, 1, 150, 3);
+        P.burstCosmetic(x, y - 5, e.a === 1 ? 5 : 2, 15, 45, 0.25, bits, 1, 150, 3);
         break;
       }
       case 'lobLand': {
@@ -785,20 +839,20 @@ export class WorldFx {
           this.flashColor = '#fff8d8';
           this.flashMax = 0.35;
           this.flashDecay = 9;
-          this.shake.add(0.16);
+          this.shake.add(0.16, SHAKE_KILL);
           break;
         }
         const bits = e.id === 'rock' ? RUBBLE : (SHOT_BITS[e.b] ?? SHOT_BITS[0]!);
         P.burst(x, y, e.id === 'rock' ? 12 : 10, 20, 60, 0.4, bits, 1, 200, 2);
         const r = P.spawn(x, y, 0, 0, 0.25, bits[0]!, 1, P_RING);
         if (r) r.endSize = Math.round(e.a + 2);
-        if (e.id === 'rock') this.shake.add(0.08);
+        if (e.id === 'rock') this.shake.add(0.08, SHAKE_KILL);
         break;
       }
       // ── Bosses (Phase 3B) ──
       case 'bossIntro': {
         P.burst(x, y - 8, 24, 20, 80, 0.7, POOF, 2, -20, 2);
-        this.shake.add(0.3);
+        this.shake.add(0.3, SHAKE_BIG);
         break;
       }
       case 'bossPhase': {
@@ -811,7 +865,7 @@ export class WorldFx {
         }
         this.warmFlash(0.55);
         this.flashColor = '#ffffff';
-        this.shake.add(0.55);
+        this.shake.add(0.55, SHAKE_BIG);
         break;
       }
       case 'bossTell': {
@@ -823,24 +877,24 @@ export class WorldFx {
         P.burst(x, y, 8, 40, 90, 0.45, RUBBLE, 1, 220, 1.5);
         const r = P.spawn(x, y, 0, 0, 0.35, '#c9d3f0', 1, P_RING);
         if (r) r.endSize = Math.round(e.a + 6);
-        this.shake.add(e.b === 1 ? 0.5 : 0.4);
+        this.shake.add(e.b === 1 ? 0.5 : 0.4, SHAKE_BIG);
         break;
       }
       case 'bossBeam': {
-        if (e.a === 1) this.shake.add(0.25);
+        if (e.a === 1) this.shake.add(0.25, SHAKE_BIG);
         break;
       }
       case 'bossSplit': {
         const colors = gooOf(e.id);
         P.burst(x, y - 8, 40, 30, 130, 0.8, colors, 2, 240, 1.5);
-        this.shake.add(0.45);
+        this.shake.add(0.45, SHAKE_BIG);
         break;
       }
       case 'bossDying': {
         this.warmFlash(0.8);
         this.flashColor = '#ffffff';
         this.flashDecay = 3;
-        this.shake.add(0.6);
+        this.shake.add(0.6, SHAKE_BIG);
         break;
       }
       case 'bossBoom': {
@@ -849,7 +903,7 @@ export class WorldFx {
         P.burst(x, y, 6, 10, 40, 0.7, SMOKE, 2, -20, 2);
         const r = P.spawn(x, y, 0, 0, 0.25, '#fff3b0', 1, P_RING);
         if (r) r.endSize = 6 + e.a * 2;
-        this.shake.add(0.2);
+        this.shake.add(0.2, SHAKE_BIG);
         break;
       }
       case 'bossDefeated': {
@@ -871,7 +925,7 @@ export class WorldFx {
         this.flashColor = '#ffffff';
         this.flashMax = 0.7;
         this.flashDecay = 2.5;
-        this.shake.add(1);
+        this.shake.add(1, SHAKE_BIG);
         break;
       }
       case 'bossBlock': {
@@ -883,7 +937,7 @@ export class WorldFx {
         P.burst(x, y, 16, 20, 60, 0.5, WATER_BITS, 1, 120, 2);
         const r = P.spawn(x, y, 0, 0, 0.4, '#9fe0ff', 1, P_RING);
         if (r) r.endSize = 22;
-        this.shake.add(0.3);
+        this.shake.add(0.3, SHAKE_BIG);
         break;
       }
       case 'mechanic': {
@@ -909,7 +963,7 @@ export class WorldFx {
       case 'robbed': {
         if (e.id === 'jar') {
           P.burst(x, y, 20, 30, 110, 0.6, GLASS_BITS, 1, 200, 1.5);
-          this.shake.add(0.2);
+          this.shake.add(0.2, SHAKE_KILL);
         }
         break;
       }
@@ -920,7 +974,7 @@ export class WorldFx {
       case 'slots': {
         if (e.a === 2) {
           P.burst(x, y, 24, 30, 110, 0.7, GUMBALLS, 2, 240, 1.5);
-          this.shake.add(0.3);
+          this.shake.add(0.3, SHAKE_KILL);
         } else if (e.a === 1 && e.b === 1) {
           P.burst(x, y - 4, 14, 20, 70, 0.5, GOLD, 1, 60, 3);
         } else if (e.a === 0) {
@@ -936,7 +990,7 @@ export class WorldFx {
         if (e.a === 1) {
           P.burst(x, y, 20, 20, 90, 0.7, RUBBLE, 2, 220, 1.5);
           P.burst(x, y, 10, 10, 40, 0.8, WATER_BITS, 1, 60, 2);
-          this.shake.add(0.3);
+          this.shake.add(0.3, SHAKE_BIG);
         } else if (e.a === 2) {
           P.burst(x, y, 14, 20, 60, 0.4, WATER_BITS, 1, 160, 2);
         } else {
@@ -957,11 +1011,11 @@ export class WorldFx {
       }
       case 'status': {
         const bits = STATUS_BITS[e.a];
-        if (bits) P.burst(x, y, 8, 15, 45, 0.4, bits, 1, -20, 3);
+        if (bits) P.burstCosmetic(x, y, 8, 15, 45, 0.4, bits, 1, -20, 3);
         break;
       }
       case 'doors': {
-        this.shake.add(e.a === 1 ? 0.2 : 0.1);
+        this.shake.add(e.a === 1 ? 0.2 : 0.1, SHAKE_KILL);
         break;
       }
       case 'roomClear': {
@@ -980,7 +1034,7 @@ export class WorldFx {
         const sy = SLOT_SY[e.a] ?? y;
         P.burst(sx, sy, 22, 20, 90, 0.7, e.b === 2 ? BLINK : RUBBLE, 2, 220, 1.5);
         P.burst(sx, sy, 10, 10, 40, 0.9, SMOKE, 3, -10, 2);
-        this.shake.add(0.35);
+        this.shake.add(0.35, SHAKE_BIG);
         break;
       }
       case 'doorUnlock': {
@@ -992,7 +1046,7 @@ export class WorldFx {
           P.burst(x, y, 16, 15, 50, 0.6, DUST, 2, -10, 3);
           const r = P.spawn(x, y, 0, 0, 0.4, '#8691ad', 1, P_RING);
           if (r) r.endSize = 12;
-          this.shake.add(0.2);
+          this.shake.add(0.2, SHAKE_KILL);
         }
         break;
       }
@@ -1011,7 +1065,7 @@ export class WorldFx {
         this.flash = Math.max(this.flash, 0.6);
         this.flashColor = '#fff3c4';
         this.flashMax = 0.4;
-        this.shake.add(0.3);
+        this.shake.add(0.3, SHAKE_BIG);
         break;
       }
       case 'synergy': {

@@ -4,7 +4,8 @@
  * and lasers.
  */
 
-import { F_CIRCLING, SF_BACK, SF_CIRCLE, SF_EXTRA, SF_MAIN, SF_PELLET, SF_SIDE, SK_BEAM, type ModifierDef, type SpawnCtx } from '../state';
+import { ATTACK_TUNING } from '../../tuning';
+import { F_CIRCLING, SF_BACK, SF_CIRCLE, SF_EXTRA, SF_MAIN, SF_PELLET, SF_RING, SF_SIDE, SK_BEAM, type ModifierDef, type SpawnCtx } from '../state';
 
 const DEG = Math.PI / 180;
 const TAU = Math.PI * 2;
@@ -94,17 +95,22 @@ const sideShots: ModifierDef = {
  * lives in modifiers/motion.ts.
  */
 export function orbitRing(ctx: SpawnCtx, stacks: number): void {
-  if (!ctx.beam) return;
+  // Every spec already in the volley keeps its aim and its damage; each gets `stacks` ring copies spaced evenly
+  // around it (it is the ring's first member) at orbitRingDamage — moons that orbit (shots) or a crown that turns
+  // (beams). Tiny planets add to the aimed attack; they never turn it away from its target.
   const base = ctx.count;
-  const want = Math.min(ctx.cap, base * (1 + stacks));
-  for (let k = base; k < want; k++) {
-    const i = ctx.add(0);
-    if (i < 0) break;
-    ctx.copy(k % base, i);
-    ctx.flags[i] = (ctx.flags[i]! & ~SF_MAIN) | SF_EXTRA;
+  const n = stacks + 1;
+  const dmg = ATTACK_TUNING.orbitRingDamage;
+  for (let b = 0; b < base; b++) {
+    for (let j = 1; j <= stacks; j++) {
+      const i = ctx.add(0);
+      if (i < 0) return;
+      ctx.copy(b, i);
+      ctx.ang[i] = ctx.ang[b]! + (j / n) * TAU;
+      ctx.dmg[i] = ctx.dmg[b]! * dmg;
+      ctx.flags[i] = (ctx.flags[b]! & ~SF_MAIN) | SF_EXTRA | SF_RING;
+    }
   }
-  const n = ctx.count;
-  for (let i = 0; i < n; i++) ctx.ang[i] = (i / n) * TAU;
 }
 
 /** Shots circle you first (one lap), then launch toward where you aimed. */

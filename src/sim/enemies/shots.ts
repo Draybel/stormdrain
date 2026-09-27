@@ -248,7 +248,7 @@ function splashAt(w: World, x: number, y: number, radius: number, dmg: number, a
   const dx = p.x - x;
   const dy = p.y - y;
   const rr = radius + p.r * ENEMY_TUNING.playerHitScale;
-  if (dx * dx + dy * dy < rr * rr) damagePlayer(w, dmg, DMG_ENEMY, owner);
+  if (dx * dx + dy * dy < rr * rr) damagePlayer(w, dmg, DMG_ENEMY, owner, x, y);
 }
 
 function popShot(w: World, s: EnemyShot, hit: number): void {
@@ -348,7 +348,7 @@ export function updateEnemyShots(w: World, dt: number): void {
         const dy = p.y - s.y;
         const rr = hitR + s.r;
         if (dx * dx + dy * dy < rr * rr) {
-          damagePlayer(w, s.dmg, DMG_ENEMY, s.owner);
+          damagePlayer(w, s.dmg, DMG_ENEMY, s.owner, s.x - s.vx * 0.05, s.y - s.vy * 0.05);
           popShot(w, s, 1);
           done = true;
           break;
@@ -392,7 +392,7 @@ export function updateCreep(w: World, dt: number): void {
     const dx = p.x - c.x;
     const dy = (p.y - c.y) * 2;
     const rr = c.r + p.r * 0.4;
-    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, c.dmg, DMG_ENEMY, c.owner);
+    if (dx * dx + dy * dy < rr * rr) damagePlayer(w, c.dmg, DMG_ENEMY, c.owner, c.x, c.y);
   }
 }
 
@@ -427,7 +427,7 @@ export function updateWaves(w: World, dt: number): void {
     const d = Math.sqrt(dx * dx + dy * dy);
     if (Math.abs(d - v.rad) < v.band + p.r * 0.5) {
       v.hitPlayer = true;
-      damagePlayer(w, v.dmg, DMG_ENEMY, v.owner);
+      damagePlayer(w, v.dmg, DMG_ENEMY, v.owner, v.x, v.y);
     }
   }
 }

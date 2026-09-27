@@ -40,7 +40,11 @@ sim.events.emit('sfx', x, y, 0, 0, 'door_open'); // from the sim: eventSounds.ts
 
 Names are typed (`SoundName` = built-in `SfxName` + `LibrarySfxName`). Every library recipe has a minimum
 retrigger gap, a per-sound voice limit (`maxVoices`, optional on built-in recipes) and slight random pitch; the
-player also enforces a global cap of 20 voices. Built-in recipes win on a name clash (`SHADOWED_SFX` lists
+player also enforces a global cap of 20 voices — by PRIORITY (polish batch 2, `sfxPriority`): with every voice busy a
+new sound steals the oldest voice of the lowest priority below its own (faded over 5 ms) and is dropped only when
+everything playing ranks as high or higher (hurt / death / lance / room clear / pickups / items / bosses / UI > kills >
+the rest > hit / splash / zap spam; a recipe may set `priority`). A recipe with `duck: true` (and `hurt` /
+`player_hurt`) dips every other sound ≈ −6 dB for 0.25 s and the engine dips the music with it. Built-in recipes win on a name clash (`SHADOWED_SFX` lists
 clashes and a test keeps it empty).
 
 The table lists every name the design asks for. When the side tracks were merged, the main track's Phase 2

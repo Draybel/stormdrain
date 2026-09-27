@@ -145,7 +145,14 @@ export class Enemy implements Poolable, Hittable {
   stun = 0;
 
   // ── Feedback ─────────────────────────────────────────────────────────────
+  /** White hit-flash left (s); a new one starts at most every ENEMY_TUNING.hitFlashGap s. */
   flash = 0;
+  /** Seconds since the last white flash started. */
+  sinceFlash = 9;
+  /** Pale hit tint left (s): re-hits between two flashes. */
+  hitTint = 0;
+  /** Hit stagger left (s): its own movement is slowed (ENEMY_TUNING.hitStun, set by the attack pipeline's hits). */
+  hitStunT = 0;
   /** Seconds since the last hit (regrow delay, render squash). */
   hurtT = 9;
   /** 1 = facing right, -1 = left. */

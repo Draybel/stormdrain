@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAudioContext, type FakeScheduledSource } from '../src/audio/music/fakeAudioContext';
-import { coreSfxNames, sfxNames, SfxPlayer, type Recipe, type SoundName, type Voice } from '../src/audio/sfx';
+import {
+  coreSfxNames,
+  DUCK_LEVEL,
+  MAX_VOICES,
+  PRIO_HIGH,
+  PRIO_SPAM,
+  sfxNames,
+  sfxPriority,
+  SfxPlayer,
+  type Recipe,
+  type SoundName,
+  type Voice,
+} from '../src/audio/sfx';
 import { LIBRARY_SFX_NAMES, SFX_LIBRARY, SHADOWED_SFX } from '../src/audio/sfxLibrary';
 
 const RECIPES = SFX_LIBRARY as Readonly<Record<string, Recipe>>;
@@ -145,15 +157,122 @@ describe('SfxPlayer with the library', () => {
   });
 
   it('keeps the global voice cap under a flood of different sounds', () => {
-    const { ctx, sfx } = player();
-    let voices = 0;
+    const { sfx } = player();
     for (const name of LIBRARY_SFX_NAMES) {
-      const before = ctx.sources.length;
       sfx.play(name);
-      if (ctx.sources.length > before) voices++;
+      // Never more than the global cap sounding at once (higher priorities take voices over, never add them).
+      expect(sfx.liveVoices()).toBeLessThanOrEqual(MAX_VOICES);
     }
-    // Capped by the global voice limit long before the library runs out.
-    expect(voices).toBeGreaterThanOrEqual(8);
-    expect(voices).toBeLessThan(LIBRARY_SFX_NAMES.length / 2);
+    expect(sfx.liveVoices()).toBe(MAX_VOICES);
+  });
+});
+
+describe('SfxPlayer priorities (polish batch 2)', () => {
+  function player() {
+    const ctx = new FakeAudioContext();
+    const out = ctx.createGain();
+    out.connect(ctx.destination);
+    const sfx = new SfxPlayer(ctx.asAudioContext(), out as unknown as AudioNode);
+    return { ctx, sfx };
+  }
+  /** Every low-priority (spam) sound, to fill the pool. */
+  const SPAM = sfxNames().filter((n) => sfxPriority(n) === PRIO_SPAM);
+
+  /** 200 spam plays a few ms apart (hit / splash / zaps…), then keeps them coming until every voice is busy. */
+  function flood(ctx: FakeAudioContext, sfx: SfxPlayer): void {
+    for (let i = 0; i < 200; i++) {
+      ctx.currentTime += 0.002;
+      sfx.play((i % 2 === 0 ? 'foe_hit' : 'splash') as SoundName);
+      sfx.play(SPAM[i % SPAM.length] as SoundName);
+    }
+    // Fill every voice left with sounds of normal priority (they last a while).
+    for (const n of sfxNames()) {
+      if (sfx.liveVoices() >= MAX_VOICES) break;
+      if (sfxPriority(n) === PRIO_SPAM || sfxPriority(n) === PRIO_HIGH || n === 'foe_die') continue;
+      sfx.play(n as SoundName);
+    }
+  }
+
+  it('ranks hurt / room clear above kills above hits', () => {
+    expect(sfxPriority('hurt')).toBeGreaterThan(sfxPriority('foe_die'));
+    expect(sfxPriority('room_clear')).toBeGreaterThan(sfxPriority('foe_die'));
+    expect(sfxPriority('lance_fire')).toBe(PRIO_HIGH);
+    expect(sfxPriority('foe_die')).toBeGreaterThan(sfxPriority('foe_hit'));
+    for (const n of ['foe_hit', 'splash', 'chain_zap', 'split_pop', 'shot_boom']) {
+      expect(sfxPriority(n)).toBe(PRIO_SPAM);
+    }
+  });
+
+  it('after a flood of hits, a hurt, a room clear and a kill all start — each by stealing a voice', () => {
+    const { ctx, sfx } = player();
+    flood(ctx, sfx);
+    expect(sfx.liveVoices()).toBe(MAX_VOICES);
+    for (const n of ['hurt', 'room_clear', 'foe_die'] as const) {
+      const before = ctx.sources.length;
+      const stolen = sfx.stolen;
+      sfx.play(n);
+      expect(ctx.sources.length, n).toBeGreaterThan(before);
+      expect(sfx.stolen, n).toBe(stolen + 1);
+      expect(sfx.liveVoices()).toBeLessThanOrEqual(MAX_VOICES);
+    }
+    expect(sfx.droppedBy.get('hurt') ?? 0).toBe(0);
+  });
+
+  it('a stolen voice fades out (no click)', () => {
+    const { ctx, sfx } = player();
+    flood(ctx, sfx);
+    const gainsBefore = ctx.created.filter((n) => n.kind === 'gain').length;
+    sfx.play('room_clear');
+    const faded = ctx.created
+      .filter((n) => n.kind === 'gain')
+      .slice(0, gainsBefore)
+      .some((g) => (g as unknown as { gain: { events: { type: string; value: number; time: number }[] } }).gain.events.some((e) => e.type === 'linear' && e.value === 0 && e.time > ctx.currentTime && e.time <= ctx.currentTime + 0.01));
+    expect(faded).toBe(true);
+  });
+
+  it('respects per-sound caps; spam never steals from higher priorities', () => {
+    const { ctx, sfx } = player();
+    for (let i = 0; i < 60; i++) {
+      ctx.currentTime += 0.031;
+      sfx.play('foe_hit');
+    }
+    // foe_hit holds at most 3 voices however hard it is spammed (0.12 s long, played every 31 ms).
+    expect(sfx.liveVoices()).toBeLessThanOrEqual(3);
+    // A pool full of high-priority sounds: spam is dropped, never steals.
+    const { ctx: c2, sfx: s2 } = player();
+    for (const n of sfxNames()) {
+      if (s2.liveVoices() >= MAX_VOICES) break;
+      if (sfxPriority(n) === PRIO_HIGH) s2.play(n as SoundName);
+    }
+    expect(s2.liveVoices()).toBe(MAX_VOICES);
+    const stolen = s2.stolen;
+    const before = c2.sources.length;
+    for (const n of SPAM) s2.play(n as SoundName);
+    s2.play('foe_die');
+    expect(s2.stolen).toBe(stolen);
+    expect(c2.sources.length).toBe(before);
+    expect(s2.dropped).toBeGreaterThan(0);
+  });
+
+  it('a hurt ducks the other sounds (and the music) with smooth ramps', () => {
+    const { ctx, sfx } = player();
+    const calls: [number, number][] = [];
+    sfx.onDuck = (level, hold) => calls.push([level, hold]);
+    ctx.currentTime = 1;
+    sfx.play('hurt');
+    expect(calls).toEqual([[DUCK_LEVEL, 0.25]]);
+    // The duck bus is the first gain the player made (after the test's output): a ramp down to about −6 dB and back
+    // up, no jumps.
+    const bus = ctx.created.filter((n) => n.kind === 'gain')[1] as unknown as { gain: { events: { type: string; value: number; time: number }[] } };
+    const ev = bus.gain.events;
+    const down = ev.find((e) => e.type === 'linear' && e.value === DUCK_LEVEL)!;
+    const up = ev.find((e) => e.type === 'linear' && e.value === 1)!;
+    expect(down.time).toBeGreaterThan(1);
+    expect(down.time).toBeLessThan(1.05);
+    expect(up.time - down.time).toBeGreaterThanOrEqual(0.25);
+    expect(20 * Math.log10(DUCK_LEVEL)).toBeCloseTo(-6, 0);
+    // The hurt itself plays past the dip (straight to the output, not through the duck bus).
+    const hurtGain = ctx.created.filter((n) => n.kind === 'gain').at(-1) as unknown as { outputs: Set<unknown> };
+    expect(hurtGain.outputs.has(bus)).toBe(false);
   });
 });

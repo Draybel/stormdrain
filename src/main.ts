@@ -208,6 +208,7 @@ function boot(): void {
     const v = display.view;
     return [
       `FPS ${loop.fps}  UPD ${loop.updateMs.toFixed(2)}MS  RND ${loop.renderMs.toFixed(2)}MS`,
+      `WORST ${Math.round(loop.stats.worstMs)}MS  GAP ${Math.round(loop.stats.gapMs)}MS  >20: ${loop.stats.over20}`,
       `SCENE ${scenes.names.join('>').toUpperCase()}  TICK ${loop.ticks}  DROP ${loop.droppedSteps}`,
       `SHOTS ${sim?.world.projectiles.count ?? 0}/${CAP_PROJECTILES}  BEAMS ${sim?.world.atk.beams.count ?? 0}  PARTS ${particles.count}/${PARTICLE_CAP}`,
       `EVENTS DROPPED ${sim?.events.dropped ?? 0}  DUMMIES ${sim?.world.dummies.count ?? 0}  PICKUPS ${sim?.world.pickups.count ?? 0}  BOMBS ${sim?.world.bombs.count ?? 0}`,

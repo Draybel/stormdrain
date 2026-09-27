@@ -125,17 +125,18 @@ export const WORKS_PIPE_TRIM = art('decor.works.pipe', { o: O, p: '#4c5552', P: 
 ]);
 
 // ── The Rust Foundry ─────────────────────────────────────────────────────────
+// Polish batch 2: the floor's embers are dim and flat (no bright orb with a hot centre), so they never pass for a
+// shot — the Foundry's own foes throw ember orbs.
 export const FOUNDRY_CRACK = art(
   'decor.foundry.crack',
-  { k: '#1a0a06', r: '#c2521e', y: '#ff9a3c' },
+  { k: '#1a0a06', r: '#a4441a', y: '#d8702c' },
   ['..k......', '.kry.k...', 'k.yrk.rk.', '....kyrk.'],
   ['.....k...', 'k..kyrk..', '.kry...kr', '...k....k'],
 );
-export const FOUNDRY_SLAG = art('decor.foundry.slag', { o: O, s: '#5a3a30', r: '#c2521e', y: '#ffb04a' }, [
-  '.ooo..',
-  'osryo.',
-  'osrrso',
-  '.oooo.',
+export const FOUNDRY_SLAG = art('decor.foundry.slag', { o: O, s: '#5a3a30', r: '#8a3a1c' }, [
+  '.oooo..',
+  'osrsrso',
+  '.ooooo.',
 ]);
 export const FOUNDRY_CHAIN = art('decor.foundry.chain', { i: '#5a4a44', I: '#8d7870' }, ['.I..I..', 'I.iI.iI', '.i..i..']);
 export const FOUNDRY_CHAIN_TRIM = art('decor.foundry.chainTrim', { i: '#5a4a44', I: '#8d7870', h: '#b8a098' }, [
@@ -231,7 +232,8 @@ export const VAULT_SNOW = art('decor.vault.snow', { s: '#dcecf5', S: '#ffffff', 
   'sSSSSSSSss',
   '.bbbbbbbb.',
 ]);
-export const VAULT_CRYSTAL = art('decor.vault.crystal', { c: '#b8d4ea', C: '#ffffff' }, ['..C..', 'C.c.C', '.cCc.', 'C.c.C', '..C..']);
+// Frost on the floor: a small flat star with a dim, hollow middle (the Vault's foes throw bright ice orbs).
+export const VAULT_CRYSTAL = art('decor.vault.crystal', { c: '#8aa8c4', C: '#c8dcec' }, ['C...C', '.c.c.', 'C...C']);
 export const VAULT_COIN = art('decor.vault.coin', { i: '#b8d4ea', y: '#d8c070', Y: '#fff0a0' }, ['iiii', 'iYyi', 'iyyi', 'iiii']);
 export const VAULT_ICICLE_TRIM = art('decor.vault.icicles', { i: '#b8d4ea', I: '#ffffff' }, [
   'IiIiIiIiIiIiIiIi',

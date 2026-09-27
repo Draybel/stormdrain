@@ -11,11 +11,12 @@
 import type { Poolable } from '../../engine/pool';
 import { NO_CELL, PHASE_MODE, SHOT_MODE, firstBlockingCell, type CollideMode } from '../collision';
 import { ROOM_H, ROOM_W } from '../constants';
-import { SRC_PLAYER, type Hittable } from '../hittable';
+import type { Enemy } from '../enemies/enemy';
+import { HIT_ENEMY, SRC_PLAYER, type Hittable } from '../hittable';
 import type { RoomGrid } from '../room';
 import { hitTileWithShot } from '../tileFx';
 import { Tile } from '../tiles';
-import { ATTACK_TUNING, MARBLE_TUNING } from '../tuning';
+import { ATTACK_TUNING, ENEMY_TUNING, MARBLE_TUNING } from '../tuning';
 import type { World } from '../world';
 import { BK_SIDE, spawnBeam } from './beam';
 import {
@@ -149,6 +150,19 @@ export function runExpireHooks(w: World, s: ShotState): void {
   }
 }
 
+/**
+ * A direct hit staggers a non-boss enemy (ENEMY_TUNING.hitStun: its own movement slowed for a moment; refreshed by
+ * the next hit, never stacked). Called from the direct-hit paths only — projectiles, a beam's first tick on a target,
+ * melee swipes — never from DoT, statuses, creep or blasts.
+ */
+export function stagger(t: Hittable): void {
+  if (t.hitKind !== HIT_ENEMY) return;
+  const e = t as Enemy;
+  if (e.boss !== null || e.dead) return;
+  const s = ENEMY_TUNING.hitStun;
+  if (e.hitStunT < s) e.hitStunT = s;
+}
+
 export function runHitHooks(w: World, s: ShotState, t: Hittable): void {
   const hooks = s.profile?.hitHooks;
   if (!hooks) return;
@@ -170,7 +184,7 @@ function colorId(s: ShotState): string {
 export function applyShotHit(w: World, s: ShotState, t: Hittable): boolean {
   const sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
   const k = sp > 1e-6 ? s.knock / sp : 0;
-  t.hurt(s.damage, SRC_PLAYER, s.vx * k, s.vy * k);
+  if (t.hurt(s.damage, SRC_PLAYER, s.vx * k, s.vy * k)) stagger(t);
   rememberHit(s, t, w.tick);
   w.events.emitFx('splash', s.x, s.y, 1, s.z, colorId(s));
   runHitHooks(w, s, t);
@@ -381,7 +395,7 @@ function updateBlade(w: World, s: Shot): void {
     const dx = t.x - s.ax;
     const dy = t.y - s.ay;
     const d = Math.sqrt(dx * dx + dy * dy);
-    t.hurt(s.damage, SRC_PLAYER, d > 1e-6 ? (dx / d) * k : 0, d > 1e-6 ? (dy / d) * k : 0);
+    if (t.hurt(s.damage, SRC_PLAYER, d > 1e-6 ? (dx / d) * k : 0, d > 1e-6 ? (dy / d) * k : 0)) stagger(t);
     rememberHit(s, t, w.tick);
     w.events.emitFx('splash', s.x, s.y, 1, s.z, colorId(s));
     runHitHooks(w, s, t);

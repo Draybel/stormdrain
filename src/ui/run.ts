@@ -7,7 +7,9 @@
  *   the next floor with its card, the minimap sits in its HUD slot (tap it / Tab for the big map), the
  *   Curse of the Blackout dims the room. Death or the last boss ends the run with a card, then the title.
  * - 'yard' (debug menu): the Phase 2 training yard — F / the bell button call waves, death restarts.
- * Big kills get a 1-2 frame hit-stop (presentation only: the scene skips sim steps).
+ * Hit-stop (render/hitStop.ts, polish batch 2): the lance release, melee connects, big / champion kills, boss phase
+ * changes and hurts hold the picture a few ticks (presentation only: the scene skips sim steps; rate-limited; a press
+ * cancels it). A hurt also gets a red edge vignette over the room, a kick away from the source and a mix duck.
  *
  * Saving (Phase 4A, meta/save.ts): a run scene is the save host's run — a new run (or a Continue from a
  * snapshot) is tracked by the meta tracker (collection, bestiary, stats, achievements), saved right away
@@ -36,6 +38,9 @@ import { ctx2d, makeCanvas } from '../render/canvas';
 import { drawSprite } from '../render/sprites';
 import { FeatBanner } from '../render/featBanner';
 import { drawFloorCard, drawIris } from '../render/transitions';
+import { HitStop } from '../render/hitStop';
+import { hurtVignette } from '../render/vignette';
+import { WARM_BUDGET_MS, warmup } from '../render/warmup';
 import { WorldFx } from '../render/worldFx';
 import { WorldRenderer, itemIcon } from '../render/worldRenderer';
 import type { FloorCurse } from '../sim/floor/types';
@@ -44,6 +49,7 @@ import { randomSeedCode } from '../meta/seedCode';
 import type { App, RunEndInfo, RunStart } from './app';
 import type { Scene } from './scene';
 import { characterDashes } from '../sim/mechanics';
+import { CM_NONE } from '../sim/attack/profile';
 import { createRunButtons, drawDashCooldown, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
 import { tickButtons, uiButton, type UiButton } from './widgets';
 
@@ -58,9 +64,6 @@ const HINT_KEYS_1 = 'WASD MOVE · ARROWS SHOOT · ESC PAUSE';
 const HINT_KEYS_2 = 'E BOMB · SPACE ACTIVE · Q CONSUMABLE · F FIGHT';
 const HINT_KEYS_RUN = 'E BOMB · SPACE ACTIVE · Q CONSUMABLE · TAB MAP';
 const HINT_KEYS_DASH = 'E BOMB · SPACE ACTIVE · Q ITEM · SHIFT DIG · TAB MAP';
-/** Hit-stop ticks on the death of a big enemy / a champion. */
-const HITSTOP_BIG = 2;
-const HITSTOP_CHAMPION = 1;
 /** Camera slide between rooms (s), iris close / open for the trapdoor (s), floor card (s). */
 const SLIDE_TIME = 0.25;
 const IRIS_CLOSE = 0.45;
@@ -127,8 +130,10 @@ export class RunScene implements Scene {
   private readonly start: RunStart | null;
   /** Route flags ('ending1'…) already unlocked when the run started (the ending screen's "new" notices). */
   private flagsBefore: string[] = [];
-  /** Remaining hit-stop ticks (presentation freeze after big kills). */
-  private hitStop = 0;
+  /** Hit-stop: the picture holds a few ticks on big beats (presentation only). */
+  private readonly hitStop = new HitStop();
+  /** The lance was recharging (its beam still out) last tick: a soft tick when it is ready again under a held stick. */
+  private lanceBusy = false;
   private label = '';
   private labelFor = -1;
   // ── Floor-run presentation ──
@@ -180,6 +185,9 @@ export class RunScene implements Scene {
     this.fight.onActivate = () => this.startWave();
     this.buttons = [...this.ui.all, this.fight];
     this.fx = new WorldFx(app.particles, app.shake);
+    // Particles and chain arcs are drawn inside the world pass, under the enemy shots (readable in a busy room).
+    this.renderer.particles = app.particles;
+    this.renderer.arcs = this.fx.attack;
     this.resumed = snapshot !== null && mode === 'run';
     this.sim = this.resumed ? Sim.fromSnapshot(snapshot!) : this.makeSim();
   }
@@ -264,9 +272,9 @@ export class RunScene implements Scene {
     this.prepareRoom();
   }
 
-  /** Big kills freeze the picture briefly (for tests / tools). */
+  /** Hit-stop ticks left (for tests / tools). */
   get hitStopTicks(): number {
-    return this.hitStop;
+    return this.hitStop.ticks;
   }
 
   private prepareRoom(): void {
@@ -279,7 +287,9 @@ export class RunScene implements Scene {
     this.slowT = 0;
     this.iconsFor = -1;
     this.time = 0;
-    this.hitStop = 0;
+    this.hitStop.reset();
+    this.fx.flash = 0;
+    this.fx.hurtT = 0;
     this.labelFor = -1;
     // The character may have changed (debug restarts): its DASH button shows or hides.
     this.onLayout();
@@ -339,6 +349,8 @@ export class RunScene implements Scene {
 
   update(dt: number, input: InputState): void {
     this.time += dt;
+    // The flash and the hurt vignette fade in real time (through hit-stops and transitions too).
+    this.fx.tickFlash(dt);
     tickButtons(this.buttons, dt);
     if (this.cardT < CARD_TIME) this.cardT += dt;
     if (this.noticeTime > 0) this.noticeTime -= dt;
@@ -379,13 +391,12 @@ export class RunScene implements Scene {
       this.tickPresentation(dt, false);
       return;
     }
-    // Hit-stop: hold the picture for a tick or two after a big kill (only when no button edge is
-    // pending, so a press is never swallowed).
-    if (this.hitStop > 0 && !input.bomb && !input.active && !input.consumable && !input.dash && !input.firePressed) {
-      this.hitStop--;
+    // Hit-stop: hold the picture for a few ticks on a big beat (only when no button edge is pending, so a press is
+    // never swallowed). The shake keeps moving so the held frame reads as an impact.
+    if (this.hitStop.hold(input.bomb || input.active || input.consumable || input.dash || input.firePressed)) {
+      this.app.shake.update(dt);
       return;
     }
-    this.hitStop = 0;
     if (this.app.input.moveStick.active || this.app.input.aimStick.active) this.usedSticks = true;
     // A boss's death plays in slow motion: every other tick is skipped (presentation only).
     if (this.slowT > 0) {
@@ -406,6 +417,7 @@ export class RunScene implements Scene {
     for (let i = 0; i < q.count; i++) {
       const e = q.at(i);
       this.fx.onEvent(e);
+      this.hitStop.onEvent(e, this.time);
       this.hud.onEvent(e);
       this.bossHud.onEvent(e);
       playEventSound(this.app.audio, e);
@@ -413,6 +425,11 @@ export class RunScene implements Scene {
         case 'bossIntro':
           // The yard's debug fights get their theme too (runs start it on room entry).
           if (!sim.run) this.app.audio.music.stinger(MUSIC.bossIntro, { then: this.bossTrack(e.id) });
+          // Its phase washes and lettering warm up behind the intro card.
+          this.renderer.warmBoss(e.id);
+          break;
+        case 'enemySpawn':
+          if (e.b > 0) this.renderer.warmChampion(e.id, e.b);
           break;
         case 'bossDying':
           this.slowT = SLOWMO_TIME;
@@ -438,11 +455,6 @@ export class RunScene implements Scene {
         case 'denied':
           this.say(DENIED[e.id] ?? 'NOPE');
           break;
-        case 'enemyKilled': {
-          const stop = (e.b & 4) !== 0 ? HITSTOP_BIG : (e.b & 2) !== 0 ? HITSTOP_CHAMPION : 0;
-          if (stop > this.hitStop) this.hitStop = stop;
-          break;
-        }
         case 'roomClear':
           this.say('ROOM CLEARED!');
           if (sim.run) this.playRoomMusic(false);
@@ -472,6 +484,8 @@ export class RunScene implements Scene {
           else this.say('A TRAPDOOR OPENS...', 2);
           break;
         case 'floorStart':
+          // The new chapter's foes and bosses warm up behind the floor card.
+          this.renderer.warmFloor(sim.world);
           this.showFloorCard();
           this.app.audio.music.stinger(MUSIC.floorSting, { then: this.chapterTrack() });
           break;
@@ -484,6 +498,7 @@ export class RunScene implements Scene {
           this.endRun('win');
           break;
         case 'item':
+          this.renderer.warmItem(e.id);
           // The best finds get a little fanfare over the music.
           if (e.b === 1 && !fanfare && (findItem(e.id)?.quality ?? 0) >= 4) {
             this.app.audio.music.stinger(MUSIC.itemFanfare);
@@ -494,6 +509,11 @@ export class RunScene implements Scene {
           break;
       }
     }
+    // The lance is ready again while the stick is held: a soft tick, so the re-press never feels dropped.
+    const pl = sim.world.player;
+    const busy = pl.atk.busy > 0;
+    if (this.lanceBusy && !busy && pl.firing && pl.attack.chargeMode !== CM_NONE) this.app.audio.play('charge_tick', 0, 0.5);
+    this.lanceBusy = busy;
     this.fight.visible = this.sim.trainingRoom && !this.sim.world.arena.active && !this.sim.world.player.dead;
     this.tickPresentation(dt, true);
 
@@ -608,6 +628,8 @@ export class RunScene implements Scene {
   }
 
   render(ctx: CanvasRenderingContext2D, alpha: number): void {
+    // Idle-time warm-up: a couple of milliseconds a frame of sprites this floor will need (render/warmup.ts).
+    warmup.step(WARM_BUDGET_MS);
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, GAME_W, GAME_H);
     const shake = this.app.shake;
@@ -617,15 +639,18 @@ export class RunScene implements Scene {
     } else if (this.irisPhase === 1 && this.prevRoom) {
       ctx.drawImage(this.prevRoom, ROOM_OUTER_X, ROOM_OUTER_Y);
     } else {
+      // Explosion / nova / Storm Lance flash: over the room only, under shots and beams (WorldRenderer.draw); softer
+      // with the shake turned down, capped low with REDUCE FLASHING.
+      const settings = this.app.settings.value;
+      this.renderer.flashAlpha = this.fx.flashAlpha(settings.shake, settings.reduceFlashing);
+      this.renderer.flashColor = this.fx.flashColor;
       this.renderer.draw(ctx, world, this.frozen ? 1 : alpha, this.time, shake.x, shake.y);
-      this.app.particles.draw(ctx, shake.x, shake.y);
-      this.fx.attack.drawArcs(ctx, shake.x, shake.y);
-      if (this.fx.flash > 0) {
-        // Explosion / nova / Storm Lance flash (softer when screen shake is turned down).
-        const max = this.fx.flashMax;
-        ctx.globalAlpha = Math.min(max, this.fx.flash * max) * (0.4 + 0.6 * Math.min(1, this.app.settings.value.shake));
-        ctx.fillStyle = this.fx.flashColor;
-        ctx.fillRect(0, 0, GAME_W, GAME_H);
+      this.renderer.flashAlpha = 0;
+      const hurt = this.fx.hurtAlpha(settings.reduceFlashing);
+      if (hurt > 0) {
+        // Got hurt: red edges over the room for a moment.
+        ctx.globalAlpha = hurt;
+        ctx.drawImage(hurtVignette(ROOM_OUTER_W, ROOM_OUTER_H), ROOM_OUTER_X + shake.x, ROOM_OUTER_Y + shake.y);
         ctx.globalAlpha = 1;
       }
       if (this.sim.run && this.irisPhase === 0 && !this.ending) this.captureRoom(ctx);

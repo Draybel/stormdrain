@@ -17,6 +17,8 @@ export interface Settings {
   leftHanded: boolean;
   /** A small FPS readout in the corner. */
   showFps: boolean;
+  /** Cap every full-screen flash (lance, explosions, novas, boss moments) at a low alpha (polish batch 2). */
+  reduceFlashing: boolean;
 }
 
 export const BUTTON_SCALES = [0.75, 1, 1.25, 1.5] as const;
@@ -38,6 +40,7 @@ export function defaultSettings(): Settings {
     sfxVolume: 0.9,
     leftHanded: false,
     showFps: false,
+    reduceFlashing: false,
   };
 }
 

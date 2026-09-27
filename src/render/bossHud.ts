@@ -12,7 +12,7 @@ import type { GameEvent } from '../engine/events';
 import { BOSSES } from '../content/registry';
 import { FIGHT_FINAL, FIGHT_MINIBOSS, type BossFight } from '../sim/bosses/state';
 import type { SpriteDef } from '../sim/types';
-import { drawText, drawTextCentered, measureText, type TextStyle } from './font';
+import { drawText, drawTextCentered, measureText, warmTextStyle, type TextStyle } from './font';
 import { GAME_W } from './layout';
 import { drawPanel } from './pixel';
 import { getFrame } from './sprites';
@@ -22,6 +22,11 @@ const CARD_NAME: TextStyle = { color: '#ffe9a8', shadow: '#2a1a08', outline: '#0
 const CARD_SUB: TextStyle = { color: '#c9d3f0', shadow: '#07080d' };
 const CARD_FLAVOUR: TextStyle = { color: '#8e98b5', shadow: '#07080d' };
 const CARD_KIND: TextStyle = { color: '#ff8a7a', shadow: '#07080d' };
+
+/** Bakes the boss bar / intro card lettering ahead of the card (render/warmup.ts). */
+export function warmBossHud(): void {
+  for (const s of [NAME, CARD_NAME, CARD_SUB, CARD_FLAVOUR, CARD_KIND]) warmTextStyle(s);
+}
 
 /** Bar geometry (game px, top band). */
 export const BOSS_BAR_W = 140;

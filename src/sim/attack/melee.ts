@@ -17,7 +17,7 @@ import { ATTACK_TUNING } from '../tuning';
 import type { World } from '../world';
 import { bombBlastMul, bombBlastRadius, queueExplosion } from './impacts';
 import type { AttackProfile } from './profile';
-import { runHitHooks } from './shot';
+import { runHitHooks, stagger } from './shot';
 import { F_BOMB, OWN_PLAYER, SK_SWIPE, ShotState, type Anchor } from './state';
 import type { ShotStyle } from './style';
 
@@ -112,7 +112,7 @@ function strike(w: World, s: Swipe, h: Hittable): void {
   const d = Math.sqrt(dx * dx + dy * dy);
   const nx = d > 1e-6 ? dx / d : Math.cos(s.ang);
   const ny = d > 1e-6 ? dy / d : Math.sin(s.ang);
-  h.hurt(s.dmg, SRC_PLAYER, nx * s.knock, ny * s.knock);
+  if (h.hurt(s.dmg, SRC_PLAYER, nx * s.knock, ny * s.knock)) stagger(h);
   w.events.emitFx('swipeHit', h.x, h.y - h.r, nx, ny, s.style?.body ?? '');
   const prof = s.profile;
   if (!prof || prof.hitHooks.length === 0) return;

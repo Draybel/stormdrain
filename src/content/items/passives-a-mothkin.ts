@@ -55,7 +55,7 @@ const items: ItemDef[] = [
   {
     id: 'porch-bulb',
     name: 'Porch Bulb',
-    desc: 'SHOTS FLUTTER ROUND YOU LIKE MOTHS AT A LAMP',
+    desc: 'EVERY SHOT SENDS A MOTH FLUTTERING ROUND YOU',
     kind: 'passive',
     quality: 2,
     pools: ['treasure'],

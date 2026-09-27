@@ -165,7 +165,7 @@ export function checkCapacities(sim: Sim, particles: ParticleSystem | null): str
     ['documented projectiles', CAP_PROJECTILES, 700],
     ['documented enemy shots', CAP_ENEMY_SHOTS, 400],
     ['documented beams', ATTACK_TUNING.capBeams, 48],
-    ['documented particles', PARTICLE_CAP, 1500],
+    ['documented particles', PARTICLE_CAP, 800],
   ];
   if (particles) want.push(['particles', particles.pool.capacity, PARTICLE_CAP]);
   for (const [name, have, cap] of want) if (have !== cap) return `${name} pool holds ${have}, the documented cap is ${cap}`;
@@ -337,7 +337,7 @@ function nearestFoe(sim: Sim): { x: number; y: number } | null {
   return best;
 }
 
-/** One particle system shared by every build (cleared between builds): 1500 particles allocated once. */
+/** One particle system shared by every build (cleared between builds): 800 particles allocated once. */
 const PARTICLES = new ParticleSystem();
 
 /**

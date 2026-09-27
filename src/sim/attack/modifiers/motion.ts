@@ -5,7 +5,22 @@
  */
 
 import { ATTACK_TUNING } from '../../tuning';
-import { F_CAUGHT, F_CIRCLING, F_ORBITING, F_PHASE, F_RETURNING, SK_BEAM, forgetHits, recentlyHit, type ModifierDef } from '../state';
+import type { Hittable } from '../../hittable';
+import type { World } from '../../world';
+import {
+  F_CAUGHT,
+  F_CIRCLING,
+  F_ORBITING,
+  F_PHASE,
+  F_RETURNING,
+  HOME_MEM,
+  SK_BEAM,
+  forgetHits,
+  recentlyHit,
+  type ModStack,
+  type ModifierDef,
+  type ShotState,
+} from '../state';
 import { seekTarget } from '../targets';
 import { orbitRing } from './spawn';
 
@@ -29,6 +44,9 @@ function steer(s: { ang: number; angOff: number }, to: number, max: number): voi
  * Seeks an enemy in range; stacks: longer reach, sharper turns. The target is the one the shot can
  * actually reach soonest (targets.ts seekTarget): ahead beats beside, never one it could only circle
  * forever, and a piercing shot moves on to the next once it has hit one.
+ * Beam cursors (polish batch 2) keep each target until they pass through it (or it dies, leaves the reach, or the
+ * chase runs HOME_CHASE_STEPS steps) and take their picks from last tick's trace while those are still good, so a
+ * homing lance's path moves with its targets instead of snapping between two near-equal ones every tick.
  */
 const homing: ModifierDef = {
   id: 'homing',
@@ -41,6 +59,10 @@ const homing: ModifierDef = {
   },
   motion(s, st, w, dt) {
     if ((s.flags & (F_RETURNING | F_CIRCLING)) !== 0) return;
+    if (s.kind === SK_BEAM) {
+      beamHoming(s, st, w, dt);
+      return;
+    }
     let ref = s.homeRef;
     s.homeT -= dt;
     if (ref === null || s.homeT <= 0 || !ref.hittable || recentlyHit(s, ref, w.tick)) {
@@ -57,6 +79,74 @@ const homing: ModifierDef = {
     steer(s, Math.atan2(ref.y - s.y, ref.x - s.x), st.v1 * dt);
   },
 };
+
+/** A beam cursor gives up on a target it hasn't reached after this many trace steps (it would only circle it). */
+const HOME_CHASE_STEPS = 48;
+/** Steps a beam cursor waits before looking again when nothing was in reach. */
+const HOME_RETRY_STEPS = 7;
+/**
+ * Hysteresis for last tick's picks: they stay good out to this × the homing reach and chase limit, so a target
+ * sitting right at the edge of the reach can't make the path flicker between two shapes tick after tick.
+ */
+const HOME_KEEP_SLACK = 1.3;
+
+/** Beam cursors only chase what lies ahead of them (within ±~80° of the heading): no U-turns, no loops. */
+const HOME_AHEAD_COS = 0.15;
+
+/** Still worth chasing for a beam cursor: alive, not passed through yet, within `reach` and ahead of it. */
+function reachable(s: ShotState, h: Hittable, reach: number, tick: number): boolean {
+  if (!h.hittable || recentlyHit(s, h, tick)) return false;
+  const dx = h.x - s.x;
+  const dy = h.y - s.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d - h.r > reach) return false;
+  if (d <= h.r) return true;
+  const th = s.ang + s.angOff;
+  return (dx * Math.cos(th) + dy * Math.sin(th)) / d >= HOME_AHEAD_COS - 0.25;
+}
+
+/** Homing for beam trace cursors: keep the target to the end, prefer last tick's picks (see `homing`). */
+function beamHoming(s: ShotState, st: ModStack, w: World, dt: number): void {
+  let ref = s.homeRef;
+  if (ref !== null) {
+    s.homeT++;
+    // A pick taken from last tick's memory gets the hysteresis slack.
+    const slack = s.homeMemo ? HOME_KEEP_SLACK : 1;
+    if (s.homeT > HOME_CHASE_STEPS * slack || !reachable(s, ref, st.v0 * slack, w.tick)) ref = null;
+  } else if (s.homeWait > 0) {
+    // Nothing was in reach a moment ago: look again in a few steps.
+    s.homeWait--;
+    return;
+  }
+  if (ref === null) {
+    const k = s.homeSeqN;
+    // A trace chases at most HOME_MEM targets, never one it already chased: no looping round a crowd until the
+    // point budget runs out (where it would end somewhere new every tick).
+    if (k >= HOME_MEM) return;
+    const m = k < s.homeMemN ? s.homeMem[k]! : null;
+    let memo = false;
+    if (m !== null && reachable(s, m, st.v0 * HOME_KEEP_SLACK, w.tick)) {
+      ref = m;
+      memo = true;
+    } else {
+      const t = w.atk.targets;
+      const turnR = Math.max(4, s.speed) / st.v1;
+      const i = seekTarget(t, s.x, s.y, s.ang + s.angOff, st.v0, turnR, s.size, s, w.tick, HOME_AHEAD_COS);
+      ref = i >= 0 ? t.refs[i]! : null;
+      for (let j = 0; j < k && ref !== null; j++) if (s.homeSeq[j] === ref) ref = null;
+    }
+    s.homeRef = ref;
+    s.homeMemo = memo;
+    if (ref === null) {
+      s.homeWait = HOME_RETRY_STEPS;
+      return;
+    }
+    s.homeT = 0;
+    s.homeSeq[k] = ref;
+    s.homeSeqN = k + 1;
+  }
+  steer(s, Math.atan2(ref.y - s.y, ref.x - s.x), st.v1 * dt);
+}
 
 /** Snakes along a sine path (phase by distance, so beams draw the same wave). */
 const wavy: ModifierDef = {
@@ -77,8 +167,10 @@ const wavy: ModifierDef = {
 };
 
 /**
- * Tiny planet: shots orbit their owner on a widening ring (living longer); beams become a rotating
- * ring (spawn: evenly spaced beams; beamTick: the ring turns).
+ * Tiny planet (polish batch 2: it adds, never replaces): every aimed shot / beam of a volley stays aimed at full
+ * damage, and each gets `stacks` ring copies (spawn, SF_RING, ATTACK_TUNING.orbitRingDamage) — moons that orbit their
+ * owner on a widening ring (living longer), or for beams a crown that turns around her (beamTick: at least a full
+ * turn over the beam's life, +50 % per extra stack; only the ring beams turn).
  * Composes with the other motion modifiers instead of overriding them:
  * - homing: as the shot's sweep comes up on the homing target it whips out (or in) to the target's
  *   distance from the owner, then settles back onto the ring — orbiting shots lash at enemies they
@@ -102,7 +194,8 @@ const orbitPlayer: ModifierDef = {
     orbitRing(ctx, st.stacks);
   },
   initShot(s, st) {
-    if (s.kind === SK_BEAM) return;
+    // Only the ring copies orbit (fire.ts marks them F_ORBITING); the aimed shots fly as they would.
+    if (s.kind === SK_BEAM || (s.flags & F_ORBITING) === 0) return;
     s.range *= st.v1;
     s.rehit = Math.min(s.rehit, 12);
     s.flags |= F_ORBITING;
@@ -110,7 +203,7 @@ const orbitPlayer: ModifierDef = {
     s.m[st.slot + 1] = -1;
   },
   motion(s, st, _w, dt) {
-    if (s.kind === SK_BEAM) return;
+    if (s.kind === SK_BEAM || (s.flags & F_ORBITING) === 0) return;
     const o = st.slot;
     if ((s.flags & (F_CIRCLING | F_RETURNING)) !== 0) {
       s.m[o + 1] = -1;
@@ -179,7 +272,9 @@ const orbitPlayer: ModifierDef = {
     s.ang = a + side + tilt;
   },
   beamTick(b, st, _w, dt) {
-    b.orbitAng += st.v2 * dt;
+    if (!b.ring) return;
+    // At least one full turn over the beam's life (+50 % per extra stack), so the crown sweeps the whole room.
+    b.orbitAng += ((TAU * (1 + 0.5 * (st.stacks - 1))) / Math.max(0.05, b.life)) * dt;
     b.offset = Math.max(b.offset, 10);
   },
 };

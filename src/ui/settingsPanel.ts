@@ -2,7 +2,8 @@
  * Settings (Phase 4B, overlay scene 'settings'): opened from the title or the pause menu.
  * Left column: MASTER / MUSIC / EFFECTS volume and SCREEN SHAKE sliders, SHOW FPS. Right column: AIM (4-way /
  * 360°), LEFT-HANDED (swaps the sticks and the thumb button columns), BUTTON SIZE (75-150 %), EXPORT / IMPORT
- * SAVE (DOM modals, ui/modals.ts). Every change persists through the meta save (main.ts).
+ * SAVE (DOM modals, ui/modals.ts), REDUCE FLASHING (polish batch 2: every full-screen flash capped low); the note about
+ * separate saves runs along the bottom edge. Every change persists through the meta save (main.ts).
  *
  * Sliders: tap anywhere on the track to jump there, drag to slide; the value is previewed live (volumes)
  * and committed when the finger lifts. Keyboard: arrows move the focus, left / right on a focused slider
@@ -25,10 +26,10 @@ import { drawPanel } from '../render/pixel';
 import type { App } from './app';
 import { openExport, openImport } from './modals';
 import type { Scene } from './scene';
-import { BTN_H, MenuNav, drawMenuButtons, drawPageHeader, drawWrapped, pageBackdrop, tickButtons, uiButton, type UiButton } from './widgets';
+import { BTN_H, MenuNav, drawMenuButtons, drawPageHeader, pageBackdrop, tickButtons, uiButton, type UiButton } from './widgets';
 
 type NumKey = 'masterVolume' | 'musicVolume' | 'sfxVolume' | 'shake' | 'buttonScale';
-type BoolKey = 'aim360' | 'leftHanded' | 'showFps';
+type BoolKey = 'aim360' | 'leftHanded' | 'showFps' | 'reduceFlashing';
 
 interface SliderDef {
   key: NumKey;
@@ -109,6 +110,7 @@ export class SettingsScene implements Scene {
     toggle('aim360', 'aim', 'AIM', COL_R, 0, '4-WAY', '360°');
     toggle('leftHanded', 'lefty', 'LEFT-HANDED', COL_R, 1, 'OFF', 'ON');
     slider('buttonScale', 'buttons', 'BUTTON SIZE', COL_R, 2, BUTTON_SCALE_MIN, BUTTON_SCALE_MAX, BUTTON_SCALE_STEP);
+    toggle('reduceFlashing', 'flash', 'REDUCE FLASHING', COL_R, 4, 'OFF', 'ON');
     const half = Math.floor((COL_W - 4) / 2);
     this.exportBtn = uiButton({
       id: 'settings.export',
@@ -260,8 +262,9 @@ export class SettingsScene implements Scene {
     drawMenuButtons(ctx, [this.back, this.exportBtn, this.importBtn]);
     const note = this.inRun
       ? 'IMPORT FROM THE TITLE SCREEN (IT REPLACES THE SAVED RUN).'
-      : 'SAFARI AND THE HOME-SCREEN APP KEEP SEPARATE SAVES: EXPORT IN ONE, IMPORT IN THE OTHER.';
-    drawWrapped(ctx, note, COL_R + 2, ROW_Y[4] + 3, COL_W - 4, NOTE, 8, 3);
+      : 'SAFARI AND THE HOME-SCREEN APP KEEP SEPARATE SAVES: EXPORT IN ONE, IMPORT IN THE OTHER';
+    // One line along the bottom edge, under the last row.
+    drawText(ctx, note, Math.round((GAME_W - measureText(note)) / 2), ROW_Y[4] + BTN_H + 2, NOTE);
     this.menu.draw(ctx, this.time, this.app.input.lastDevice === 'keyboard');
   }
 

@@ -22,6 +22,8 @@ export type GameEventType =
   | 'spawn'
   /** player got hurt: x,y; a = half hearts lost; b = damage source (sim/combat.ts DMG_*) */
   | 'hurt'
+  /** right after a 'hurt' whose source has a position: x,y = where the hit came from (the screen kicks away from it) */
+  | 'hurtFrom'
   /** player died: x,y */
   | 'death'
   /** request screen shake: a = trauma amount (0..1) */

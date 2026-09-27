@@ -10,7 +10,7 @@
  */
 
 import { MusicDirector, type MusicControl } from './music/director';
-import { SfxPlayer, type SoundName } from './sfx';
+import { DUCK_RELEASE, SfxPlayer, type SoundName } from './sfx';
 import './sfxLibrary';
 
 export interface Volumes {
@@ -107,6 +107,8 @@ export class WebAudio implements AudioOut {
       this.sfxBus.connect(this.master);
       this.master.connect(ctx.destination);
       this.sfx = new SfxPlayer(ctx, this.sfxBus);
+      // A hurt ducks the music with the other sounds (≈ −6 dB, 0.25 s, smooth ramps).
+      this.sfx.onDuck = (level, hold) => this.music.duck(level, hold, DUCK_RELEASE);
       this.music.attach(ctx, this.musicBus);
       this.applyVolumes();
     } catch {

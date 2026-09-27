@@ -20,7 +20,7 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 
 | Synergy | Requires | What it does |
 |---|---|---|
-| **Crown of Storms** | Storm Lance + Tin Pinwheel | The lance fires as a crown of three beams that turns around you (+2 tiny-planet stacks on the beam volley); every release cracks a ring of static that shoves close foes back (0.5 × damage). Ice-blue star shots with sparks. |
+| **Crown of Storms** | Storm Lance + Tin Pinwheel | +2 tiny-planet stacks: the lance still fires straight down your aim at full strength, and a crown of two more beams (0.6 × damage each) turns a full circle and a half around you while it lasts; every release cracks a ring of static that shoves close foes back (0.5 × damage). Ice-blue star shots with sparks. |
 | **Thunder Furrow** | Storm Lance + Firecracker Pouch | +1 explode. Each release calls bolts from the sky down the lance's furrow every ~38 px to the wall (up to 6): 0.6 × damage and burn around each strike, and each leaves a smouldering crater (a burning allied puddle for 3.5 s). Thunder-gold beams trailing embers. |
 | **Storm Choir** | Storm Lance + 2 Familiar items | A Blinkbug joins the choir; every release, each familiar sings a bolt into the foe nearest to it (1 × damage). Pale hymn-gold star shots. |
 | **Ball Lightning** | Storm Lance + Static Cling | +1 chain. Each release leaves up to 7 crackling orbs hanging along the beam's path; they drift for 2.4 s and burst on the first foe they touch (1 × damage). White-blue, glowing. |
@@ -33,7 +33,7 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | Synergy | Requires | What it does |
 |---|---|---|
 | **Mirror Ball** | Neon Tube + Kaleidoscope | Lasers spin a full turn before settling (+1 circle-first) out of a star of side and back beams; about once a second the ball throws off a ring of 8 glitter shots (friendly pink). Pink star sparks. |
-| **Lasso Laser** | Neon Tube + Rusty Boomerang | +1 boomerang: the bent lasers loop back like a lasso, and foes caught near your aim line (120 px) are yanked toward you, nicked and slowed. Hot pink wisps. |
+| **Lasso Laser** | Neon Tube + Rusty Boomerang | +1 boomerang: the bent lasers loop back like a lasso, and foes caught near your aim line (120 px) are yanked toward you — never closer than a standoff 36 px from you (the pull fades to nothing there) — nicked and slowed. Hot pink wisps. |
 | **Neon Sign** | Neon Tube + Glowworm Vial | +1 pierce, +1 luck, and a big neon-green glow. Foes pop in a neon flash that hurts their neighbours (0.5 × damage). |
 | **Refraction** | Neon Tube + 3 Glimmer items | +1 split, +1 spread: lasers fork into a prism. Every fallen foe bursts into 5 crystal shards (ice shots). Violet shards. |
 | **Kite Line** | Rusty Boomerang + Kite String | +25 range. Every blade in flight stays tied to its thrower by a crackling kite string (drawn as a tether line); each throw, the strings zap whatever crosses them (0.6 × damage). Coral kite-coloured blades. |

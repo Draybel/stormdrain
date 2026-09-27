@@ -83,3 +83,61 @@ test('the bell button calls the next wave with a tap', async ({ page }, info) =>
   await page.waitForFunction((t) => window.__SD.run()!.tick > t + 30, t0);
   expect(errors).toEqual([]);
 });
+
+test("every chapter's enemy shots next to lime, orange and cyan player builds (screenshots)", async ({ page }, info) => {
+  test.skip(info.project.name !== 'iphone15-homescreen', 'one profile is enough for the look');
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await page.goto('./');
+  await waitScene(page, 'title');
+  const b = await page.evaluate(() => window.__SD.button('title.newRun'));
+  await page.touchscreen.tap(b!.css.cx, b!.css.cy);
+  await waitScene(page, 'chars');
+  const s = await page.evaluate(() => window.__SD.button('chars.start'));
+  await page.touchscreen.tap(s!.css.cx, s!.css.cy);
+  await waitScene(page, 'run');
+  // Polish batch 2 (B2-3): foes' shots carry a dark core, outline and drop-halo; the player's a white-hot centre and a
+  // light halo — side by side with builds whose colours sit right next to each chapter's shots.
+  const builds = [
+    ['lime', ['rubber-ball', 'toadstool-cap', 'twin-straws']],
+    ['orange', ['firecracker-pouch', 'trick-candle', 'party-popper']],
+    ['cyan', ['leaky-bucket', 'ice-cube-tray', 'geode']],
+  ] as const;
+  const floors = [
+    [1, 'main'], [1, 'alt'], [3, 'main'], [3, 'alt'], [5, 'main'], [5, 'alt'],
+    [7, 'main'], [7, 'alt'], [9, 'main'], [9, 'alt'], [11, 'main'], [11, 'alt'],
+  ] as const;
+  let both = 0;
+  for (let i = 0; i < floors.length; i++) {
+    const [floor, track] = floors[i]!;
+    const [name, items] = builds[i % builds.length]!;
+    await page.evaluate(([f, t]) => window.__SD.debug.runAt(f, t, null, 5), [floor, track] as const);
+    await page.waitForFunction((fl) => window.__SD.run()?.run?.floor === fl, floor);
+    // The floor card first (it covers the room).
+    await page.waitForFunction(() => !window.__SD.presentation()!.card, undefined, { timeout: 8000 });
+    await page.evaluate((ids) => {
+      const d = window.__SD.debug;
+      d.god(true);
+      for (const id of ids) d.give(id);
+      window.__SD.sim!.world.player.placeAt(40, 56);
+      d.wave(6);
+      // Tough foes, so the wave lives long enough to shoot back.
+      const w = window.__SD.sim!.world;
+      for (let k = 0; k < w.enemies.count; k++) w.enemies.items[k]!.hp = w.enemies.items[k]!.maxHp = 1e5;
+    }, items as unknown as string[]);
+    // Fire along the top of the room: her shots stream past while theirs come at her.
+    await page.keyboard.down('ArrowUp');
+    await page.waitForFunction(() => window.__SD.counts.enemyShots > 0 && window.__SD.counts.projectiles > 0, undefined, { timeout: 6000 }).catch(() => undefined);
+    await page.waitForTimeout(250);
+    const c = await page.evaluate(() => window.__SD.counts);
+    if (c.enemyShots > 0 && c.projectiles > 0) both++;
+    const chapter = (await page.evaluate(() => window.__SD.run()!.run!.chapter)) as string;
+    const v = await page.evaluate(() => window.__SD.view);
+    // The room only (72..312 × 48..192 game px).
+    await page.screenshot({ path: `e2e/__screens__/b2-shots-${chapter}-${name}.png`, clip: { x: v.x + 72 * v.scale, y: v.y + 48 * v.scale, width: 240 * v.scale, height: 144 * v.scale } });
+    await page.keyboard.up('ArrowUp');
+  }
+  // Most chapters had both sides' shots on screen at once.
+  expect(both).toBeGreaterThanOrEqual(8);
+  expect(errors).toEqual([]);
+});

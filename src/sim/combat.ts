@@ -31,9 +31,11 @@ const result = makeDamageResult();
  * mechanic's hurt rule: one of Juniper's temporary fireflies flees), and kills at zero health.
  * Under the Curse of the Leaky Roof every hit from the room — foes, their shots and creep, spikes, fire, blasts —
  * costs half a heart more; a price she chooses to pay (DMG_TOLL, and DMG_GENERIC: tonics, debug) does not.
+ * `fromX, fromY` (room px, optional): where the hit came from — a cosmetic 'hurtFrom' event follows the 'hurt' (the
+ * screen kicks away from it); nothing in the sim reads it.
  * Returns true if any damage was taken.
  */
-export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0): boolean {
+export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0, fromX = NaN, fromY = NaN): boolean {
   const p = w.player;
   if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0 || p.underground) return false;
   const leak = w.curse === 'leak' && source !== DMG_GENERIC && source !== DMG_TOLL ? 1 : 0;
@@ -47,6 +49,7 @@ export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by 
   p.inv.version++;
   w.counters.hurts++;
   w.events.emit('hurt', p.x, p.y - 8, result.taken, source);
+  if (fromX === fromX && fromY === fromY) w.events.emit('hurtFrom', fromX, fromY);
   if (tinBroken > 0) w.events.emit('heartBreak', p.x, p.y - 10, 1, tinBroken);
   for (let i = 0; i < emberBroken; i++) emberNova(w, p.x, p.y);
   if (dead) {

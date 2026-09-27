@@ -23,7 +23,8 @@ import type { Player } from '../sim/player';
 import { ATTACK_TUNING, PLAYER_TUNING } from '../sim/tuning';
 import { costumeList, type CostumeDef, type ShapeHint } from '../sim/types';
 import type { World } from '../sim/world';
-import { ctx2d, makeCanvas, parseHexColor } from './canvas';
+import { pixelsToCanvas } from './canvas';
+import { playerShotPixels } from './shotPixels';
 import { drawShadow, glowSprite } from './pixel';
 import { ROOM_OUTER_H, ROOM_OUTER_W, WALL } from './layout';
 import { getFlipped, getFrame } from './sprites';
@@ -44,6 +45,8 @@ const SHAPE_INDEX: Readonly<Record<ShapeHint, number>> = {
 /** Rotation frames per shape (spinners by age, crescents / shards by heading). */
 const ROT_FRAMES = [1, 8, 1, 8, 16, 8, 8, 16, 1] as const;
 const MAX_R = 12;
+/** Above this many projectiles their shadows are skipped. */
+const MAX_SHOT_SHADOWS = 150;
 /** Synergy tethers (ShotStyle.tether) drawn per frame at most, and the kinks in each line. */
 const MAX_TETHERS = 24;
 const TETHER_JAGS = 5;
@@ -52,112 +55,50 @@ interface StyleCache {
   sprites: Map<number, (HTMLCanvasElement | undefined)[]>;
   glows: Map<number, HTMLCanvasElement>;
 }
+/**
+ * Sprite caches by LOOK (polish batch 2): keyed by `style.key` — body, rim, accents, shape, glow radius: everything
+ * rasterShot and shotGlow read (line, hi and glow derive from them) — in a small LRU of looks. composeStyle builds a
+ * new ShotStyle object on every recompute (timed triggers run it all the time), so a cache per OBJECT re-rasterised
+ * identical sprites again and again; the WeakMap only remembers which look an object has.
+ */
+const STYLE_LRU = 8;
+const lookCaches = new Map<string, StyleCache>();
 const styleCaches = new WeakMap<ShotStyle, StyleCache>();
+/** Shot sprites and glows rasterised so far (tests / tools). */
+export const SHOT_RASTER_STATS = { sprites: 0, glows: 0 };
+
+/** Looks held in the LRU (tests / tools). */
+export function shotLookCount(): number {
+  return lookCaches.size;
+}
 
 function cacheOf(style: ShotStyle): StyleCache {
   let c = styleCaches.get(style);
-  if (!c) {
+  if (c) return c;
+  c = lookCaches.get(style.key);
+  if (c) {
+    // Most recently used look last (a Map keeps insertion order).
+    lookCaches.delete(style.key);
+  } else {
     c = { sprites: new Map(), glows: new Map() };
-    styleCaches.set(style, c);
+    if (lookCaches.size >= STYLE_LRU) {
+      const oldest = lookCaches.keys().next().value;
+      if (oldest !== undefined) lookCaches.delete(oldest);
+    }
   }
+  lookCaches.set(style.key, c);
+  styleCaches.set(style, c);
   return c;
 }
 
-/** Signed "radius" of a shape at angle `a` (outline test: inside when d <= shapeR). */
-function shapeR(shape: number, a: number, r: number): number {
-  switch (shape) {
-    case 1: // spiky
-      return r * (0.78 + 0.42 * Math.pow(Math.max(0, Math.cos(a * 4)), 6));
-    case 3: // blade: 4 curved points
-      return r * (0.32 + 0.78 * Math.pow(Math.max(0, Math.cos(a * 2 + 0.35 * Math.sin(a * 2))), 3));
-    case 5: // star
-      return r * (0.52 + 0.55 * Math.pow(Math.abs(Math.cos(a * 2.5)), 3));
-    case 6: // gear
-      return r * (Math.cos(a * 6) > 0 ? 1 : 0.78);
-    case 7: // shard: a long diamond along +x
-      return r / (Math.abs(Math.cos(a)) * 0.8 + Math.abs(Math.sin(a)) * 1.45);
-    default:
-      return r;
-  }
-}
-
+/** A player shot sprite: shotPixels.ts playerShotPixels (white-hot centre), one putImageData. */
 function rasterShot(style: ShotStyle, shape: number, r: number, rot: number): HTMLCanvasElement {
-  const pad = shape === 1 || shape === 3 || shape === 5 || shape === 7 ? 3 : 2;
-  const R = Math.ceil(r * 1.25) + pad;
-  const size = R * 2 + 1;
-  const c = makeCanvas(size, size);
-  const ctx = ctx2d(c);
-  const img = ctx.createImageData(size, size);
-  const d8 = img.data;
-  const body = shape === 2 ? '#2a2230' : style.body;
-  const cols = [parseHexColor(style.line), parseHexColor(style.rim), parseHexColor(body), parseHexColor(style.hi)];
-  const bladeBody = shape === 3 ? parseHexColor('#e8eef8') : null;
-  const put = (x: number, y: number, rgb: Uint8ClampedArray, a = 255): void => {
-    if (x < 0 || y < 0 || x >= size || y >= size) return;
-    const i = (y * size + x) * 4;
-    d8[i] = rgb[0]!;
-    d8[i + 1] = rgb[1]!;
-    d8[i + 2] = rgb[2]!;
-    d8[i + 3] = a;
-  };
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x - R;
-      const dy = y - R;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      const a = Math.atan2(dy, dx) - rot;
-      if (shape === 4) {
-        // Crescent: a thick arc facing +x (rotated).
-        const ca = Math.cos(a);
-        const inArc = d <= r + 0.5 && d >= r * 0.45 && ca > -0.15;
-        const edge = inArc && (d > r - 0.6 || d < r * 0.45 + 1 || ca < 0.05);
-        const out = !inArc && d <= r + 1.4 && d >= r * 0.45 - 1 && ca > -0.3;
-        if (inArc) put(x, y, edge ? cols[1]! : d > r * 0.75 ? cols[3]! : cols[2]!);
-        else if (out) put(x, y, cols[0]!);
-        continue;
-      }
-      if (shape === 8) {
-        // Bubble: a ring with a highlight.
-        if (d <= r + 0.5 && d > r - 1.2) put(x, y, cols[2]!);
-        else if (d <= r + 1.4 && d > r + 0.5) put(x, y, cols[0]!, 200);
-        else if (d <= r - 1.2) put(x, y, cols[2]!, 70);
-        continue;
-      }
-      const sr = shapeR(shape, a, r);
-      if (d <= sr + 0.4) {
-        let col: Uint8ClampedArray;
-        if (d > sr - 0.9 || (dx + dy > sr * 0.8 && d > sr * 0.4)) col = cols[1]!;
-        else col = bladeBody ?? cols[2]!;
-        put(x, y, col);
-      } else if (d <= sr + 1.4) {
-        put(x, y, cols[0]!);
-      }
-    }
-  }
-  // Highlight and accents (combo colours) on round-ish shapes.
-  const hr = Math.max(1, Math.round(r * 0.45));
-  put(R - hr, R - hr, cols[3]!);
-  if (r >= 3) put(R - hr + 1, R - hr, cols[3]!);
-  const acc = style.accents;
-  if (shape !== 4 && acc.length > 0) {
-    const ar = Math.max(1, r * 0.62);
-    for (let k = 0; k < acc.length; k++) {
-      const aa = 0.9 + (k * Math.PI * 2) / 3 + rot;
-      put(Math.round(R + Math.cos(aa) * ar), Math.round(R + Math.sin(aa) * ar), parseHexColor(acc[k]!));
-      if (r >= 4) put(Math.round(R + Math.cos(aa) * ar) + 1, Math.round(R + Math.sin(aa) * ar), parseHexColor(acc[k]!));
-    }
-  }
-  if (shape === 2) {
-    // Bomb: a little fuse on top.
-    const fx = R + Math.round(r * 0.5);
-    put(fx, R - r - 1, cols[0]!);
-    put(fx + 1, R - r - 2, parseHexColor('#c8a060'));
-  }
-  ctx.putImageData(img, 0, 0);
-  return c;
+  SHOT_RASTER_STATS.sprites++;
+  return pixelsToCanvas(playerShotPixels(style, shape, r, rot));
 }
 
-function shotSprite(style: ShotStyle, shape: number, r: number, frame: number): HTMLCanvasElement {
+/** A player shot sprite of a look, shape, radius and rotation frame (rasterised on first use, cached per look). */
+export function shotSprite(style: ShotStyle, shape: number, r: number, frame: number): HTMLCanvasElement {
   const cache = cacheOf(style);
   const key = shape * 64 + r;
   let frames = cache.sprites.get(key);
@@ -178,6 +119,7 @@ function shotGlow(style: ShotStyle, r: number): HTMLCanvasElement {
   const cache = cacheOf(style);
   let g = cache.glows.get(r);
   if (!g) {
+    SHOT_RASTER_STATS.glows++;
     g = glowSprite(Math.min(16, r + style.glowR + 2), style.glow, 0.55);
     cache.glows.set(r, g);
   }
@@ -272,6 +214,18 @@ const LANCE_GLOW = '120,190,255';
 /** Beam lite mode above this many lances (forked ones count 1.5) or lance trace points on screen. */
 const LITE_LANCES = 12;
 const LITE_POINTS = 2000;
+/** In lite mode only this many lances keep their bright edge pass. */
+const LITE_EDGES = 4;
+/** Lances batched per frame (the beam pool's cap). */
+const MAX_LANCES = 48;
+/** Lance passes, in drawing order: wide glow, glow, edge (additive), white-hot core (normal), three strands. */
+const PASS_WIDE = 0;
+const PASS_GLOW = 1;
+const PASS_EDGE = 2;
+const PASS_CORE = 3;
+const PASS_STRAND1 = 4;
+const PASS_STRAND2 = 5;
+const PASS_COUNT = 7;
 
 export class AttackRenderer {
   private readonly costumes = new CostumeCache();
@@ -287,6 +241,11 @@ export class AttackRenderer {
    * (one glow, the core, one strand) so the frame keeps up; it's a wall of light either way.
    */
   private lite = false;
+  /** This frame's lances and their per-lance numbers (fixed scratch, no allocation). */
+  private readonly lances: (Beam | null)[] = new Array<Beam | null>(MAX_LANCES).fill(null);
+  private readonly wk = new Float32Array(MAX_LANCES);
+  private readonly outro = new Float32Array(MAX_LANCES);
+  private readonly done = new Uint8Array(MAX_LANCES);
 
   /** Called once per rendered frame (animation counters). */
   begin(): void {
@@ -296,7 +255,9 @@ export class AttackRenderer {
   // ── Shadows (drawn with the world's shadow pass) ──
   drawShadows(ctx: CanvasRenderingContext2D, w: World, alpha: number, ox: number, oy: number): void {
     const shots = w.projectiles;
-    for (let i = 0; i < shots.count; i++) {
+    // A storm of shots: no per-shot shadows (hundreds of small fills a frame nobody can see under the glow).
+    const n = shots.count > MAX_SHOT_SHADOWS ? 0 : shots.count;
+    for (let i = 0; i < n; i++) {
       const m = shots.items[i]!;
       const r = Math.max(3, Math.min(9, Math.round(m.size * 1.6)));
       drawShadow(ctx, lerp(m.prevX, m.x, alpha) + ox, lerp(m.prevY, m.y, alpha) + oy + 1, r);
@@ -408,47 +369,56 @@ export class AttackRenderer {
   }
 
   // ── Beams ──
+  /**
+   * Beams, clipped to the room. The lances of a frame are drawn PASS BY PASS (wide glow, glow, edge, white-hot core,
+   * lightning strands), each pass as ONE path per (colour, quantised alpha): every lance's filled outline (or strand)
+   * is added to the same path and filled / stroked once. The outlines share a winding, so a nonzero fill unions them —
+   * a volley of 48 lances costs a handful of fills instead of ~150 separate rasterisations, and overlapping lances no
+   * longer pile their additive glows up into a white room. Lasers, feathers and side zaps are thin and drawn one by one.
+   */
   drawBeams(ctx: CanvasRenderingContext2D, w: World, ox: number, oy: number, time: number): void {
     const beams = w.atk.beams;
     if (beams.count === 0) return;
     const h = ATTACK_TUNING.beamHeight;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    let lances = 0;
+    let n = 0;
+    let weight = 0;
     let points = 0;
     for (let i = 0; i < beams.count; i++) {
       const b = beams.items[i]!;
-      if (b.kind === BK_LANCE) {
-        lances += b.nseg > 1 ? 1.5 : 1;
-        points += b.n;
-      }
+      if (b.kind !== BK_LANCE || b.n < 2 || n >= MAX_LANCES) continue;
+      this.lances[n++] = b;
+      weight += b.nseg > 1 ? 1.5 : 1;
+      points += b.n;
     }
-    this.crowd = lances <= 1.5 ? 1 : Math.max(0.3, 1.25 / Math.sqrt(lances));
-    this.lite = lances > LITE_LANCES || points > LITE_POINTS;
+    // The union fill stops overlaps from adding up, so a crowd only dims a little (it used to take the glow to 0.3).
+    this.crowd = weight <= 2 ? 1 : Math.max(0.6, 1.25 / Math.sqrt(weight));
+    this.lite = weight > LITE_LANCES || points > LITE_POINTS;
     // Beams (and their glows / flares) stay inside the room: never over the HUD margins.
     ctx.save();
     ctx.beginPath();
     ctx.rect(ox - WALL, oy - WALL, ROOM_OUTER_W, ROOM_OUTER_H);
     ctx.clip();
+    if (n > 0) this.drawLances(ctx, n, ox, oy - h, time);
     for (let i = 0; i < beams.count; i++) {
       const b = beams.items[i]!;
-      if (b.n < 2) continue;
-      if (b.kind === BK_LANCE) this.drawLance(ctx, b, ox, oy - h, time);
-      else this.drawThin(ctx, b, ox, oy - h, time);
+      if (b.n < 2 || b.kind === BK_LANCE) continue;
+      this.drawThin(ctx, b, ox, oy - h, time);
     }
     ctx.restore();
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineWidth = 1;
+    for (let i = 0; i < n; i++) this.lances[i] = null;
   }
 
   /**
-   * Draws segment `seg` of a beam at a width multiplier in the current stroke style. A beam of even
-   * width is ONE stroked path; a tapering / flaring one (grow, shrink, accelerate, decelerate) is ONE
-   * filled outline — left edge out, a round tip, right edge back, a round tail — so its exact shape
-   * costs a single call (stroking every trace step on its own cost thousands of calls a frame).
+   * Draws segment `seg` of a beam at a width multiplier in `color`. A beam of even width is ONE stroked path; a
+   * tapering / flaring one (grow, shrink, accelerate, decelerate) is ONE filled outline (see `outline`) — never a call
+   * per trace step.
    */
-  private strokeSeg(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, wMul: number, wAdd: number): void {
+  private strokeSeg(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, wMul: number, wAdd: number, color: string): void {
     const s0 = b.segStart[seg]!;
     const n = b.segLen[seg]!;
     if (n < 2) return;
@@ -463,6 +433,7 @@ export class AttackRenderer {
       else if (v > hi) hi = v;
     }
     if ((hi - lo) * wMul <= 1) {
+      ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(1, ((lo + hi) / 2) * wMul + wAdd);
       ctx.beginPath();
       ctx.moveTo(px[s0]! + ox, py[s0]! + oy);
@@ -470,10 +441,25 @@ export class AttackRenderer {
       ctx.stroke();
       return;
     }
-    const last = s0 + n - 1;
-    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillStyle = color;
     ctx.beginPath();
-    // Left edge, out to the tip.
+    this.outline(ctx, b, seg, ox, oy, wMul, wAdd);
+    ctx.fill();
+  }
+
+  /**
+   * Adds segment `seg`'s outline to the current path (no beginPath / fill): the left edge out, a round tip, the right
+   * edge back, a round tail — always in that order, so every outline has the same winding and a nonzero fill of many
+   * of them is their union.
+   */
+  private outline(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, wMul: number, wAdd: number): void {
+    const s0 = b.segStart[seg]!;
+    const n = b.segLen[seg]!;
+    if (n < 2) return;
+    const px = b.px;
+    const py = b.py;
+    const pw = b.pw;
+    const last = s0 + n - 1;
     let th = 0;
     let th0 = 0;
     for (let k = 0; k < n; k++) {
@@ -485,7 +471,6 @@ export class AttackRenderer {
       if (k === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    // Round tip, then the right edge back.
     const rEnd = Math.max(0.5, (pw[last]! * wMul + wAdd) / 2);
     ctx.arc(px[last]! + ox, py[last]! + oy, rEnd, th + Math.PI / 2, th - Math.PI / 2, true);
     for (let k = n - 1; k >= 0; k--) {
@@ -496,18 +481,16 @@ export class AttackRenderer {
     const r0 = Math.max(0.5, (pw[s0]! * wMul + wAdd) / 2);
     ctx.arc(px[s0]! + ox, py[s0]! + oy, r0, th0 - Math.PI / 2, th0 + Math.PI / 2, true);
     ctx.closePath();
-    ctx.fill();
   }
 
-  /** Jagged lightning strand along a segment (1 px), re-rolled every other frame. */
-  private strand(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, amp: number, salt: number, stride: number): void {
+  /** Adds a jagged lightning strand along a segment (1 px) to the current path, re-rolled every other frame. */
+  private strandPath(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, amp: number, salt: number, stride: number): void {
     const s0 = b.segStart[seg]!;
     const n = b.segLen[seg]!;
     if (n < 2) return;
     const px = b.px;
     const py = b.py;
     const f = (this.frame >> 1) + salt * 17;
-    ctx.beginPath();
     ctx.moveTo(px[s0]! + ox, py[s0]! + oy);
     for (let k = stride; k < n; k += stride) {
       const a = s0 + k;
@@ -520,67 +503,156 @@ export class AttackRenderer {
     }
     const last = s0 + n - 1;
     ctx.lineTo(px[last]! + ox, py[last]! + oy);
+  }
+
+  /** A strand of one segment on its own path (thin beams). */
+  private strand(ctx: CanvasRenderingContext2D, b: Beam, seg: number, ox: number, oy: number, amp: number, salt: number, stride: number): void {
+    ctx.beginPath();
+    this.strandPath(ctx, b, seg, ox, oy, amp, salt, stride);
     ctx.stroke();
   }
 
-  private drawLance(ctx: CanvasRenderingContext2D, b: Beam, ox: number, oy: number, time: number): void {
-    const style = b.style;
-    const glowRgb = style ? style.beamGlow : LANCE_GLOW;
-    const t = b.age / Math.max(1e-6, b.life);
-    // Blast in (a fat white-hot flash), hold, then thin out and fade.
-    const intro = b.age < 0.07 ? 1.7 - (b.age / 0.07) * 0.7 : 1;
-    const outro = t > 0.7 ? Math.max(0.2, 1 - (t - 0.7) / 0.3) : 1;
-    const wk = intro * outro;
-    const flick = 0.85 + 0.15 * Math.sin(time * 60 + b.slot);
+  /** The colour a lance uses in pass `p` ('' = it skips the pass). */
+  private passColor(p: number, i: number): string {
+    const b = this.lances[i]!;
+    const st = b.style;
+    switch (p) {
+      case PASS_WIDE:
+        return this.lite ? '' : rgbCss(st ? st.beamGlow : LANCE_GLOW);
+      case PASS_GLOW:
+        return rgbCss(st ? st.beamGlow : LANCE_GLOW);
+      case PASS_EDGE:
+        // Lite: only the first few lances keep their bright edge.
+        return this.lite && i >= LITE_EDGES ? '' : st ? st.beamEdge : '#bfe8ff';
+      case PASS_CORE:
+        return st ? st.beamCore : '#ffffff';
+      case PASS_STRAND1:
+        return '#e6f6ff';
+      case PASS_STRAND2:
+        return this.lite ? '' : '#8fd0ff';
+      default:
+        return this.lite ? '' : '#ffffff';
+    }
+  }
+
+  /** A lance's alpha in pass `p` (quantised to 1/24 so a volley's lances share one path per pass). */
+  private passAlpha(p: number, i: number, flick: number): number {
+    const outro = this.outro[i]!;
     const k = this.crowd;
-    const lite = this.lite;
-    // Many overlapping lances: the solid cores and strands dim too, so the room doesn't turn white.
     const bright = 0.5 + 0.5 * k;
-    ctx.globalCompositeOperation = 'lighter';
+    let a: number;
+    switch (p) {
+      case PASS_WIDE:
+        a = 0.16 * outro * flick * k;
+        break;
+      case PASS_GLOW:
+        a = 0.3 * outro * k;
+        break;
+      case PASS_EDGE:
+        a = 0.65 * outro * (0.4 + 0.6 * k);
+        break;
+      case PASS_CORE:
+        // Lite (a wall of lances): the cores are thinner and a little dimmer, so the room under them still shows.
+        a = Math.min(1, 0.95 * outro + 0.2) * bright * (this.lite ? 0.75 : 1);
+        break;
+      case PASS_STRAND1:
+      case PASS_STRAND2:
+        a = 0.9 * outro * bright;
+        break;
+      default:
+        a = 0.6 * outro;
+        break;
+    }
+    return Math.round(Math.min(1, a) * 24) / 24;
+  }
+
+  /** Adds lance `i`'s geometry for pass `p` to the current path (every segment it draws in that pass). */
+  private passGeometry(ctx: CanvasRenderingContext2D, p: number, i: number, ox: number, oy: number): void {
+    const b = this.lances[i]!;
+    const wk = this.wk[i]!;
+    const k = this.crowd;
+    const jit = b.style ? b.style.beamJitter : 1;
     for (let s = 0; s < b.nseg; s++) {
       const depthK = s === 0 ? 1 : 0.6;
-      ctx.strokeStyle = rgbCss(glowRgb);
-      if (!lite) {
-        ctx.globalAlpha = 0.16 * outro * flick * k;
-        this.strokeSeg(ctx, b, s, ox, oy, (1.6 + 1.2 * k) * wk * depthK, 4 * k);
-      }
-      ctx.globalAlpha = 0.3 * outro * k;
-      this.strokeSeg(ctx, b, s, ox, oy, 1.7 * wk * depthK, 2);
-      if (!lite || s === 0) {
-        ctx.globalAlpha = 0.65 * outro * (0.4 + 0.6 * k);
-        ctx.strokeStyle = style ? style.beamEdge : '#bfe8ff';
-        this.strokeSeg(ctx, b, s, ox, oy, 1.0 * wk * depthK, 0);
+      switch (p) {
+        case PASS_WIDE:
+          this.outline(ctx, b, s, ox, oy, (1.6 + 1.2 * k) * wk * depthK, 4 * k);
+          break;
+        case PASS_GLOW:
+          this.outline(ctx, b, s, ox, oy, 1.7 * wk * depthK, 2);
+          break;
+        case PASS_EDGE:
+          if (!this.lite || s === 0) this.outline(ctx, b, s, ox, oy, 1.0 * wk * depthK, 0);
+          break;
+        case PASS_CORE:
+          this.outline(ctx, b, s, ox, oy, (this.lite ? 0.26 : 0.42) * wk * depthK, 0.6);
+          break;
+        case PASS_STRAND1:
+          this.strandPath(ctx, b, s, ox, oy, 0.9 * jit, 1, 2);
+          break;
+        case PASS_STRAND2:
+          this.strandPath(ctx, b, s, ox, oy, 1.3 * jit, 2, 3);
+          break;
+        default:
+          if (s === 0) this.strandPath(ctx, b, s, ox, oy, 1.7 * jit, 3, 4);
+          break;
       }
     }
-    // White-hot core.
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = Math.min(1, 0.95 * outro + 0.2) * bright;
-    ctx.strokeStyle = style ? style.beamCore : '#ffffff';
-    for (let s = 0; s < b.nseg; s++) this.strokeSeg(ctx, b, s, ox, oy, 0.42 * wk * (s === 0 ? 1 : 0.6), 0.6);
-    // Crackling lightning strands.
+  }
+
+  /**
+   * The frame's lances: blast in (a fat white-hot flash), hold, then thin out and fade — drawn pass by pass, one path
+   * per (colour, alpha) group per pass (see drawBeams).
+   */
+  private drawLances(ctx: CanvasRenderingContext2D, n: number, ox: number, oy: number, time: number): void {
+    for (let i = 0; i < n; i++) {
+      const b = this.lances[i]!;
+      const t = b.age / Math.max(1e-6, b.life);
+      const intro = b.age < 0.07 ? 1.7 - (b.age / 0.07) * 0.7 : 1;
+      const outro = t > 0.7 ? Math.max(0.2, 1 - (t - 0.7) / 0.3) : 1;
+      this.wk[i] = intro * outro;
+      this.outro[i] = outro;
+    }
+    const flick = 0.85 + 0.15 * Math.sin(time * 60);
+    const done = this.done;
+    for (let p = 0; p < PASS_COUNT; p++) {
+      const strand = p >= PASS_STRAND1;
+      ctx.globalCompositeOperation = p === PASS_CORE ? 'source-over' : 'lighter';
+      if (strand) ctx.lineWidth = 1;
+      for (let i = 0; i < n; i++) done[i] = 0;
+      for (let i = 0; i < n; i++) {
+        if (done[i]) continue;
+        done[i] = 1;
+        const color = this.passColor(p, i);
+        if (color === '') continue;
+        const alpha = this.passAlpha(p, i, flick);
+        if (alpha <= 0) continue;
+        ctx.globalAlpha = alpha;
+        if (strand) ctx.strokeStyle = color;
+        else ctx.fillStyle = color;
+        ctx.beginPath();
+        this.passGeometry(ctx, p, i, ox, oy);
+        for (let j = i + 1; j < n; j++) {
+          if (done[j] || this.passColor(p, j) !== color || this.passAlpha(p, j, flick) !== alpha) continue;
+          done[j] = 1;
+          this.passGeometry(ctx, p, j, ox, oy);
+        }
+        if (strand) ctx.stroke();
+        else ctx.fill();
+      }
+    }
+    // Muzzle flares and the flares where they bite into the wall.
     ctx.globalCompositeOperation = 'lighter';
-    ctx.lineWidth = 1;
-    const jit = style ? style.beamJitter : 1;
-    for (let s = 0; s < b.nseg; s++) {
-      ctx.globalAlpha = 0.9 * outro * bright;
-      ctx.strokeStyle = '#e6f6ff';
-      this.strand(ctx, b, s, ox, oy, 0.9 * jit, 1, 2);
-      if (lite) continue;
-      ctx.strokeStyle = '#8fd0ff';
-      this.strand(ctx, b, s, ox, oy, 1.3 * jit, 2, 3);
-      if (s === 0) {
-        ctx.globalAlpha = 0.6 * outro;
-        ctx.strokeStyle = '#ffffff';
-        this.strand(ctx, b, s, ox, oy, 1.7 * jit, 3, 4);
-      }
-    }
-    // Muzzle flare and the flare where it bites into the wall.
-    ctx.globalAlpha = Math.min(1, 0.8 * wk);
     const fl = this.flare;
-    ctx.drawImage(fl, Math.round(b.px[0]! + ox) - (fl.width >> 1), Math.round(b.py[0]! + oy) - (fl.height >> 1));
-    if (b.endWall) {
-      ctx.globalAlpha = 0.9 * outro * flick;
-      ctx.drawImage(fl, Math.round(b.endX + ox) - (fl.width >> 1), Math.round(b.endY + oy) - (fl.height >> 1));
+    for (let i = 0; i < n; i++) {
+      const b = this.lances[i]!;
+      const outro = this.outro[i]!;
+      ctx.globalAlpha = Math.min(1, 0.8 * this.wk[i]!);
+      ctx.drawImage(fl, Math.round(b.px[0]! + ox) - (fl.width >> 1), Math.round(b.py[0]! + oy) - (fl.height >> 1));
+      if (b.endWall) {
+        ctx.globalAlpha = 0.9 * outro * (0.85 + 0.15 * Math.sin(time * 60 + b.slot));
+        ctx.drawImage(fl, Math.round(b.endX + ox) - (fl.width >> 1), Math.round(b.endY + oy) - (fl.height >> 1));
+      }
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -592,18 +664,19 @@ export class AttackRenderer {
     const fade = Math.max(0.15, 1 - t * t);
     const feather = b.kind === BK_FEATHER;
     const side = b.kind === BK_SIDE;
-    const glowRgb = feather ? LANCE_GLOW : style ? style.beamGlow : '255,90,120';
+    const glow = rgbCss(feather ? LANCE_GLOW : style ? style.beamGlow : '255,90,120');
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = rgbCss(glowRgb);
     for (let s = 0; s < b.nseg; s++) {
       ctx.globalAlpha = (side ? 0.3 : 0.4) * fade;
-      this.strokeSeg(ctx, b, s, ox, oy, 2.6, 1);
+      this.strokeSeg(ctx, b, s, ox, oy, 2.6, 1, glow);
     }
     ctx.lineWidth = 1;
     ctx.globalAlpha = fade;
-    ctx.strokeStyle = feather ? '#e6f6ff' : style ? style.beamCore : '#ffe0e8';
+    const core = feather ? '#e6f6ff' : style ? style.beamCore : '#ffe0e8';
     for (let s = 0; s < b.nseg; s++) {
-      if (b.kind === BK_LASER && !side) this.strokeSeg(ctx, b, s, ox, oy, 0.6, 0);
+      if (b.kind === BK_LASER && !side) this.strokeSeg(ctx, b, s, ox, oy, 0.6, 0, core);
+      ctx.strokeStyle = core;
+      ctx.lineWidth = 1;
       this.strand(ctx, b, s, ox, oy, side ? 1.2 : 0.35, 5 + s, side ? 2 : 3);
     }
     if (b.kind === BK_LASER) {
@@ -770,7 +843,19 @@ export class AttackRenderer {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
-    if (c <= 0) return;
+    if (c <= 0) {
+      // Recharging (the lance's beam is still out): with the stick held, the empty meter shows up with a dim fill
+      // tracking the wait, so a re-press right after a release reads as "wait", not a dropped input.
+      if (st.busy > 0 && p.firing && st.busyMax > 0) {
+        ctx.fillStyle = '#0d0b14';
+        ctx.fillRect(bx - 1, by - 1, 18, 5);
+        ctx.fillStyle = '#23283a';
+        ctx.fillRect(bx, by, 16, 3);
+        ctx.fillStyle = lance ? '#2c4a6a' : '#5a4a22';
+        ctx.fillRect(bx, by, Math.round(16 * Math.max(0, Math.min(1, 1 - st.busy / st.busyMax))), 3);
+      }
+      return;
+    }
     ctx.fillStyle = '#0d0b14';
     ctx.fillRect(bx - 1, by - 1, 18, 5);
     ctx.fillStyle = '#23283a';

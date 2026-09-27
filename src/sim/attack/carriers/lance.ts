@@ -2,17 +2,15 @@
  * Storm Lance (always the primary when held): hold to charge, release = a huge beam traced instantly
  * to the far wall that pierces everything (and passes through rocks) and ticks rapid damage for ~0.5 s.
  * Charging, the flash / shake / boom and the fizzle live in attack/charge.ts and render/audio.
- * Riders shape the beam: laser → feathered sub-beams, melee → the beam sweeps an arc, bomb →
+ * Riders shape the beam: laser → feathered sub-beams, melee → an opening slash plus a swipe and a crescent, bomb →
  * explosions along it, boomerang → it bends back into a U, charge → overcharge, orbit → blades fire
  * mini lances.
  */
 
-import { ATTACK_TUNING } from '../../tuning';
-import { BK_LANCE, spawnBeam } from '../beam';
+import { BK_LANCE, addSlash, spawnBeam } from '../beam';
 import { noteBeam } from '../fire';
+import { SF_RING } from '../state';
 import { ownerTag, type Carrier } from './carrier';
-
-const T = ATTACK_TUNING;
 
 export const LANCE: Carrier = {
   id: 'lance',
@@ -35,8 +33,9 @@ export const LANCE: Carrier = {
     b.life *= src.lifeMul;
     b.ownerKind = src.ownerKind;
     b.vIndex = i;
+    b.ring = (ctx.flags[i]! & SF_RING) !== 0;
     b.bomb = p.riderBomb > 0;
-    b.sweep = p.riderMelee > 0 ? T.beamSweep : 0;
+    if (p.riderMelee > 0) addSlash(b);
     noteBeam(v, b);
     if (i === 0) {
       const ax = src.anchor ? src.anchor.x : v.x;

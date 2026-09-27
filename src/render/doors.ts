@@ -12,6 +12,7 @@ import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import { DK, DS, type RoomDoors } from '../sim/doors';
 import { ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y } from './layout';
 import { getRotated } from './sprites';
+import type { Warmup } from './warmup';
 
 const BAR_FRAMES = 5;
 const LOCKED_FRAME = 6;
@@ -25,12 +26,21 @@ const HX = [ROOM_X + MID_X, ROOM_X + ROOM_COLS * TILE, ROOM_X + MID_X, ROOM_OUTE
 const HY = [ROOM_OUTER_Y, ROOM_Y + MID_Y, ROOM_Y + ROOM_ROWS * TILE, ROOM_Y + MID_Y];
 
 /** Warm the rotated frames. */
-export function prepareDoors(): void {
+export function prepareDoors(q?: Warmup): void {
+  // With a warm-up queue (polish batch 2): one job per door kind, spread over idle frames.
   for (const s of DOOR_SPRITES) {
     if (!s) continue;
-    for (let f = 0; f < s.frames.length; f++) for (let t = 0; t < 4; t++) getRotated(s, f, t);
+    const job = (): void => {
+      for (let f = 0; f < s.frames.length; f++) for (let t = 0; t < 4; t++) getRotated(s, f, t);
+    };
+    if (q) q.add(`door.${s.id}`, job);
+    else job();
   }
-  for (let t = 0; t < 4; t++) getRotated(SECRET_HINT_SPRITE, 0, t);
+  const hint = (): void => {
+    for (let t = 0; t < 4; t++) getRotated(SECRET_HINT_SPRITE, 0, t);
+  };
+  if (q) q.add('door.hint', hint);
+  else hint();
 }
 
 /**

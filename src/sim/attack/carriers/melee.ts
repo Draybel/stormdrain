@@ -1,8 +1,9 @@
 /**
  * Melee: as the primary a close-range arc swipe (strong damage + knockback, swats enemy shots) PLUS a
  * short crescent wave projectile, so projectile modifiers apply to melee too. As a RIDER: projectile
- * volleys launch out of a swipe that also hits close; beams sweep across an arc while active (the
- * lance / laser emitters read `riderMelee`).
+ * volleys launch out of a swipe that also hits close; beam volleys (lance releases, laser volleys) get the same swipe
+ * plus a crescent along the aim, and the beams open with a slash across an arc before settling on the aim (the lance
+ * / laser emitters read `riderMelee`, beam.ts addSlash) — never less than the beam alone (polish batch 2).
  */
 
 import { ATTACK_TUNING } from '../../tuning';
@@ -70,7 +71,6 @@ export const MELEE: Carrier = {
     }
   },
   rider(v, stacks) {
-    if (v.profile.beam) return; // beams sweep instead (set when they are emitted)
     const p = v.profile;
     const reach = T.meleeReach * (1 + 0.15 * (stacks - 1)) * Math.sqrt(v.scale);
     const dmg = p.damage * T.meleeRiderDamage * (1 + 0.25 * (stacks - 1)) * v.scale * v.src.mul;
@@ -80,6 +80,11 @@ export const MELEE: Carrier = {
         last.baseDamage += dmg;
         last.damage = last.baseDamage;
       }
+    }
+    if (p.beam) {
+      // A beam volley also throws the crescent wave along the aim, as a melee primary does.
+      const s = launchProjectile(v, 0, SK_CRESCENT, T.crescentDamage * (1 + 0.25 * (stacks - 1)), T.crescentSpeed, T.crescentRange, 1.3, v.ang);
+      if (s) s.pierceLeft += 1;
     }
   },
 };

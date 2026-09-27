@@ -188,7 +188,7 @@ export class TitleScene implements Scene {
     const vy = far ? 150 + Math.random() * 40 : 230 + Math.random() * 70;
     const groundY = TITLE_GROUND_Y + 2 + Math.random() * (GAME_H - TITLE_GROUND_Y);
     const life = Math.max(0.05, (groundY - y0) / vy);
-    const p = this.app.particles.spawn(Math.random() * (GAME_W + 40), y0, -vy * 0.18, vy, life, far ? RAIN_FAR : RAIN, far ? 3 : 5, P_STREAK);
+    const p = this.app.particles.spawnCosmetic(Math.random() * (GAME_W + 40), y0, -vy * 0.18, vy, life, far ? RAIN_FAR : RAIN, far ? 3 : 5, P_STREAK);
     if (p) p.fade = false;
   }
 
@@ -201,7 +201,7 @@ export class TitleScene implements Scene {
       this.rainAcc -= 1;
       this.spawnDrop();
       if (Math.random() < 0.35) {
-        const r = this.app.particles.spawn(Math.random() * GAME_W, TITLE_GROUND_Y + 3 + Math.random() * (GAME_H - TITLE_GROUND_Y - 4), 0, 0, 0.25, SPLASH, 0, P_RING);
+        const r = this.app.particles.spawnCosmetic(Math.random() * GAME_W, TITLE_GROUND_Y + 3 + Math.random() * (GAME_H - TITLE_GROUND_Y - 4), 0, 0, 0.25, SPLASH, 0, P_RING);
         if (r) r.endSize = 3;
       }
     }
@@ -209,7 +209,8 @@ export class TitleScene implements Scene {
     this.nextStrike -= dt;
     if (this.nextStrike <= 0) {
       this.lightning = 1;
-      this.nextStrike = Math.random() < 0.3 ? 0.18 : 4 + Math.random() * 6;
+      // (No quick double flicker with Settings → REDUCE FLASHING.)
+      this.nextStrike = Math.random() < 0.3 && !this.app.settings.value.reduceFlashing ? 0.18 : 4 + Math.random() * 6;
     }
     this.lightning = Math.max(0, this.lightning - dt * 3.2);
     this.app.particles.update(dt);
@@ -224,7 +225,7 @@ export class TitleScene implements Scene {
   render(ctx: CanvasRenderingContext2D): void {
     ctx.drawImage(backdrop!, 0, 0);
     if (this.lightning > 0) {
-      ctx.globalAlpha = this.lightning * 0.22;
+      ctx.globalAlpha = this.lightning * (this.app.settings.value.reduceFlashing ? 0.08 : 0.22);
       ctx.fillStyle = '#c9d8ff';
       ctx.fillRect(0, 0, GAME_W, GAME_H);
       ctx.globalAlpha = 1;

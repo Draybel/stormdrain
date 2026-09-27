@@ -90,6 +90,8 @@ export const SF_BACK = 4;
 export const SF_SIDE = 8;
 export const SF_PELLET = 16;
 export const SF_CIRCLE = 32;
+/** A tiny-planet ring copy (orbitPlayer): orbits / turns around the owner; the aimed specs stay aimed. */
+export const SF_RING = 64;
 
 /**
  * The volley being built (reused): one spec per shot/beam with an angle offset from the aim, damage /
@@ -191,6 +193,9 @@ export const SK_BEAM = 5;
 /** A melee swipe's hit (pseudo shot passed to hit hooks). */
 export const SK_SWIPE = 6;
 
+/** Homing picks a beam trace remembers per segment (polish batch 2). */
+export const HOME_MEM = 6;
+
 /** Shot flags. */
 export const F_FALLING = 1;
 export const F_RETURNING = 2;
@@ -287,9 +292,22 @@ export class ShotState {
   style: ShotStyle | null = null;
   /** Per-modifier scratch (MOD_SLOTS per modifier, see ModStack.slot). */
   readonly m = new Float64Array(MOD_COUNT * MOD_SLOTS);
-  /** Homing target cache. */
+  /** Homing target cache (beams: `homeT` counts the trace steps spent chasing it). */
   homeRef: Hittable | null = null;
   homeT = 0;
+  /**
+   * Beam trace cursors (polish batch 2): the targets homing picked along this trace, in order (`homeSeq`), and last
+   * tick's picks for the same trace segment (`homeMem`, from the beam). A pick is taken from the memory while it is
+   * still good, so a homing lance keeps its path from tick to tick instead of flipping between near-equal targets.
+   */
+  readonly homeSeq: (Hittable | null)[] = new Array<Hittable | null>(HOME_MEM).fill(null);
+  homeSeqN = 0;
+  readonly homeMem: (Hittable | null)[] = new Array<Hittable | null>(HOME_MEM).fill(null);
+  homeMemN = 0;
+  /** The current homing target came from `homeMem` (it gets the hysteresis slack). */
+  homeMemo = false;
+  /** Trace steps to wait before seeking again (nothing was in reach). */
+  homeWait = 0;
   /** Recently hit targets (piercing shots don't re-hit every sub-step). */
   readonly hitRefs: (Hittable | null)[] = [null, null, null, null];
   readonly hitAt = new Int32Array(4);
@@ -329,6 +347,10 @@ export function resetShotState(s: ShotState): void {
   s.m.fill(0);
   s.homeRef = null;
   s.homeT = 0;
+  s.homeSeqN = 0;
+  s.homeMemN = 0;
+  s.homeMemo = false;
+  s.homeWait = 0;
   s.hitRefs[0] = s.hitRefs[1] = s.hitRefs[2] = s.hitRefs[3] = null;
   s.hitAt.fill(0);
   s.hitN = 0;

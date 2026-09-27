@@ -77,7 +77,7 @@ export interface App {
   readonly scenes: SceneManager;
   readonly audio: AudioOut;
   readonly settings: SettingsStore;
-  /** One shared particle pool (cap 1500), cleared on scene changes. */
+  /** One shared particle pool (cap 800), cleared on scene changes. */
   readonly particles: ParticleSystem;
   readonly shake: ScreenShake;
   readonly nav: Nav;

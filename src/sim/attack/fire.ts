@@ -25,11 +25,13 @@ import {
   F_CIRCLING,
   F_KEEPER,
   F_MINI,
+  F_ORBITING,
   F_PHASE,
   F_SIDELASER,
   OWN_PLAYER,
   SF_CIRCLE,
   SF_MAIN,
+  SF_RING,
   SK_BOMB,
   SK_MARBLE,
   SpawnCtx,
@@ -173,6 +175,8 @@ export function launchProjectile(
   speedMul: number,
   rangeMul: number,
   sizeMul: number,
+  /** Absolute heading (rad) instead of the aim + spec `i`'s angle (the melee rider's crescent on beams). */
+  angle?: number,
 ): Shot | null {
   const w = v.w;
   const p = v.profile;
@@ -189,7 +193,7 @@ export function launchProjectile(
     }
     return null;
   }
-  const ang = v.ang + ctx.ang[i]!;
+  const ang = angle ?? v.ang + ctx.ang[i]!;
   const speed = p.shotSpeed * speedMul * ctx.speed[i]!;
   const inherit = PLAYER_TUNING.inheritVelocity;
   const vx = Math.cos(ang) * speed + src.vx * inherit;
@@ -201,6 +205,8 @@ export function launchProjectile(
   if (p.riderLaser > 0) flags |= F_SIDELASER;
   if (src.mini) flags |= F_MINI;
   if ((ctx.flags[i]! & SF_CIRCLE) !== 0) flags |= F_CIRCLING;
+  // A tiny-planet ring copy: a moon that orbits its owner (orbitPlayer); the aimed shots fly on.
+  if ((ctx.flags[i]! & SF_RING) !== 0) flags |= F_ORBITING;
   s.style = p.style;
   if (i === v.keeper) {
     // Wren's keeper marble: big, triple damage, pierces everything.

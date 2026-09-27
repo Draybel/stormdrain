@@ -3,7 +3,7 @@
  * is baked into a cached canvas.
  */
 
-import { ctx2d, makeCanvas } from './canvas';
+import { ctx2d, makeCanvas, parseCssColor, rgbaToCanvas } from './canvas';
 
 /** Filled ellipse made of horizontal spans (crisp at 1:1 back-buffer resolution). */
 export function fillPixelEllipse(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number): void {
@@ -50,8 +50,9 @@ export function pixelCircle(r: number, fill: string | null, stroke: string | nul
   let c = circleCache.get(key);
   if (c) return c;
   const size = r * 2 + 1;
-  c = makeCanvas(size, size);
-  const ctx = ctx2d(c);
+  const data = new Uint8ClampedArray(size * size * 4);
+  const f = fill ? parseCssColor(fill) : null;
+  const s = stroke ? parseCssColor(stroke) : null;
   const rOut = r + 0.5;
   const rIn = r + 0.5 - strokeWidth;
   for (let y = 0; y < size; y++) {
@@ -60,15 +61,13 @@ export function pixelCircle(r: number, fill: string | null, stroke: string | nul
       const dy = y - r;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d > rOut) continue;
-      if (stroke && d > rIn) {
-        ctx.fillStyle = stroke;
-        ctx.fillRect(x, y, 1, 1);
-      } else if (fill) {
-        ctx.fillStyle = fill;
-        ctx.fillRect(x, y, 1, 1);
-      }
+      const col = s && d > rIn ? s : f;
+      if (!col) continue;
+      data.set(col, (y * size + x) * 4);
     }
   }
+  // One ImageData (polish batch 2): no fillStyle + fillRect per pixel.
+  c = rgbaToCanvas(size, size, data);
   circleCache.set(key, c);
   return c;
 }
@@ -110,18 +109,23 @@ export function glowSprite(r: number, rgb: string, peak: number): HTMLCanvasElem
   let c = circleCache.get(key);
   if (c) return c;
   const size = r * 2 + 1;
-  c = makeCanvas(size, size);
-  const ctx = ctx2d(c);
+  const col = parseCssColor(`rgb(${rgb})`);
+  const data = new Uint8ClampedArray(size * size * 4);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const d = Math.sqrt((x - r) ** 2 + (y - r) ** 2) / (r + 0.5);
       if (d >= 1) continue;
       // Quantised falloff = pixel-art bands instead of a smooth blur.
       const band = Math.ceil((1 - d) * 3) / 3;
-      ctx.fillStyle = `rgba(${rgb},${(peak * band * band).toFixed(3)})`;
-      ctx.fillRect(x, y, 1, 1);
+      const i = (y * size + x) * 4;
+      data[i] = col[0]!;
+      data[i + 1] = col[1]!;
+      data[i + 2] = col[2]!;
+      data[i + 3] = Math.round(peak * band * band * 255);
     }
   }
+  // One ImageData (polish batch 2): the old per-pixel rgba() strings + fillRects were a first-use spike.
+  c = rgbaToCanvas(size, size, data);
   circleCache.set(key, c);
   return c;
 }

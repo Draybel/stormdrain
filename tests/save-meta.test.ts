@@ -46,6 +46,7 @@ describe('MetaState schema', () => {
       buttonScale: 1,
       showFps: false,
       leftHanded: false,
+      reduceFlashing: false,
     });
   });
 
@@ -122,10 +123,16 @@ describe('MetaState schema', () => {
       sfxVolume: 0.9,
       leftHanded: false,
       showFps: false,
+      reduceFlashing: false,
     });
     expect(fromRuntimeSettings({ shake: 0, aim360: true })).toEqual({ screenShake: 0, aim360: true });
     // Phase 4B: the left-handed layout and the FPS readout persist too.
     expect(fromRuntimeSettings({ leftHanded: true, showFps: true })).toEqual({ leftHanded: true, showFps: true });
+    // Polish batch 2: REDUCE FLASHING persists; a save from before it (no field) loads with it off.
+    expect(fromRuntimeSettings({ reduceFlashing: true })).toEqual({ reduceFlashing: true });
+    expect(normalizeMeta({ settings: { masterVol: 0.5 } }).settings.reduceFlashing).toBe(false);
+    expect(normalizeMeta({ settings: { reduceFlashing: true } }).settings.reduceFlashing).toBe(true);
+    expect(normalizeMeta({ settings: { reduceFlashing: 'yes' } }).settings.reduceFlashing).toBe(false);
   });
 
   it('utcDateKey uses the UTC calendar date', () => {

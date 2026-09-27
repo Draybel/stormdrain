@@ -127,6 +127,7 @@ export const ATTACK_RECIPES = {
     minGap: 0.05,
     length: 0.3,
     gain: 0.55,
+    maxVoices: 3,
     play(v) {
       osc(v, 'sine', 170 * (1 + v.jitter * 0.08), 45, 0.24, 0.55, 0.003);
       noise(v, 'lowpass', 3200, 180, 0.8, 0.24, 0.5, 0.003);
@@ -137,6 +138,7 @@ export const ATTACK_RECIPES = {
     minGap: 0.04,
     length: 0.1,
     gain: 0.3,
+    maxVoices: 2,
     play(v) {
       noise(v, 'highpass', 3000, 6000, 1.2, 0.05, 0.35);
       osc(v, 'square', 2200 * (1 + v.jitter * 0.1), 700, 0.05, 0.12);
@@ -147,6 +149,7 @@ export const ATTACK_RECIPES = {
     minGap: 0.04,
     length: 0.08,
     gain: 0.25,
+    maxVoices: 2,
     play(v) {
       osc(v, 'sine', 900, 1600, 0.05, 0.25);
     },

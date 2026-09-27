@@ -471,7 +471,7 @@ function release(sim: Sim, aimX = 1, aimY = 0): void {
 }
 
 describe('synergies end to end', () => {
-  it('Crown of Storms: the lance fires a turning crown of three beams', () => {
+  it('Crown of Storms: a turning crown of two beams on top of the aimed lance', () => {
     const sim = room('e-crown');
     sim.world.godMode = true;
     sim.giveItem('storm-lance');
@@ -480,12 +480,18 @@ describe('synergies end to end', () => {
     release(sim);
     const beams = sim.world.atk.beams.items.slice(0, sim.world.atk.beams.count).filter((b) => b.kind === BK_LANCE && b.anchor === sim.world.player);
     expect(beams.length).toBe(3);
-    const dirs = beams.map((b) => b.dir).sort((a, b) => a - b);
+    // Polish batch 2: the main lance stays on the aim at full damage; the crown (two ring copies) turns around her.
+    const aimed = beams.filter((b) => !b.ring);
+    const crown = beams.filter((b) => b.ring);
+    expect(aimed.length).toBe(1);
+    expect(crown.length).toBe(2);
     const gap = (a: number, b: number): number => Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
-    expect(gap(dirs[0]!, dirs[1]!)).toBeCloseTo((2 * Math.PI) / 3, 1);
-    const d0 = beams[0]!.dir;
+    expect(gap(crown[0]!.dir, crown[1]!.dir)).toBeCloseTo((2 * Math.PI) / 3, 1);
+    const a0 = aimed[0]!.dir;
+    const d0 = crown[0]!.dir;
     stepN(sim, makeInput(), 6);
-    expect(beams[0]!.dir).not.toBeCloseTo(d0, 3);
+    expect(crown[0]!.dir).not.toBeCloseTo(d0, 3);
+    expect(aimed[0]!.dir).toBeCloseTo(a0, 9);
   });
 
   it('Frost Nova: a frozen foe that falls bursts into a ring of ice and freezes its neighbours', () => {

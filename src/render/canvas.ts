@@ -28,3 +28,36 @@ export function parseHexColor(css: string): Uint8ClampedArray {
   colorCache.set(css, c);
   return c;
 }
+
+const cssCache = new Map<string, Uint8ClampedArray>();
+
+/**
+ * RGBA bytes of a CSS colour: '#rgb' / '#rrggbb' / '#rrggbbaa' (parseHexColor) or 'rgb(r,g,b)' / 'rgba(r,g,b,a)'
+ * (a 0..1). Cached. Used to bake canvases with one ImageData instead of a fillStyle + fillRect per pixel.
+ */
+export function parseCssColor(css: string): Uint8ClampedArray {
+  if (css.charCodeAt(0) === 35) return parseHexColor(css);
+  let c = cssCache.get(css);
+  if (c) return c;
+  const m = /rgba?\(([^)]*)\)/.exec(css);
+  const parts = m ? m[1]!.split(',').map((s) => Number(s.trim())) : [0, 0, 0, 1];
+  const a = parts.length > 3 ? parts[3]! : 1;
+  c = new Uint8ClampedArray([parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, Math.round(Math.max(0, Math.min(1, a)) * 255)]);
+  cssCache.set(css, c);
+  return c;
+}
+
+/** A canvas holding a square RGBA pixel map (one ImageData + putImageData — no per-pixel fill calls). */
+export function pixelsToCanvas(p: { size: number; data: Uint8ClampedArray }): HTMLCanvasElement {
+  return rgbaToCanvas(p.size, p.size, p.data);
+}
+
+/** A w × h canvas from RGBA bytes (one putImageData). */
+export function rgbaToCanvas(w: number, h: number, data: Uint8ClampedArray): HTMLCanvasElement {
+  const c = makeCanvas(w, h);
+  const ctx = ctx2d(c);
+  const img = ctx.createImageData(w, h);
+  img.data.set(data);
+  ctx.putImageData(img, 0, 0);
+  return c;
+}

@@ -1142,8 +1142,8 @@ reg('syn.tether', (ctx) => {
 
 /**
  * The lasso: foes near the aim line (within `reach` px ahead, `width` px either side) are yanked toward
- * her at `pull` px/s, take `dmg` × damage and are slowed for `slow` s. { reach, width, pull, dmg, slow,
- * color }
+ * her — at up to `pull` px/s, fading to nothing `standoff` px (default 36) from her, so nothing is dragged onto her —
+ * take `dmg` × damage and are slowed for `slow` s. { reach, width, pull, standoff, dmg, slow, color }
  */
 reg('syn.lasso', (ctx) => {
   const w = ctx.w;
@@ -1158,6 +1158,7 @@ reg('syn.lasso', (ctx) => {
   const dmg = numParam(ctx, 'dmg', 0.3) * p.stats.damage;
   const slow = numParam(ctx, 'slow', 1.5);
   const color = strParam(ctx, 'color', '#ff6a9a');
+  const standoff = numParam(ctx, 'standoff', 36);
   const n = collectTargets(w);
   let caught = 0;
   for (let i = 0; i < n && caught < 8; i++) {
@@ -1171,8 +1172,13 @@ reg('syn.lasso', (ctx) => {
     const d = Math.max(1e-3, Math.sqrt(dx * dx + dy * dy));
     caught++;
     arc(w, p.x, p.y - PLAYER_TUNING.shotHeight, h.x, h.y - h.r * 0.6, color);
-    h.hurt(dmg, SRC_AREA, (-dx / d) * pull, (-dy / d) * pull);
-    h.applyStatus('knockback', 0.3, 0, SRC_PLAYER);
+    // Yanked in only down to a standoff (polish batch 2): the pull fades to nothing `standoff` px from her edge, so
+    // a lassoed spitter lands in front of her, never on top of her. Inside it, a foe is only nicked and slowed.
+    const over = d - h.r - standoff;
+    const k = over > 0 ? pull * Math.min(1, over / Math.max(1, reach - standoff)) : 0;
+    h.hurt(dmg, SRC_AREA, (-dx / d) * k, (-dy / d) * k);
+    // A moment's daze while it is yanked (a token push: the pull above is all the movement it gets).
+    if (k > 0) h.applyStatus('knockback', 0.3, 1e-3, SRC_PLAYER);
     if (slow > 0) h.applyStatus('slow', slow, 0.5, SRC_PLAYER);
   }
 });

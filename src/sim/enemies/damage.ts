@@ -62,8 +62,17 @@ export function damageEnemy(w: World, e: Enemy, dmg: number, source: number, kx:
   }
   e.hp -= dmg;
   e.hurtT = 0;
-  // Damage over time ticks don't flash (the status tint + particles show it).
-  if (source !== SRC_STATUS) e.flash = ENEMY_TUNING.hitFlash;
+  // Damage over time ticks don't flash (the status tint + particles show it). Rapid re-hits (a lance ticking every
+  // 3 ticks, a fast stream) restart the white flash at most every hitFlashGap s and only tint pale in between, so a
+  // foe in the beam reads as a foe being hit, not a flat white silhouette.
+  if (source !== SRC_STATUS) {
+    if (e.sinceFlash >= ENEMY_TUNING.hitFlashGap) {
+      e.flash = ENEMY_TUNING.hitFlash;
+      e.sinceFlash = 0;
+    } else {
+      e.hitTint = ENEMY_TUNING.hitTint;
+    }
+  }
   w.counters.hits++;
   w.events.emit('enemyHit', e.x, e.y - e.r, dmg, source, e.def.id);
   // Character mechanics that react to your hits (Sable's pickpocket, sim/mechanics.ts).

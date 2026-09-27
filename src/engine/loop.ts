@@ -1,8 +1,11 @@
 /**
  * Fixed-timestep game loop: the simulation always advances in exact 1/60 s steps (accumulator,
  * at most 4 catch-up steps per frame, the rest dropped); rendering happens once per
- * requestAnimationFrame with an interpolation factor. Tracks fps and update/render cost.
+ * requestAnimationFrame with an interpolation factor. Tracks fps, the smoothed update/render cost and (`stats`,
+ * polish batch 2) the raw spikes: the worst frame, the worst rAF-to-rAF gap and the frames over 20 ms in the last second.
  */
+
+import { FrameStats } from './frameStats';
 
 export const STEP = 1 / 60;
 const MAX_STEPS = 4;
@@ -23,6 +26,8 @@ export class Loop {
   renderMs = 0;
   /** Steps discarded because the frame took too long (spiral-of-death protection). */
   droppedSteps = 0;
+  /** Raw per-frame cost and rAF gaps over a rolling 1 s window (no smoothing). */
+  readonly stats = new FrameStats();
   ticks = 0;
   frames = 0;
   running = false;
@@ -56,10 +61,20 @@ export class Loop {
     this.acc = 0;
   }
 
+  /** One rAF callback at timestamp `now` (ms). Public so tests can drive the loop with synthetic frame times. */
+  tick(now: number): void {
+    this.step(now);
+  }
+
   private readonly frame = (now: number): void => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.frame);
+    this.step(now);
+  };
 
+  private step(now: number): void {
+    // The raw gap since the previous rAF (before any clamping): a long input handler shows up here.
+    const gapMs = this.last < 0 ? 0 : now - this.last;
     let dt = this.last < 0 ? STEP : (now - this.last) / 1000;
     this.last = now;
     if (dt < 0) dt = 0;
@@ -89,6 +104,7 @@ export class Loop {
     this.hooks.render(Math.min(1, this.acc / STEP), dt);
     const t2 = performance.now();
     this.renderMs += (t2 - t1 - this.renderMs) * 0.1;
+    this.stats.record(now, t2 - t0, gapMs);
 
     this.frames++;
     this.fpsFrames++;
@@ -98,5 +114,5 @@ export class Loop {
       this.fpsFrames = 0;
       this.fpsTime = 0;
     }
-  };
+  }
 }

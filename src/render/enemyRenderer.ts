@@ -5,7 +5,8 @@
  * - enemies (two passes around the player for depth): spawn poof fade-in, idle/move/windup/air frames,
  *   telegraph blink + squash, hit flash, status tints + icons, champion outline + glow, phantom fade,
  *   split copies drawn smaller;
- * - enemy shots (dark outline + bright core + additive glow, allied ones pink), lobs with shadows,
+ * - enemy shots (the foe signature: dark outline, dark core, dark drop-halo — never a player shot's white-hot centre and
+ *   light halo; allied ones pink and bright with a glow), lobs with shadows,
  *   falling debris (a rock over a marked spot) and lightning strikes (a bolt in the last instant);
  * - bosses (sim/bosses): the pattern's pose, the phase's colour wash, a white flash + shudder on phase
  *   changes, a teleport fade, the charge telegraph line, landing / emerging markers, enemy beams
@@ -14,7 +15,7 @@
  */
 
 import { lerp } from '../engine/math';
-import { BOSSES, ENEMIES } from '../content/registry';
+import { BOSSES, ENEMIES, allChampions, bossesInChapter, enemiesInChapter } from '../content/registry';
 import { getBossHook } from '../sim/bosses/hooks';
 import { ROOM_H, ROOM_W } from '../sim/constants';
 import { STATUS_ICON_SPRITE } from '../content/sprites/combat';
@@ -25,25 +26,25 @@ import { ST_COUNT, ST_FREEZE } from '../sim/enemies/status';
 import { ENEMY_TUNING } from '../sim/tuning';
 import { ENEMY_SHOT_STYLES } from '../sim/types';
 import type { World } from '../sim/world';
-import { ctx2d, makeCanvas } from './canvas';
+import { ctx2d, makeCanvas, pixelsToCanvas } from './canvas';
+import { enemyShotPixels, type EnemyShotLook } from './shotPixels';
 import { drawShadow, fillPixelEllipse, glowSprite } from './pixel';
 import { getFlash, getFlipped, getFrame, getSilhouette, getTinted, getTintedFlipped } from './sprites';
+import { warmup as sharedWarmup, type Warmup } from './warmup';
+
+const BOSS_KINDS = ['boss', 'miniboss', 'final'] as const;
 
 /** Status tint colours, index = ST_*. */
 export const STATUS_COLORS = ['#7ee06a', '#ff9a40', '#a8ecff', '#9aaac0', '#ff8ad0', '#b48cff'] as const;
 const FROZEN_TINT = '#a8ecff';
 
-interface ShotLook {
-  body: string;
-  rim: string;
-  hi: string;
-  line: string;
-  /** Additive glow rgb, or '' for none. */
+interface ShotLook extends EnemyShotLook {
+  /** Additive glow rgb for allied shots (hostile ones get a dark drop-halo instead), or '' for none. */
   glow: string;
 }
 
 /** Looks per ENEMY_SHOT_STYLES entry (same order). */
-const SHOT_LOOKS: readonly ShotLook[] = [
+export const SHOT_LOOKS: readonly ShotLook[] = [
   { body: '#a8c050', rim: '#5e7426', hi: '#e4f0a0', line: '#141a08', glow: '168,192,80' }, // muck
   { body: '#6fc0f0', rim: '#3b78b8', hi: '#eaf8ff', line: '#0a1628', glow: '111,192,240' }, // water
   { body: '#d8cce6', rim: '#9d8cb0', hi: '#ffffff', line: '#221a30', glow: '216,204,230' }, // dust
@@ -58,32 +59,16 @@ const WATER_STYLE = ENEMY_SHOT_STYLES.indexOf('water');
 
 const shotCache = new Map<number, HTMLCanvasElement>();
 
-/** A round shot: dark outline ring, rim, body, one bright highlight. Cached per (style, radius). */
-function shotSprite(style: number, r: number): HTMLCanvasElement {
-  const key = style * 16 + r;
+/**
+ * An enemy shot sprite (shotPixels.ts enemyShotPixels): hostile ones get the foe signature — dark outline, dark core,
+ * dark drop-halo — so they never pass for a player's shot of the same colour; allied ones keep the bright look (their
+ * additive glow is drawn separately). Cached per (style, radius, allied), one putImageData each.
+ */
+function shotSprite(style: number, r: number, allied = false): HTMLCanvasElement {
+  const key = (style * 16 + r) * 2 + (allied ? 1 : 0);
   let c = shotCache.get(key);
   if (c) return c;
-  const L = SHOT_LOOKS[style] ?? SHOT_LOOKS[0]!;
-  const R = r + 1;
-  const size = R * 2 + 1;
-  c = makeCanvas(size, size);
-  const ctx = ctx2d(c);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x - R;
-      const dy = y - R;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d > R + 0.4) continue;
-      let col: string;
-      if (d > r + 0.4) col = L.line;
-      else if (d > r - 0.8 || dx + dy > r * 0.9) col = L.rim;
-      else col = L.body;
-      ctx.fillStyle = col;
-      ctx.fillRect(x, y, 1, 1);
-    }
-  }
-  ctx.fillStyle = L.hi;
-  ctx.fillRect(R - Math.max(1, Math.round(r * 0.45)), R - Math.max(1, Math.round(r * 0.45)), r >= 3 ? 2 : 1, 1);
+  c = pixelsToCanvas(enemyShotPixels(SHOT_LOOKS[style] ?? SHOT_LOOKS[0]!, r, !allied));
   shotCache.set(key, c);
   return c;
 }
@@ -220,22 +205,66 @@ function boltPath(ctx: CanvasRenderingContext2D, x: number, y: number, seed: num
 export class EnemyRenderer {
   private readonly championGlow = new Map<string, HTMLCanvasElement>();
 
-  /** Rasterise enemy frames ahead of time (first appearance never hitches). */
-  prepare(): void {
-    const warm = (s: SpriteDef): void => {
-      for (let f = 0; f < s.frames.length; f++) {
-        getFrame(s, f);
-        getFlash(s, f);
-        getFlipped(s, f);
+  /**
+   * Queues what a chapter's rooms will draw (polish batch 2 — warmed over idle frames, never all twelve chapters at
+   * once): its enemies, bosses, minibosses and finals with their phase looks (BossHook.looks: a phase change never
+   * rasterises mid-fight), and the enemy shot sprites. Other chapters' foes rasterise on demand if they ever show up.
+   */
+  warmChapter(chapter: string, q: Warmup = sharedWarmup): void {
+    for (const d of enemiesInChapter(chapter)) q.addSprite(d.sprite);
+    for (const kind of BOSS_KINDS) {
+      for (const d of bossesInChapter(chapter, kind)) {
+        q.addSprite(d.sprite);
+        const looks = d.hook ? getBossHook(d.hook)?.looks : undefined;
+        if (looks) for (const s of looks) q.addSprite(s);
       }
-    };
-    for (const d of [...ENEMIES.values(), ...BOSSES.values()]) if (typeof d.sprite !== 'string') warm(d.sprite);
-    // The phase looks boss hooks swap in (BossHook.looks), so a phase change never rasterises mid-fight.
-    for (const d of BOSSES.values()) {
-      const looks = d.hook ? getBossHook(d.hook)?.looks : undefined;
-      if (looks) for (const s of looks) warm(s);
     }
-    for (let s = 0; s < SHOT_LOOKS.length; s++) for (let r = 2; r <= 4; r++) shotSprite(s, r);
+    for (let s = 0; s < SHOT_LOOKS.length; s++) {
+      q.add(`eshot.${s}`, () => {
+        for (let r = 1; r <= 8; r++) shotSprite(s, r);
+      });
+    }
+  }
+
+  /**
+   * A boss fight is starting (its intro card is up): queue its phase colour washes (PhaseSpec.tint over every frame
+   * and look, both facings) — the first frame of a new phase used to rasterise them all at once.
+   */
+  warmBoss(id: string, q: Warmup = sharedWarmup): void {
+    const d = BOSSES.get(id);
+    if (!d || typeof d.sprite === 'string') return;
+    const sprites: SpriteDef[] = [d.sprite];
+    const looks = d.hook ? getBossHook(d.hook)?.looks : undefined;
+    if (looks) sprites.push(...looks);
+    for (const s of sprites) q.addSprite(s);
+    for (const ph of d.phases) {
+      const tint = ph.tint;
+      if (!tint) continue;
+      for (const s of sprites) {
+        q.add(`tint.${id}.${s.id}.${tint}`, () => {
+          for (let f = 0; f < s.frames.length; f++) {
+            getTinted(s, f, tint);
+            getTintedFlipped(s, f, tint);
+          }
+        });
+      }
+    }
+  }
+
+  /** A champion appeared: queue its coloured silhouettes (both facings) and its glow. */
+  warmChampion(enemyId: string, champion: number, q: Warmup = sharedWarmup): void {
+    const d = ENEMIES.get(enemyId);
+    const ch = champion > 0 ? allChampions()[champion - 1] : undefined;
+    if (!d || !ch || typeof d.sprite === 'string') return;
+    const s = d.sprite;
+    const color = ch.color;
+    q.add(`champ.${enemyId}.${color}`, () => {
+      this.glowFor(color);
+      for (let f = 0; f < s.frames.length; f++) {
+        getSilhouette(s, f, color);
+        getSilhouette(s, f, color, true);
+      }
+    });
   }
 
   private glowFor(color: string): HTMLCanvasElement {
@@ -419,6 +448,8 @@ export class EnemyRenderer {
     // blinks white; a boss that just changed phase flashes.
     const flash = e.flash > 0 || (!!b && ((e.dying && (Math.floor(time * 12) & 1) === 0) || b.phaseT < 0.18));
     const blink = !flash && e.teleT > 0 && (Math.floor(time * 16) & 1) === 0;
+    // Re-hits between two white flashes: a pale wash over the normal sprite (the same cached flash frame, faint).
+    const pale = !flash && !blink && e.hitTint > 0;
 
     // Champion: coloured glow + 1 px outline.
     const ch = e.champion;
@@ -459,8 +490,8 @@ export class EnemyRenderer {
         ctx.drawImage(flip ? getTintedFlipped(s, frame, tint) : getTinted(s, frame, tint), dx, dy, w, h);
       }
     }
-    if (blink) {
-      ctx.globalAlpha = a * 0.55;
+    if (blink || pale) {
+      ctx.globalAlpha = a * (blink ? 0.55 : 0.3);
       ctx.drawImage(flip ? getFlipped(s, frame, true) : getFlash(s, frame), dx, dy, w, h);
     }
     ctx.globalAlpha = 1;
@@ -593,12 +624,13 @@ export class EnemyRenderer {
   drawShots(ctx: CanvasRenderingContext2D, world: World, alpha: number, ox: number, oy: number, time: number): void {
     const shots = world.enemyShots;
     if (shots.count === 0) return;
-    // Glow pass (additive), then bodies.
+    // Allied shots' glow pass (additive), then bodies. Hostile shots carry their dark drop-halo in the sprite: no
+    // light glow of their own (a player's shot has one), so friend and foe never look alike.
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < shots.count; i++) {
       const s = shots.items[i]!;
-      if (s.fall > 0) continue;
-      const style = s.allied && s.style !== ICE_STYLE ? CHARM_STYLE : s.style;
+      if (s.fall > 0 || !s.allied) continue;
+      const style = s.style !== ICE_STYLE ? CHARM_STYLE : s.style;
       const g = shotGlow(style, Math.max(1, Math.min(8, Math.round(s.r))));
       if (!g) continue;
       const x = Math.round(lerp(s.prevX, s.x, alpha) + ox);
@@ -621,7 +653,7 @@ export class EnemyRenderer {
       }
       const style = s.allied && s.style !== ICE_STYLE ? CHARM_STYLE : s.style;
       const r = Math.max(1, Math.min(8, Math.round(s.r)));
-      const img = shotSprite(style, r);
+      const img = shotSprite(style, r, s.allied);
       const x = Math.round(lerp(s.prevX, s.x, alpha) + ox);
       const wob = s.lob ? 0 : Math.round(Math.sin(time * 14 + i) * 0.5);
       const y = Math.round(lerp(s.prevY, s.y, alpha) + oy - lerp(s.prevZ, s.z, alpha)) + wob;

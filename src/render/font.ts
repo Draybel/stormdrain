@@ -6,7 +6,7 @@
  * Special glyphs: ♥ heart, ¤ coin, ° degree, · middle dot, × times, ← ↑ → ↓ arrows.
  */
 
-import { ctx2d, makeCanvas } from './canvas';
+import { ctx2d, makeCanvas, parseCssColor, rgbaToCanvas } from './canvas';
 
 export const FONT_H = 5;
 export const LINE_H = 7;
@@ -112,17 +112,25 @@ const atlases = new Map<string, HTMLCanvasElement>();
 function atlas(color: string): HTMLCanvasElement {
   let a = atlases.get(color);
   if (a) return a;
-  a = makeCanvas(atlasWidth, FONT_H);
-  const ctx = ctx2d(a);
-  ctx.fillStyle = color;
+  // One ImageData per colour (polish batch 2): a new text colour used to cost a fillRect per glyph pixel.
+  const col = parseCssColor(color);
+  const data = new Uint8ClampedArray(atlasWidth * FONT_H * 4);
   for (const g of glyphs.values()) {
     for (let y = 0; y < FONT_H; y++) {
       const row = g.rows[y]!;
-      for (let x = 0; x < g.w; x++) if (row[x] === '#') ctx.fillRect(g.x + x, y, 1, 1);
+      for (let x = 0; x < g.w; x++) if (row[x] === '#') data.set(col, (y * atlasWidth + g.x + x) * 4);
     }
   }
+  a = rgbaToCanvas(atlasWidth, FONT_H, data);
   atlases.set(color, a);
   return a;
+}
+
+/** Bakes the glyph atlases a text style needs now (a warm-up: its first draw never pays for them). */
+export function warmTextStyle(style: TextStyle): void {
+  atlas(style.color);
+  if (style.shadow) atlas(style.shadow);
+  if (style.outline) atlas(style.outline);
 }
 
 export interface TextStyle {

@@ -2,21 +2,23 @@
  * Draws the simulated world in layer order (ARCHITECTURE §8):
  * room background → doors → floor effects (creep, shockwaves, markers, mounds) → shadows → fires →
  * pedestals/items → pickups → bombs → dummies → enemies behind the player → familiars → player (with
- * costume layers and the charge meter) → enemies in front / in the air → swipes → player shots (+ additive
- * glow) → beams (additive) → enemy shots. Positions are interpolated between
+ * costume layers and the charge meter) → enemies in front / in the air → the full-screen flash (polish batch 2:
+ * `flashAlpha` / `flashColor`, clipped to the room) → swipes → player shots (+ additive glow) → beams (additive) →
+ * particles and chain arcs (`particles` / `arcs`, when the run scene hands them over) → enemy beams → enemy shots,
+ * so a flash never hides a shot or washes out a beam's core, and a foe's shot stays on top of the particle soup. Positions are interpolated between
  * the last two sim ticks by `alpha` for smooth motion on displays faster than 60 Hz. Nothing here
  * allocates per frame.
  */
 
 import { lerp } from '../engine/math';
-import { findItem } from '../content/registry';
+import { findFamiliar, findItem } from '../content/registry';
 import type { World } from '../sim/world';
 import type { Player } from '../sim/player';
 import { PK } from '../sim/pickupKinds';
 import { ROOM_COLS, ROOM_ROWS, TILE } from '../sim/constants';
 import { Tile } from '../sim/tiles';
 import { PLAYER_TUNING, SHOP_TUNING } from '../sim/tuning';
-import type { SpriteDef } from '../sim/types';
+import { costumeList, type SpriteDef } from '../sim/types';
 import { WREN_FRAME } from '../content/sprites/wren';
 import { BURROW_MOUND_SPRITE } from '../content/sprites/characters';
 import { DUMMY_SPRITE } from '../content/sprites/props';
@@ -68,6 +70,10 @@ import { ROOM_OUTER_H, ROOM_OUTER_W, ROOM_OUTER_X, ROOM_OUTER_Y, ROOM_X, ROOM_Y 
 import { drawShadow, glowSprite } from './pixel';
 import { RoomBackground } from './roomBg';
 import { drawSpriteAnchored, getFlash, getFrame } from './sprites';
+import { warmBossHud } from './bossHud';
+import { warmup, type Warmup } from './warmup';
+import type { AttackFx } from './attackFx';
+import type { ParticleSystem } from './particles';
 
 const WALK_DOWN = [WREN_FRAME.downStepL, WREN_FRAME.downStand, WREN_FRAME.downStepR, WREN_FRAME.downStand];
 const WALK_UP = [WREN_FRAME.upStepL, WREN_FRAME.upStand, WREN_FRAME.upStepR, WREN_FRAME.upStand];
@@ -95,7 +101,7 @@ export function itemIcon(id: string): SpriteDef {
 
 export class WorldRenderer {
   private readonly bg = new RoomBackground();
-  private readonly enemies = new EnemyRenderer();
+  readonly enemies = new EnemyRenderer();
   /** Shots, beams, swipes, familiars, costumes and the charge meter (the attack pipeline). */
   readonly attack = new AttackRenderer();
   private readonly fireGlow = glowSprite(15, '255,120,40', 0.55);
@@ -111,9 +117,22 @@ export class WorldRenderer {
   private readonly goods = new Pickup();
   /** Curse of the Blackout (darkness). */
   readonly darkness = new DarknessLayer();
+  /**
+   * The full-screen flash for the next draw (the run scene sets it from WorldFx.flashAlpha): filled over the room
+   * under swipes, shots and beams. 0 = none.
+   */
+  flashAlpha = 0;
+  flashColor = '#ffffff';
+  /** Particles and chain arcs drawn under the enemy shots (set once by the run scene; null = the caller draws them). */
+  particles: ParticleSystem | null = null;
+  arcs: AttackFx | null = null;
 
-  /** Warm caches (room background, sprite frames) so the first frames don't hitch. */
-  prepare(world: World): void {
+  /**
+   * Warm caches so the first frames don't hitch. Only what the very first frame shows is built now (the room
+   * background, her sprite, a few props); the floor's foes, bosses, shots and doors are QUEUED on the idle-time warm-up
+   * (render/warmup.ts, polish batch 2: the START tap used to rasterise all twelve chapters inside the tap).
+   */
+  prepare(world: World, q: Warmup = warmup): void {
     this.bg.get(world.room, world.chapter);
     for (let f = 0; f < world.player.character.sprite.frames.length; f++) getFrame(world.player.character.sprite, f);
     getFrame(DUMMY_SPRITE, 0);
@@ -122,8 +141,33 @@ export class WorldRenderer {
       for (let f = 0; f < s.frames.length; f++) getFrame(s, f);
     }
     getFlash(BOMB_SPRITE, 0);
-    this.enemies.prepare();
-    prepareDoors();
+    this.warmFloor(world, q);
+  }
+
+  /** Queues what this floor can show: its chapter's foes and bosses (with phase looks), enemy shots and the doors. */
+  warmFloor(world: World, q: Warmup = warmup): void {
+    q.addSprite(world.player.character.sprite);
+    this.enemies.warmChapter(world.chapter, q);
+    prepareDoors(q);
+  }
+
+  /** A boss fight starts (intro card up): queue its phase colour washes and the boss-name lettering. */
+  warmBoss(id: string, q: Warmup = warmup): void {
+    this.enemies.warmBoss(id, q);
+    q.add('bossHud', warmBossHud);
+  }
+
+  /** A champion spawned: queue its silhouettes and glow. */
+  warmChampion(enemyId: string, champion: number, q: Warmup = warmup): void {
+    this.enemies.warmChampion(enemyId, champion, q);
+  }
+
+  /** An item was taken: queue its costume layers and any familiar it brings. */
+  warmItem(id: string, q: Warmup = warmup): void {
+    const def = findItem(id);
+    if (!def) return;
+    for (const c of costumeList(def.costume)) q.addSprite(c.sprite);
+    for (const e of def.effects) if (e.type === 'familiar') q.addSprite(findFamiliar(e.familiar)?.sprite);
   }
 
   /**
@@ -184,9 +228,17 @@ export class WorldRenderer {
     this.attack.drawFamiliars(ctx, world, alpha, ox, oy, time);
     this.drawPlayer(ctx, p, px, py, time);
     this.enemies.drawEnemies(ctx, world, alpha, ox, oy, time, 1, playerY);
+    if (this.flashAlpha > 0) {
+      ctx.globalAlpha = Math.min(1, this.flashAlpha);
+      ctx.fillStyle = this.flashColor;
+      ctx.fillRect(ROOM_OUTER_X + sx, ROOM_OUTER_Y + sy, ROOM_OUTER_W, ROOM_OUTER_H);
+      ctx.globalAlpha = 1;
+    }
     this.attack.drawSwipes(ctx, world, ox, oy);
     this.attack.drawShots(ctx, world, alpha, ox, oy);
     this.attack.drawBeams(ctx, world, ox, oy, time);
+    if (this.particles) this.particles.draw(ctx, sx, sy);
+    if (this.arcs) this.arcs.drawArcs(ctx, sx, sy);
     this.enemies.drawBeams(ctx, world, alpha, ox, oy, time);
     this.enemies.drawShots(ctx, world, alpha, ox, oy, time);
     if (world.props.skylight.active) this.drawSkylight(ctx, world, ox, oy, time);

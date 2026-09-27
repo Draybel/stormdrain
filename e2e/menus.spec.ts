@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { PERF_SLACK } from '../tests/helpers/perf';
 
 /**
  * Phase 4B menus in real WebKit (both iPhone projects): every title item opens with a real touchscreen tap at
@@ -175,8 +176,11 @@ test('settings changes persist after a reload', async ({ page }) => {
   await tap(page, 'settings.lefty');
   await tap(page, 'settings.fps');
   await tap(page, 'settings.aim');
-  const s = await screen<{ leftHanded: boolean; showFps: boolean; aim360: boolean }>(page);
-  expect([s.leftHanded, s.showFps, s.aim360]).toEqual([true, true, true]);
+  // Polish batch 2: REDUCE FLASHING (off by default) persists too.
+  expect((await screen<{ reduceFlashing: boolean }>(page)).reduceFlashing).toBe(false);
+  await tap(page, 'settings.flash');
+  const s = await screen<{ leftHanded: boolean; showFps: boolean; aim360: boolean; reduceFlashing: boolean }>(page);
+  expect([s.leftHanded, s.showFps, s.aim360, s.reduceFlashing]).toEqual([true, true, true, true]);
   await tap(page, 'settings.back');
   await waitScene(page, 'title');
 
@@ -184,8 +188,8 @@ test('settings changes persist after a reload', async ({ page }) => {
   await waitScene(page, 'title');
   await tap(page, 'title.settings');
   await waitScene(page, 'settings');
-  const after = await screen<{ masterVolume: number; musicVolume: number; leftHanded: boolean; showFps: boolean; aim360: boolean }>(page);
-  expect(after).toMatchObject({ masterVolume: 0.25, musicVolume: 1, leftHanded: true, showFps: true, aim360: true });
+  const after = await screen<{ masterVolume: number; musicVolume: number; leftHanded: boolean; showFps: boolean; aim360: boolean; reduceFlashing: boolean }>(page);
+  expect(after).toMatchObject({ masterVolume: 0.25, musicVolume: 1, leftHanded: true, showFps: true, aim360: true, reduceFlashing: true });
   // Left-handed in a run: the active button moved to the left margin.
   await tap(page, 'settings.back');
   await waitScene(page, 'title');
@@ -390,5 +394,26 @@ test('game over: retry replays the same seed as practice; keyboard navigation wo
   await waitScene(page, 'run');
   expect(await page.evaluate(() => window.__SD.sim!.run!.data.seedInfo)).toEqual({ code, kind: 'custom' });
   expect(await page.evaluate(() => window.__SD.sim!.world.player.dead)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('START never freezes the page: the rAF gap across the tap stays short', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('./');
+  await waitScene(page, 'title');
+  await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await page.waitForTimeout(400);
+  const f0 = await page.evaluate(() => window.__SD.perf.frame);
+  await tap(page, 'chars.start');
+  await waitScene(page, 'run');
+  // A second of play behind the floor card (the floor's sprites warm up a couple of ms a frame meanwhile).
+  await page.waitForTimeout(1000);
+  const s = await page.evaluate((f) => window.__SD.perfFrames(f), f0);
+  const gap = Math.max(...s.gaps);
+  const worst = Math.max(...s.costs);
+  console.log(`START: max rAF gap ${gap.toFixed(0)} ms, worst frame ${worst.toFixed(1)} ms over ${s.costs.length} frames`);
+  // It used to build ~2,500 canvases inside the tap: a 0.45-0.7 s gap.
+  expect(gap).toBeLessThan(150 * PERF_SLACK);
   expect(errors).toEqual([]);
 });

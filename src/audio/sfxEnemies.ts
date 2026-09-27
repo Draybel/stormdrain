@@ -11,6 +11,7 @@ export const ENEMY_RECIPES = {
     minGap: 0.03,
     length: 0.12,
     gain: 0.5,
+    maxVoices: 3,
     play(v) {
       noise(v, 'bandpass', 900 * (1 + v.jitter * 0.1), 380, 1.2, 0.07, 0.45);
       osc(v, 'sine', 190, 85, 0.08, 0.35);

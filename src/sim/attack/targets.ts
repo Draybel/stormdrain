@@ -83,7 +83,8 @@ export function nearestTarget(
  * counts as reach). Among the reachable ones within `maxDist` (edge distance) the
  * cheapest path wins: distance + turnR·|θ| (the arc it has to turn), so targets ahead beat closer
  * ones beside or behind — and with nothing ahead a shot still U-turns into what's behind it.
- * Targets `shot` hit within its re-hit window (a piercing shot moving on) are skipped.
+ * Targets `shot` hit within its re-hit window (a piercing shot moving on) are skipped, and so are targets whose
+ * bearing is further off the heading than `minCos` allows (beam traces only look ahead; default: no limit).
  */
 export function seekTarget(
   t: TargetSnapshot,
@@ -95,6 +96,7 @@ export function seekTarget(
   slack: number,
   shot: ShotState | null,
   tick: number,
+  minCos = -2,
 ): number {
   let best = -1;
   let bestCost = Infinity;
@@ -109,6 +111,7 @@ export function seekTarget(
     if (d - h.r > maxDist) continue;
     if (d < 1e-6) return i;
     const c = (dx * hx + dy * hy) / d; // cos θ
+    if (c < minCos) continue;
     const sn = Math.abs(dx * hy - dy * hx) / d; // |sin θ|
     // Inside the turning circle on its side (centre turnR px to that side), deeper than the shot can
     // clip from the circle's rim: it would only ever orbit it.

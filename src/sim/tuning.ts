@@ -234,6 +234,20 @@ export const ENEMY_TUNING = {
   maxKnock: 320,
   /** White hit-flash (s). */
   hitFlash: 0.1,
+  /**
+   * Rapid re-hits (the lance ticks every 3 ticks, a fast marble stream) restart the white flash at most this often
+   * (s); the hits in between only refresh a pale tint (`hitTint` s), so nothing in a beam turns into a flat white
+   * silhouette (polish batch 2).
+   */
+  hitFlashGap: 0.2,
+  hitTint: 0.08,
+  /**
+   * Hit stagger (polish batch 2): a direct hit (a projectile, a beam's first tick on it, a melee swipe — never DoT,
+   * statuses or creep) holds a non-boss enemy's own movement to `hitStunMul` of its speed for `hitStun` s; a new hit
+   * refreshes it, never stacks. Knockback is separate and unchanged.
+   */
+  hitStun: 0.06,
+  hitStunMul: 0.2,
   /** Contact circle = radius × this (a touch forgiving for the player). */
   contactScale: 0.85,
   /** Enemy contact damage pushes the player this fast (px/s), decaying at `playerPushDecay` 1/s. */
@@ -383,8 +397,13 @@ export const ATTACK_TUNING = {
   featherAngle: 0.13,
   featherDamage: 0.35,
   featherWidth: 2,
-  /** Melee rider on beams: the beam sweeps across ± this arc (rad) over its life. */
+  /**
+   * Melee rider on beams (polish batch 2): an opening slash across ± this arc (rad) — out to one side, across to the
+   * other, back onto the aim — added IN FRONT of the beam's normal life (`beamSweepTime` × its life), so the beam
+   * still spends its whole normal life on the aim; plus the rider swipe and a crescent at the muzzle.
+   */
   beamSweep: 0.96,
+  beamSweepTime: 0.3,
   /** Split forks on beams: children per fork = 1 + stacks (max), damage × childDamage, max fork depth. */
   beamForkMax: 5,
   beamForkDamage: 0.5,
@@ -422,10 +441,23 @@ export const ATTACK_TUNING = {
   beamBombMax: 5,
   beamBombEvery: 12,
 
+  // ── Tiny planet (orbitPlayer) ──
+  /**
+   * Ring copies (polish batch 2): the aimed shots / beams of a volley stay aimed at full damage; orbitPlayer ADDS
+   * `stacks` ring copies per spec at this damage that orbit (shots) or turn around the owner (beams: at least a full
+   * turn over the beam's life, +50 % per extra stack).
+   */
+  orbitRingDamage: 0.6,
+
   // ── Charge rider ──
   chargeTime: 0.9,
   chargeMinMul: 0.5,
   chargeMaxMul: 2.5,
+  /**
+   * Marble and melee primaries (bomb shots included) at full charge (polish batch 2): a full charge must beat simply
+   * holding the trigger (~+10 % with perfect timing) — lasers (a burst) and boomerangs already gain plenty at 2.5.
+   */
+  chargeMaxMulShot: 3.6,
   chargeMulStack: 0.5,
   chargeSizeMax: 1.8,
   /** Laser + charge: a burst of up to N lasers, `burstGap` s apart. */

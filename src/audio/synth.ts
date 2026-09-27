@@ -12,6 +12,13 @@ export interface Recipe {
   gain: number;
   /** Most simultaneous voices of this sound (default: only the global cap). */
   maxVoices?: number;
+  /**
+   * Voice priority when the pool is full (polish batch 2; default from sfx.ts `sfxPriority` by name): a new sound
+   * steals the oldest voice of a LOWER priority, and is dropped only when everything playing ranks as high or higher.
+   */
+  priority?: number;
+  /** Playing this ducks the music and every other sound for a moment (a hurt). */
+  duck?: boolean;
   play(v: Voice): void;
 }
 
