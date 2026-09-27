@@ -370,13 +370,18 @@ describe('selection per chapter', () => {
         { at: 0.5, move: { kind: 'idle' }, attacks: [], patterns: [{ kind: 'ring' }] },
       ],
     });
-    expect(bossPool('rootcellar', 'boss').map((b) => b.id)).toEqual(['t-root-boss']);
+    // (Boss pack A gave the Rootcellar and the Crypt bosses of their own, so these check membership.)
+    expect(bossPool('rootcellar', 'boss').map((b) => b.id)).toContain('t-root-boss');
+    // A chapter without bosses of its own borrows every boss of the kind.
+    expect(bossPool('no_such_chapter', 'boss').length).toBe([...BOSSES.values()].filter((b) => b.kind === 'boss').length);
     // Explicit chapter lists count too.
     const ch = CHAPTERS.get('candlewick_crypt')!;
     (ch.bossPool as string[]).push('sodden-snarl');
     try {
-      expect(bossesInChapter('candlewick_crypt', 'boss').map((b) => b.id)).toEqual(['sodden-snarl']);
-      expect(pickBoss(1, 3, 'alt', 'candlewick_crypt', 'boss')!.id).toBe('sodden-snarl');
+      expect(bossesInChapter('candlewick_crypt', 'boss').map((b) => b.id)).toContain('sodden-snarl');
+      const picks = new Set<string>();
+      for (let seed = 1; seed <= 40; seed++) picks.add(pickBoss(seed, 3, 'alt', 'candlewick_crypt', 'boss')!.id);
+      expect(picks.has('sodden-snarl')).toBe(true);
     } finally {
       (ch.bossPool as string[]).pop();
     }
