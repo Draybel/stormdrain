@@ -4,6 +4,7 @@ import type { AudioOut } from '../audio/engine';
 import type { Display } from '../engine/display';
 import type { Input } from '../engine/input';
 import type { GameSave } from '../meta/save';
+import type { PwaState } from '../pwa/platform';
 import type { SettingsStore } from '../meta/settings';
 import type { ParticleSystem } from '../render/particles';
 import type { ToastLayer } from '../render/toasts';
@@ -60,6 +61,8 @@ export interface Nav {
   /** The expanded floor map over the run (tap the minimap / Tab). */
   map(): void;
   settings(): void;
+  /** Settings with its IMPORT SAVE modal open (the title's first-launch hint in the home-screen app). */
+  importSave(): void;
   pause(): void;
   resume(): void;
   /** Closes the top scene (a menu page's BACK). */
@@ -87,4 +90,9 @@ export interface App {
   readonly toasts: ToastLayer;
   /** The DOM modal layer: text entry (seed, save import / export) — the only DOM UI. */
   readonly modal: DomModal;
+  /**
+   * Polish batch 3: where the game runs (a Safari tab whose saves may be wiped / the home-screen app), whether storage
+   * is protected, whether this launch began with no meta save at all, and a waiting update (the title offers a reload).
+   */
+  readonly pwa: PwaState;
 }

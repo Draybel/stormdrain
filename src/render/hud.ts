@@ -65,6 +65,27 @@ function trinketX(b: { x: number; w: number }): number {
   return b.x < GAME_W / 2 ? Math.round(b.x + b.w + 3) : Math.round(b.x) - 17;
 }
 
+/** The two trinket icons' rect beside a consumable button (game px; `ui/touchControls.ts` keeps buttons off it). */
+export function trinketRect(b: { x: number; y: number; w: number; h: number }, count = 2): HudRect {
+  return { id: 'trinkets', x: trinketX(b), y: Math.round(b.y + (b.h - 14) / 2) - (count > 1 ? 8 : 0), w: 14, h: count > 1 ? 30 : 14 };
+}
+
+/** The charge bar's rect beside an active button, on the side facing the room (game px). */
+export function chargeRect(b: { x: number; y: number; w: number; h: number }): HudRect {
+  return { id: 'charge', x: b.x < GAME_W / 2 ? Math.round(b.x + b.w) + 2 : Math.round(b.x) - 7, y: Math.round(b.y), w: 5, h: b.h };
+}
+
+/**
+ * The top-left HUD block at its largest — two full rows of hearts (HEART_CAP 12 = 6 × 2) and the coin / bomb / key
+ * counters — which the run buttons' hit rects stay clear of (polish batch 3, ui/touchControls.ts).
+ */
+export function hudCornerRects(): HudRect[] {
+  return [
+    { id: 'hearts', x: HEARTS_X, y: HEARTS_Y, w: (HEARTS_PER_ROW - 1) * HEART_STEP_X + 9, h: HEART_STEP_Y + 8 },
+    { id: 'counters', x: COUNTERS_X, y: COUNTERS_Y, w: 10 + measureText('99'), h: COUNTER_STEP * 2 + 8 },
+  ];
+}
+
 function counterValue(world: World, i: number): number {
   const inv = world.player.inv;
   return i === 0 ? inv.coins : i === 1 ? inv.bombs : inv.keys;
@@ -288,15 +309,9 @@ export class Hud {
       { id: 'hearts', x: HEARTS_X, y: HEARTS_Y, w: (cols - 1) * HEART_STEP_X + 9, h: (rows - 1) * HEART_STEP_Y + 8 },
       { id: 'counters', x: COUNTERS_X, y: COUNTERS_Y, w: 10 + measureText('99'), h: COUNTER_STEP * 2 + 8 },
     ];
-    if (world.player.inv.active && world.player.inv.active.max > 0) {
-      const b = buttons.active;
-      out.push({ id: 'charge', x: b.x < GAME_W / 2 ? Math.round(b.x + b.w) + 2 : Math.round(b.x) - 7, y: Math.round(b.y), w: 5, h: b.h });
-    }
+    if (world.player.inv.active && world.player.inv.active.max > 0) out.push(chargeRect(buttons.active));
     const t = world.player.inv.trinkets.length;
-    if (t > 0) {
-      const b = buttons.consumable;
-      out.push({ id: 'trinkets', x: trinketX(b), y: Math.round(b.y + (b.h - 14) / 2) - (t > 1 ? 8 : 0), w: 14, h: t > 1 ? 30 : 14 });
-    }
+    if (t > 0) out.push(trinketRect(buttons.consumable, t));
     if (this.bannerVisible && this.bannerId) {
       out.push({ id: 'banner', x: Math.round((GAME_W - this.bannerW) / 2), y: BANNER_Y, w: this.bannerW, h: BANNER_H });
     }

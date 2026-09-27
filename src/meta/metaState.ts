@@ -10,6 +10,10 @@
  * - {@link MetaStore} owns the state: mutators mark it dirty, `endTick()` saves (urgent changes at
  *   the end of the tick, soft ones like kill counts at most every `softSaveMs`), `flush()` saves
  *   now, `subscribe()` notifies UI once per tick with a summary of what changed.
+ * - Several tabs (polish batch 3): every write first MERGES what another tab saved meanwhile ({@link mergeMeta}, a
+ *   three-way merge against the state this tab last read / wrote), and `syncFromStorage()` (the window 'storage'
+ *   event) merges another tab's save into memory at once — so two open tabs never wipe each other's unlocks.
+ *   A progress reset or an import replaces everything on purpose: its write is never merged.
  *
  * No DOM access; storage comes in through {@link SaveStorage}.
  */
@@ -352,6 +356,155 @@ export function cloneMeta(m: MetaState): MetaState {
   return normalizeMeta(JSON.parse(JSON.stringify(serializeMeta(m))));
 }
 
+// ── Merging two tabs' progress (polish batch 3) ─────────────────────────────
+
+/** Stats that only ever add up (runs, kills, play time…): both tabs' additions count. */
+const SUM_STATS: readonly StatKey[] = ['runs', 'wins', 'deaths', 'kills', 'bossKills', 'itemsCollected', 'floorsCleared', 'playTimeSec'];
+/** Records: the higher one wins. */
+const MAX_STATS: readonly StatKey[] = ['bestFloor', 'bestWinStreak'];
+
+function same(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** `theirs` plus what this tab added since `base` (never less than theirs). */
+function addDelta(theirs: number | undefined, mine: number | undefined, base: number | undefined): number {
+  return (theirs ?? 0) + Math.max(0, (mine ?? 0) - (base ?? 0));
+}
+
+/** This tab's value when it changed it since `base`, else the stored one. */
+function pick<T>(theirs: T, mine: T, base: T): T {
+  return same(mine, base) ? theirs : mine;
+}
+
+function mergeCounts<E extends object>(
+  theirs: Record<string, E>,
+  mine: Record<string, E>,
+  base: Record<string, E>,
+  fields: readonly (keyof E & string)[],
+): Record<string, E> {
+  type Num = Record<string, number | undefined>;
+  const out = Object.create(null) as Record<string, E>;
+  for (const id of new Set([...Object.keys(theirs), ...Object.keys(mine)])) {
+    const t = theirs[id] as Num | undefined;
+    const m = mine[id] as Num | undefined;
+    const b = base[id] as Num | undefined;
+    const e: Record<string, unknown> = { ...m, ...t };
+    let any = !!t;
+    for (const f of fields) {
+      const v = addDelta(t?.[f], m?.[f], b?.[f]);
+      e[f] = v;
+      if (v > 0) any = true;
+    }
+    // (An entry storage dropped — a reset in another tab — only comes back with progress made here since.)
+    if (any) out[id] = e as E;
+  }
+  return out;
+}
+
+/** A record (the higher value) this tab improved since `base` competes with storage's; otherwise storage's stands. */
+function maxDelta(theirs: number | undefined, mine: number | undefined, base: number | undefined): number | undefined {
+  return (mine ?? 0) > (base ?? 0) ? Math.max(theirs ?? 0, mine ?? 0) : theirs;
+}
+
+function mergeNumbers(
+  theirs: Record<string, number>,
+  mine: Record<string, number>,
+  base: Record<string, number>,
+  isMax: (id: string) => boolean,
+): Record<string, number> {
+  const out = Object.create(null) as Record<string, number>;
+  for (const id of new Set([...Object.keys(theirs), ...Object.keys(mine)])) {
+    const v = isMax(id) ? maxDelta(theirs[id], mine[id], base[id]) : addDelta(theirs[id], mine[id], base[id]);
+    if (v !== undefined && (v > 0 || id in theirs)) out[id] = v;
+  }
+  return out;
+}
+
+/** Two attempts at the same day's daily: the one this tab changed, else storage's; both changed → the finished / better one. */
+function mergeDaily(t: DailyResult | undefined, m: DailyResult | undefined, b: DailyResult | undefined): DailyResult | undefined {
+  if (!t) return m && !same(m, b) ? m : undefined;
+  if (!m) return t;
+  const mineChanged = !same(m, b);
+  const theirsChanged = !same(t, b);
+  if (!mineChanged) return t;
+  if (!theirsChanged) return m;
+  const done = (d: DailyResult): number => (d.done === false ? 0 : 1);
+  if (done(m) !== done(t)) return done(m) > done(t) ? m : t;
+  return m.score >= t.score ? m : t;
+}
+
+/**
+ * Three-way merge of meta progress (polish batch 3): `base` = the state this tab last read from or wrote to storage,
+ * `mine` = this tab's state now, `theirs` = what storage holds now (another tab saved it meanwhile). The result keeps
+ * both tabs' progress:
+ * - unlocks and achievements: storage's plus what this tab added (minus what it removed — only a reset does that,
+ *   and a reset is never merged); an achievement earned in both keeps the earlier date;
+ * - counts (collection / bestiary entries, runs, kills, play time, per-character runs / wins, achievement counters):
+ *   storage's plus this tab's increase since `base` — they never go down, and both tabs' play time adds up;
+ * - records (best floor, best win streak, `max*` counters): the higher, when this tab raised its own since `base`;
+ *   the win streak: this tab's if it changed it;
+ * - settings, per setting: this tab's if it changed it since `base` (its change is the newer one), else storage's;
+ * - daily results by date (see mergeDaily); unknown fields: this tab's if it changed them, else storage's.
+ * Returns a new, normalized state (the inputs are not modified).
+ */
+export function mergeMeta(base: MetaState, mine: MetaState, theirs: MetaState): MetaState {
+  const out = cloneMeta(theirs);
+  // Settings, per key (unknown keys from a newer build ride along the same way).
+  const s = out.settings as unknown as Record<string, unknown>;
+  const ms = mine.settings as unknown as Record<string, unknown>;
+  const bs = base.settings as unknown as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(s), ...Object.keys(ms)])) s[k] = pick(s[k], ms[k], bs[k]);
+  // Unlock sets.
+  for (const kind of new Set([...Object.keys(out.unlocks), ...Object.keys(mine.unlocks)])) {
+    const set = out.unlocks[kind] ?? (out.unlocks[kind] = new Set<string>());
+    const m = mine.unlocks[kind] ?? new Set<string>();
+    const b = base.unlocks[kind] ?? new Set<string>();
+    for (const id of m) if (!b.has(id)) set.add(id);
+    for (const id of b) if (!m.has(id)) set.delete(id);
+  }
+  // Achievements (id → date): the ones earned here since `base` join storage's (earned in both: the earlier date).
+  const ach = out.achievements;
+  for (const [id, t] of Object.entries(mine.achievements)) {
+    if (id in base.achievements) continue;
+    const cur = ach[id];
+    if (cur === undefined) ach[id] = t;
+    else if (t > 0 && (cur === 0 || t < cur)) ach[id] = t;
+  }
+  for (const id of Object.keys(base.achievements)) if (!(id in mine.achievements)) delete ach[id];
+  // Collection / bestiary counts.
+  out.collection = mergeCounts(theirs.collection, mine.collection, base.collection, ['seen', 'collected']);
+  out.bestiary = mergeCounts(theirs.bestiary, mine.bestiary, base.bestiary, ['seen', 'killed']);
+  // Lifetime stats.
+  const st = out.stats;
+  const mst = mine.stats;
+  const bst = base.stats;
+  for (const k of SUM_STATS) st[k] = addDelta(theirs.stats[k], mst[k], bst[k]);
+  for (const k of MAX_STATS) st[k] = maxDelta(theirs.stats[k], mst[k], bst[k]) ?? 0;
+  st.winStreak = pick(theirs.stats.winStreak, mst.winStreak, bst.winStreak);
+  st.bestWinStreak = Math.max(st.bestWinStreak, st.winStreak);
+  st.charRuns = mergeNumbers(theirs.stats.charRuns, mst.charRuns, bst.charRuns, () => false);
+  st.charWins = mergeNumbers(theirs.stats.charWins, mst.charWins, bst.charWins, () => false);
+  st.counters = mergeNumbers(theirs.stats.counters, mst.counters, bst.counters, (id) => id.startsWith('max'));
+  const daily = Object.create(null) as Record<string, DailyResult>;
+  for (const date of new Set([...Object.keys(theirs.stats.daily), ...Object.keys(mst.daily)])) {
+    const d = mergeDaily(theirs.stats.daily[date], mst.daily[date], bst.daily[date]);
+    if (d) daily[date] = d;
+  }
+  st.daily = daily;
+  // Unknown stats keys and unknown root fields.
+  const known = new Set<string>([...STAT_KEYS, 'daily', 'charWins', 'charRuns', 'counters']);
+  const sr = st as unknown as Record<string, unknown>;
+  const mr = mst as unknown as Record<string, unknown>;
+  const br = bst as unknown as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(sr), ...Object.keys(mr)])) if (!known.has(k)) sr[k] = pick(sr[k], mr[k], br[k]);
+  for (const k of new Set([...Object.keys(out.extra), ...Object.keys(mine.extra)])) {
+    out.extra[k] = pick(out.extra[k], mine.extra[k], base.extra[k]);
+  }
+  // Normalized once more (seen >= collected, streak records, clamps).
+  return cloneMeta(out);
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /** UTC calendar date `YYYY-MM-DD` (the daily run's key). */
@@ -425,6 +578,8 @@ export interface MetaChange {
   achievements: string[];
   /** Anything else (stats, collection, bestiary, daily, reset, import). */
   other: boolean;
+  /** The change came from another tab's save (merged by `syncFromStorage`): re-apply settings, rebuild caches. */
+  external: boolean;
 }
 
 export type MetaListener = (state: Readonly<MetaState>, change: Readonly<MetaChange>) => void;
@@ -454,8 +609,14 @@ export class MetaStore {
   private lastSaveAt = -Infinity;
   private retryAt = -Infinity;
   private changed = false;
-  private readonly change: MetaChange = { settings: false, unlocked: [], achievements: [], other: false };
+  private readonly change: MetaChange = { settings: false, unlocked: [], achievements: [], other: false, external: false };
   private readonly listeners = new Set<MetaListener>();
+  /** What this tab last read from / wrote to storage, serialized: the merge base (see mergeMeta). */
+  private baseJson: string;
+  /** A reset / an import is waiting to be written: it replaces storage as it is, never merged. */
+  private replacing = false;
+  /** Saves that merged another tab's progress first (diagnostics / tests). */
+  merges = 0;
 
   constructor(opts: MetaStoreOptions) {
     this.slot = new SaveSlot(opts.storage, opts.key ?? META_KEY, META_MIGRATIONS);
@@ -464,6 +625,7 @@ export class MetaStore {
     this.retryMs = opts.retryMs ?? 10000;
     this.loaded = this.slot.load();
     this.meta = this.loaded.data === null ? defaultMeta() : normalizeMeta(this.loaded.data);
+    this.baseJson = JSON.stringify(serializeMeta(this.meta));
     // Write the repaired / upgraded state back at the end of the first tick: a damaged save starting fresh
     // (its text is kept as `.corrupt`) must not greet the player again on every launch, and an older
     // version is stored in the current format once (the old text becomes the `.bak`).
@@ -667,21 +829,64 @@ export class MetaStore {
     return true;
   }
 
-  /** Wipe progress (unlocks, achievements, collection, bestiary, stats); settings stay. */
+  /** Wipe progress (unlocks, achievements, collection, bestiary, stats); settings stay. Never merged with another tab. */
   resetProgress(): void {
     const settings = this.meta.settings;
     this.meta = defaultMeta();
     this.meta.settings = settings;
     this.change.other = true;
+    this.replacing = true;
     this.touch(true);
   }
 
-  /** Replace everything (save import). Saved at the end of the tick; call `flush()` to save now. */
+  /** Replace everything (save import). Saved at the end of the tick; call `flush()` to save now. Never merged. */
   replaceState(next: MetaState): void {
     this.meta = next;
     this.change.settings = true;
     this.change.other = true;
+    this.replacing = true;
     this.touch(true);
+  }
+
+  /**
+   * Another tab saved (the window 'storage' event on the meta key): merges its progress into this tab's at once and
+   * tells the listeners (`change.external`; settings too when they changed). Returns true when anything changed. This
+   * tab's own unsaved progress stays pending and is written (merged) at its next save. A reset / import waiting to be
+   * written ignores it (it replaces storage anyway).
+   */
+  syncFromStorage(): boolean {
+    if (this.replacing) return false;
+    const before = this.meta.settings;
+    const res = this.mergeFromStorage();
+    if (!res) return false;
+    if (res.theirsJson === res.mergedJson) {
+      // Nothing of ours left to write: storage already holds exactly this state.
+      this.dirtyFlag = false;
+      this.urgentFlag = false;
+    }
+    if (!same(before, this.meta.settings)) this.change.settings = true;
+    this.change.other = true;
+    this.change.external = true;
+    this.changed = true;
+    return true;
+  }
+
+  /**
+   * Merges storage into memory when another tab wrote it since this tab last read / wrote it (null otherwise). The
+   * base becomes what storage holds; the slot adopts that text (the next write backs it up).
+   */
+  private mergeFromStorage(): { theirsJson: string; mergedJson: string } | null {
+    const ext = this.slot.readExternal();
+    if (!ext) return null;
+    const theirs = normalizeMeta(ext.data);
+    const base = normalizeMeta(JSON.parse(this.baseJson));
+    const merged = mergeMeta(base, this.meta, theirs);
+    this.meta = merged;
+    const theirsJson = JSON.stringify(serializeMeta(theirs));
+    this.baseJson = theirsJson;
+    this.slot.adopt(ext.text);
+    this.merges++;
+    return { theirsJson, mergedJson: JSON.stringify(serializeMeta(merged)) };
   }
 
   /** For code that edited `state` directly. `urgent` = save at the end of this tick. */
@@ -726,8 +931,17 @@ export class MetaStore {
   }
 
   private save(t: number): boolean {
-    const r = this.slot.write(serializeMeta(this.meta));
+    // Another tab may have saved since this one last read / wrote: keep its progress too (a reset / import replaces).
+    if (!this.replacing && this.mergeFromStorage()) {
+      this.change.other = true;
+      this.change.external = true;
+      this.changed = true;
+    }
+    const json = JSON.stringify(serializeMeta(this.meta));
+    const r = this.slot.writeJson(json);
     if (r.ok) {
+      this.baseJson = json;
+      this.replacing = false;
       if (!r.skipped) this.saves++;
       this.dirtyFlag = false;
       this.urgentFlag = false;
@@ -760,6 +974,7 @@ export class MetaStore {
     }
     c.settings = false;
     c.other = false;
+    c.external = false;
     c.unlocked.length = 0;
     c.achievements.length = 0;
   }

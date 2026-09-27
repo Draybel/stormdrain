@@ -6,6 +6,9 @@ import { PERF_SLACK } from '../tests/helpers/perf';
  * the button's centre and BACK returns; the seed modal takes typed input and starts a seeded run; settings
  * survive a reload; the pause menu shows the stats and the items; the daily run's one scored attempt; save
  * export / import; retry-same-seed; keyboard navigation. No console errors anywhere.
+ * Polish batch 3 (B3-5): the DOM modal on an iPhone — Import opens without the keyboard, PASTE fills and checks the
+ * code, a backdrop tap never throws a pasted code away, the panel follows a rotation to portrait (NEXT still works)
+ * and back, and nothing can be pinch-zoomed inside it.
  */
 
 function trackErrors(page: Page): string[] {
@@ -368,6 +371,131 @@ test('export a save code, then import it back (with a bad code first)', async ({
   await waitScene(page, 'settings');
   await page.waitForFunction(() => window.__SD.toast()?.title === 'SAVE IMPORTED');
   expect((await page.evaluate(() => window.__SD.meta())).achievements).toContain('first-splash');
+  expect(errors).toEqual([]);
+});
+
+/** The open modal panel's rect (CSS px). */
+async function panelRect(page: Page): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await page.locator('[data-sd-modal] .sdm-panel').boundingBox();
+  expect(box).not.toBeNull();
+  return box!;
+}
+
+test('B3-5: Import opens without the keyboard; PASTE fills and checks the code; a backdrop tap keeps a pasted code', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('./');
+  await waitScene(page, 'title');
+  await page.evaluate(() => window.__SD.save.achievement('first-splash'));
+  await tap(page, 'title.settings');
+  await waitScene(page, 'settings');
+  await tap(page, 'settings.export');
+  await waitScene(page, 'modal');
+  const code = (await page.evaluate(() => window.__SD.modal())).value;
+  await page.locator('[data-sd-modal] [data-action="done"]').tap();
+  await waitScene(page, 'settings');
+  // A clipboard that holds the code (WebKit can't grant clipboard-read to a test: stub it).
+  await page.evaluate((c) => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => c, writeText: async () => {} } });
+  }, code);
+
+  await tap(page, 'settings.import');
+  await waitScene(page, 'modal');
+  // No focused field (the iPhone keyboard would cover the buttons); the buttons sit above the field.
+  expect(await page.evaluate(() => document.activeElement?.tagName ?? '')).not.toBe('TEXTAREA');
+  const order = await page.evaluate(() => {
+    const panel = document.querySelector('[data-sd-modal] .sdm-panel')!;
+    const kids = [...panel.children].map((c) => (c.tagName === 'TEXTAREA' ? 'field' : c.classList.contains('sdm-actions') ? 'actions' : ''));
+    return kids.filter((k) => k);
+  });
+  expect(order).toEqual(['actions', 'field']);
+  // The field allows the iOS paste callout; the layer blocks pinch-zoom.
+  const css = await page.evaluate(() => ({
+    field: getComputedStyle(document.querySelector('[data-sd-modal] textarea')!).getPropertyValue('-webkit-touch-callout'),
+    root: getComputedStyle(document.querySelector('[data-sd-modal]')!).touchAction,
+    panel: getComputedStyle(document.querySelector('[data-sd-modal] .sdm-panel')!).touchAction,
+  }));
+  expect(css.root).toBe('pan-x pan-y');
+  expect(css.panel).toBe('pan-x pan-y');
+  if (css.field) expect(css.field).toBe('default');
+  // A backdrop tap with an EMPTY field cancels (the old behaviour for a stray open).
+  const box = await panelRect(page);
+  const backdrop = { x: Math.max(4, box.x - 20), y: box.y + 20 };
+  await page.touchscreen.tap(backdrop.x, backdrop.y);
+  await waitScene(page, 'settings');
+  // PASTE: fills the field and checks it at once → the confirmation.
+  await tap(page, 'settings.import');
+  await waitScene(page, 'modal');
+  await page.locator('[data-sd-modal] [data-action="paste"]').tap();
+  await page.locator('[data-sd-modal] [data-action="replace"]').waitFor();
+  await page.locator('[data-sd-modal] [data-action="back"]').tap();
+  expect((await page.evaluate(() => window.__SD.modal())).value).toBe(code);
+  // A backdrop tap with the code in the field keeps the modal AND the code (it only dismisses the keyboard).
+  await page.locator('[data-sd-modal] textarea').focus();
+  await page.touchscreen.tap(backdrop.x, backdrop.y);
+  const m = await page.evaluate(() => window.__SD.modal());
+  expect(m.open).toBe(true);
+  expect(m.value).toBe(code);
+  expect(await page.evaluate(() => document.activeElement?.tagName ?? '')).not.toBe('TEXTAREA');
+  // A refused clipboard: a plain-language note, and the field takes a manual paste.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: () => Promise.reject(new Error('NotAllowedError')), writeText: async () => {} },
+    });
+  });
+  await page.locator('[data-sd-modal] textarea').fill('');
+  await page.locator('[data-sd-modal] [data-action="paste"]').tap();
+  await page.waitForFunction(() => window.__SD.modal().error);
+  expect((await page.evaluate(() => window.__SD.modal())).note).toContain('LONG-PRESS');
+  await page.locator('[data-sd-modal] textarea').fill(code);
+  await page.locator('[data-sd-modal] [data-action="check"]').tap();
+  await page.locator('[data-sd-modal] [data-action="replace"]').tap();
+  await waitScene(page, 'settings');
+  await page.waitForFunction(() => window.__SD.toast()?.title === 'SAVE IMPORTED');
+  expect((await page.evaluate(() => window.__SD.meta())).achievements).toContain('first-splash');
+  expect(errors).toEqual([]);
+});
+
+test('B3-5: ENTER SEED survives a rotation to portrait (inside the screen, NEXT works) and back', async ({ page }) => {
+  const errors = trackErrors(page);
+  const land = page.viewportSize()!;
+  await page.goto('./');
+  await waitScene(page, 'title');
+  await tap(page, 'title.seed');
+  await waitScene(page, 'modal');
+  await page.waitForFunction(() => document.activeElement?.tagName === 'INPUT');
+  await page.keyboard.type('ABCD2345');
+  const landscape = await panelRect(page);
+  const view = await page.evaluate(() => window.__SD.view);
+  expect(landscape.x).toBeGreaterThanOrEqual(view.x - 0.5);
+  expect(landscape.x + landscape.width).toBeLessThanOrEqual(view.x + view.w + 0.5);
+  // Rotate to portrait: the panel is laid out for the tall screen (no rotate card behind it).
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.waitForFunction(() => window.__SD.portrait);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const portrait = await panelRect(page);
+  expect(portrait.x).toBeGreaterThanOrEqual(0);
+  expect(portrait.y).toBeGreaterThanOrEqual(0);
+  expect(portrait.x + portrait.width).toBeLessThanOrEqual(393 + 0.5);
+  expect(portrait.y + portrait.height).toBeLessThanOrEqual(852 + 0.5);
+  expect(portrait.width).toBeGreaterThan(300);
+  // Back to landscape: the landscape layout returns.
+  await page.setViewportSize(land);
+  await page.waitForFunction(() => !window.__SD.portrait);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const again = await panelRect(page);
+  expect(Math.abs(again.x - landscape.x)).toBeLessThan(1);
+  expect(Math.abs(again.width - landscape.width)).toBeLessThan(1);
+  // Portrait once more, and NEXT (a real tap) still works there.
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.waitForFunction(() => window.__SD.portrait);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  await page.locator('[data-sd-modal] [data-action="start"]').tap();
+  await waitScene(page, 'chars');
+  expect((await page.evaluate(() => window.__SD.modal())).open).toBe(false);
+  await page.setViewportSize(land);
+  await page.waitForFunction(() => !window.__SD.portrait);
+  expect(((await page.evaluate(() => window.__SD.screen().info)) as { seed: { code: string } }).seed.code).toBe('ABCD2345');
   expect(errors).toEqual([]);
 });
 

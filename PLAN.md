@@ -272,6 +272,13 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       yield, important bursts never refused, bucketed drawing); no START freeze (61 canvases at START instead of ~2,500, the
       floor's chapter warmed 2 ms a frame: rAF gap 441 → 38 ms); ImageData for glows, circles, fonts and shots; SFX voice
       priorities with stealing (tests/engine, particles, render-cache, warmup, sfx; e2e attack / menus)
+- [x] Polish batch 3 — mobile UX, saving and PWA (owner priority 2): the Mobile UX pass below, plus no lost progress —
+      a checkpoint at every room clear (a beaten boss stays beaten through Continue) and a refresh of a settled cleared
+      room on pause / background / quit, a crash guard in the loop (back to the title with a toast, the last good save
+      kept), the Safari-tab warning + EXPORT shortcut and the home-screen app's one-time IMPORT hint, one-tap RELOAD for
+      updates (never mid-run), and two tabs that merge their meta progress instead of wiping it (three-way merge on
+      every write + 'storage' events) (docs/saving.md, DECISIONS "Polish batch 3"; tests/mobile-ux, input, save-continue,
+      save-meta; e2e touch / hud / save / menus / pwa)
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 
 ## Phase 8 — Polish
@@ -281,7 +288,14 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       the big beats, no white-out in the lance, hits that stagger light foes, enemy shots that never look like yours,
       synergies that never weaken the aimed attack (Tiny Moon / Crown of Storms, melee and charge riders, homing lances, the
       Lasso), a recharging meter; tests/juice, stagger, attack-dps, shot-looks; e2e attack / menus / enemies)
-- [ ] Mobile UX pass (button sizes, safe areas, tap targets), e2e re-run on both iPhone viewports
+- [x] Mobile UX pass (button sizes, safe areas, tap targets), e2e re-run on both iPhone viewports
+      (polish batch 3: sticks take the unclamped point — full speed from the letterbox, firing from the right bar —; the
+      aim stick turns in ≈ 13 px (12 px follow, 51°) or at once on a flick; the perf overlay's gesture is a three-finger
+      hold outside play; stick zones no button's hit rect may enter, the thumb column bottom-aligned above the resting
+      thumb, second columns / closed gaps / a capped size when full; every run button >= 44 pt on both profiles
+      (BUTTON SIZE 100-150 %, the base from the display scale); the DOM modal usable over the iPhone keyboard (no
+      auto-focus on Import, PASTE, buttons above the field, visual-viewport placement), in portrait and without
+      pinch-zoom; e2e checked on the Safari tab and the home-screen app with its insets)
 
 ## Phase 9 — Docs & finish
 - [x] README.md (beginner GitHub + Pages + iPhone home screen guide; separate saves warning)

@@ -13,8 +13,10 @@
  *
  * Saving (Phase 4A, meta/save.ts): a run scene is the save host's run — a new run (or a Continue from a
  * snapshot) is tracked by the meta tracker (collection, bestiary, stats, achievements), saved right away
- * and after every room entry (door, trapdoor, grate: the snapshot is the room-entry checkpoint); death
- * and victory clear the save. Transformations get their fanfare + big banner, first synergies their pill.
+ * and after every room entry (door, trapdoor, grate: the snapshot is the room-entry checkpoint) and — polish
+ * batch 3 — every room clear (the run checkpoints the cleared room); death and victory clear the save. A scene that
+ * crashed (main.ts's crash guard) never saves again, so the last good checkpoint stays. Transformations get their
+ * fanfare + big banner, first synergies their pill.
  */
 
 import type { InputState } from '../engine/inputState';
@@ -50,7 +52,7 @@ import type { App, RunEndInfo, RunStart } from './app';
 import type { Scene } from './scene';
 import { characterDashes } from '../sim/mechanics';
 import { CM_NONE } from '../sim/attack/profile';
-import { createRunButtons, drawDashCooldown, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
+import { createRunButtons, drawDashCooldown, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, minTapSize, type RunButtons } from './touchControls';
 import { tickButtons, uiButton, type UiButton } from './widgets';
 
 const LABEL: TextStyle = { color: UI.textDim, shadow: UI.shadow };
@@ -170,6 +172,11 @@ export class RunScene implements Scene {
   readonly resumed: boolean;
   /** The run save was cleared (the run ended). */
   private saveCleared = false;
+  /**
+   * An exception escaped this scene (main.ts's crash guard): its state can't be trusted, so it is never saved again —
+   * the stored save stays the last good checkpoint.
+   */
+  crashed = false;
 
   /**
    * `snapshot`: continue a saved run (Sim.fromSnapshot — throws when the snapshot can't be restored;
@@ -235,7 +242,7 @@ export class RunScene implements Scene {
   /** The run the save service may write now: a floor run in progress (never the yard, never a finished run). */
   savableSim(): Sim | null {
     const sim = this.sim;
-    if (this.mode !== 'run' || this.ending || this.saveCleared || !sim.run || sim.run.data.won || sim.world.player.dead) return null;
+    if (this.mode !== 'run' || this.crashed || this.ending || this.saveCleared || !sim.run || sim.run.data.won || sim.world.player.dead) return null;
     return sim;
   }
 
@@ -295,15 +302,17 @@ export class RunScene implements Scene {
     this.onLayout();
   }
 
+  /**
+   * Lays the run buttons out for the current settings AND display (polish batch 3): the 44 pt floor in game px depends
+   * on the display scale, so main.ts calls this again (`scenes.relayout()`) whenever the layout changes. The bell sits
+   * near the consumable button, clear of the stick zone.
+   */
   onLayout(): void {
     const s = this.app.settings.value;
-    layoutRunButtons(this.ui, s.buttonScale, s.leftHanded, characterDashes(this.sim.world.player.character));
-    // The bell sits under the consumable button (left margin; right margin when left-handed).
-    const c = this.ui.consumable;
-    this.fight.x = c.x;
-    this.fight.y = c.y + c.h + 6;
-    this.fight.w = c.w;
-    this.fight.h = c.h;
+    layoutRunButtons(this.ui, s.buttonScale, s.leftHanded, characterDashes(this.sim.world.player.character), {
+      minSize: minTapSize(this.app.display.view.scale),
+      bell: this.fight,
+    });
   }
 
   /** Training-yard arena: a wave of chapter 1 enemies (F key / bell button). */
@@ -412,6 +421,7 @@ export class RunScene implements Scene {
     sim.step(input);
     if (sim.run) this.app.save.tracker.afterStep();
     let entered = false;
+    let cleared = false;
     let fanfare = false;
     const q = sim.events;
     for (let i = 0; i < q.count; i++) {
@@ -458,6 +468,7 @@ export class RunScene implements Scene {
         case 'roomClear':
           this.say('ROOM CLEARED!');
           if (sim.run) this.playRoomMusic(false);
+          cleared = true;
           break;
         case 'say':
           this.say(e.id, 2);
@@ -523,8 +534,9 @@ export class RunScene implements Scene {
       if (sim.run) this.clearSave();
       if (!sim.run && p.deathTime > 2.2) this.restartRoom();
       else if (sim.run && p.deathTime > DEATH_WAIT) this.endRun('death');
-    } else if (entered && sim.run) {
-      // Every room entry is a checkpoint (Continue resumes in this room).
+    } else if ((entered || cleared) && sim.run) {
+      // Every room entry is a checkpoint (Continue resumes in this room), and so is every clear (the run took one of
+      // the cleared room: its trapdoor, rewards and loot survive the app being closed).
       this.app.save.saveRunNow();
     }
   }

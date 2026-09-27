@@ -117,6 +117,16 @@ then checks the character's mechanic in real play), and a new player's locked ro
 Content merge 2 (`bosses`, home-screen profile): one boss of each pack and a final taken through every phase in WebKit —
 each phase wears its own look (`BossHook.looks`, pre-rendered), screenshots to `e2e/__screens__/boss-*`, no errors.
 Screenshots from these land in `e2e/__screens__` (git-ignored) for a human look.
+Polish batch 3 (mobile UX, saving, PWA): `touch` — thumbs on the letterbox (the home-screen insets emulated on
+`#safe-probe`; a Safari tab's own black bars) reach full speed / fire at 0°, two sticks + a BOMB tap leave the perf
+overlay alone while the three-finger hold on a menu toggles it; `hud` — right / left-handed × 75-150 % × with / without
+Pip's DASH on both profiles (and with the insets): no HIT rect (`ButtonInfo.pad`) on a resting stick ring
+(`__SD.stickRests()`), another button or the HUD, every run button >= 44 CSS px, and a touch on each ring centre + 6 px
+gets its stick (fires, no bomb, no dash); `save` — a cleared boss room survives a reload, a background in a cleared room
+keeps what was picked up, an injected exception returns to the title with the save untouched; `menus` — Import without
+the keyboard, PASTE with a stubbed clipboard, backdrop taps, ENTER SEED through a rotation to portrait and back; `pwa` —
+`navigator.standalone` stubbed by an init script (Safari tab / home-screen app notices) and a simulated update
+(`__SD.debug.pwaUpdate()`) → RELOAD → Continue.
 
 Stable by construction: wait on state (`waitForFunction` on `__SD`), never on fixed sleeps longer than a frame or two,
 and every run is seeded or driven by debug actions.

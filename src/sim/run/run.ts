@@ -9,6 +9,10 @@
  * The checkpoint (a JSON string of RunData + world + player) is what `snapshot()` returns: restoring
  * runs the very same enterCurrent() from the very same state, so play continues identically.
  * Everything that happens on entry (spawns, the floorStart trigger…) therefore lives in enterCurrent.
+ * Polish batch 3: a room that becomes CLEARED is checkpointed again (saveRoom + checkpoint at the end of
+ * onWaveCleared: the trapdoor, the reward pedestals, the nook, the loot), and `refreshCheckpoint()` re-takes it in a
+ * settled cleared room (pause / background / quit), keeping `entrySide`: a restore walks her in through the door she
+ * came by, into the room as it was. Never mid-fight (no save-scumming).
  *
  * Routes (DESIGN "Hidden routes"): boss trapdoors keep the track; a cracked drain grate (secret room,
  * or the boss room after the boss — bomb it open) drops to the ALT track. On half the runs main floor 1's
@@ -206,7 +210,7 @@ export class Run {
   private readonly unlockedSet: ReadonlySet<string>;
   /** Mirror of data.seen for quick lookups. */
   private readonly seenSet: Set<string>;
-  /** The state at the last room entry (JSON). */
+  /** The state at the last room entry — or the last clear / refresh of a cleared room (JSON). */
   private checkpointJson = '';
   /** Door transitions wait this long after an entry (s). */
   private doorCooldown = 0;
@@ -328,9 +332,29 @@ export class Run {
     this.data.seen.push(id);
   }
 
-  /** The run as it was when the player entered the current room (JSON-safe, a fresh copy). */
+  /**
+   * The run at the last checkpoint (JSON-safe, a fresh copy): as she entered the current room, or — once it was cleared
+   * — as it stood at the clear / the last {@link refreshCheckpoint}.
+   */
   snapshot(): RunSnapshot {
     return JSON.parse(this.checkpointJson) as RunSnapshot;
+  }
+
+  /**
+   * Polish batch 3: re-takes the checkpoint in a SETTLED room — cleared, no wave running or due, no boss dying, no
+   * teleport pending, the run neither won nor lost — so what she picked up, bought or opened after the clear survives
+   * a save (the run scene's pause / background / quit saves call this first). The entry side stays, so a restore walks
+   * her in through the door she came by, into the room as it is now. Mid-fight it does nothing and returns false:
+   * progress inside an unfinished fight is never saved.
+   */
+  refreshCheckpoint(): boolean {
+    const w = this.host.world;
+    const d = this.data;
+    if (d.won || w.player.dead || !this.state.cleared) return false;
+    if (this.fighting || this.pendingWaveT > 0 || this.pendingTeleport >= 0 || w.arena.active || bossDying(w)) return false;
+    this.saveRoom(false);
+    this.checkpoint();
+    return true;
   }
 
   private checkpoint(): void {
@@ -377,7 +401,7 @@ export class Run {
     if (floor > d.floor) d.stats.floorsCleared++;
     w.events.emit('trapdoor', x, y, 1, d.floor, via);
     w.events.emit('sfx', x, y, 0, 0, 'trapdoor');
-    this.saveRoom();
+    this.saveRoom(true);
     this.startFloor(floor, track);
   }
 
@@ -719,13 +743,14 @@ export class Run {
   }
 
   /**
-   * Remembers the room being left: tiles, pickups, pedestals. Leaving the start room (a door, a teleport) seals
-   * its hidden-route grate for good: main floor 1 can't be looted first and then replayed on the alt track.
+   * Remembers the room's tiles, pickups and pedestals: the room being left (`leaving`), or a cleared room being
+   * checkpointed where she stands. Leaving the start room (a door, a teleport) seals its hidden-route grate for good:
+   * main floor 1 can't be looted first and then replayed on the alt track (a checkpoint inside it leaves it open).
    */
-  private saveRoom(): void {
+  private saveRoom(leaving: boolean): void {
     const w = this.host.world;
     const st = this.state;
-    if (this.room.type === 'start') st.grate = 0;
+    if (leaving && this.room.type === 'start') st.grate = 0;
     st.grid = encodeGrid(w.room);
     st.pickups = [];
     for (let i = 0; i < w.pickups.count; i++) {
@@ -866,6 +891,12 @@ export class Run {
     if (room.type === 'boss') this.bossDefeated(st);
     if (room.type === 'miniboss') this.minibossDefeated();
     this.updateDoors();
+    // The room is finished: a checkpoint of it as it stands (rewards, trapdoor, nook, loot), so a Continue never
+    // fights a boss again or loses what the clear gave. The entry side stays (she walks back in through her door).
+    if (!this.data.won) {
+      this.saveRoom(false);
+      this.checkpoint();
+    }
   }
 
   private placeTrapdoor(age: number): void {
@@ -1149,7 +1180,7 @@ export class Run {
       this.payToll();
       if (w.player.dead) return false;
     }
-    this.saveRoom();
+    this.saveRoom(true);
     d.current = dest;
     d.entrySide = destSide;
     this.checkpoint();
@@ -1400,7 +1431,7 @@ export class Run {
     const dest = this.pendingTeleport;
     this.pendingTeleport = -1;
     if (!d.rooms[dest] || dest === d.current) return;
-    this.saveRoom();
+    this.saveRoom(true);
     d.current = dest;
     const side = arrivalSide(d.layout.rooms[dest]!);
     d.entrySide = side >= 0 ? side : ENTRY_NO_DOOR;
@@ -1421,7 +1452,7 @@ export class Run {
     const d = this.data;
     const r = d.layout.rooms[room];
     if (!r || !d.rooms[room]) return;
-    this.saveRoom();
+    this.saveRoom(true);
     d.current = room;
     d.entrySide = firstDoorSide(r);
     this.checkpoint();

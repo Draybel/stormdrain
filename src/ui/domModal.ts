@@ -6,6 +6,14 @@
  * reaches the game) holding a pixel-styled panel placed inside the game image. Text selection and typing are
  * allowed inside it only; the game's keyboard handler ignores keys aimed at it (engine/input.ts). While it is
  * open `onChange(true)` lets main.ts push a canvas scene that blocks the game's buttons and keys.
+ *
+ * iPhone polish (batch 3): the panel is placed against the VISUAL viewport (the keyboard shrinks it: `visualViewport`
+ * resize / scroll re-place it) and, in portrait, against the whole screen instead of the (tiny) game image — main.ts
+ * re-places it whenever the display changes and keeps the rotate card out from behind it. A modal may skip the
+ * auto-focus and put its actions above the field (Import: PASTE reads the clipboard inside the tap). A backdrop tap
+ * only dismisses the keyboard while the field holds typed text (a pasted 14 KB code is never thrown away by a stray
+ * tap); it cancels when the field is empty. No pinch-zoom inside (`touch-action: pan-x pan-y`; gesture events are
+ * blocked by engine/input.ts), so the game can never be left zoomed in.
  */
 
 import type { Display } from '../engine/display';
@@ -41,6 +49,10 @@ export interface ModalSpec {
   actions: ModalAction[];
   /** Enter in a single-line field. */
   submit?: () => void;
+  /** Focus the field when the modal opens (raises the iPhone keyboard); default true. Import: false. */
+  autoFocus?: boolean;
+  /** The action row above the field instead of below it (Import: reachable over the iPhone keyboard). */
+  actionsFirst?: boolean;
   /** Escape / tapping outside the panel. */
   cancel: () => void;
   /** The field changed (live validation). */
@@ -48,17 +60,17 @@ export interface ModalSpec {
 }
 
 const CSS = `
-[data-sd-modal]{position:fixed;inset:0;z-index:20;background:rgba(4,5,10,.45);touch-action:manipulation;
+[data-sd-modal]{position:fixed;inset:0;z-index:20;background:rgba(4,5,10,.45);touch-action:pan-x pan-y;
   -webkit-user-select:none;user-select:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   -webkit-text-size-adjust:100%;overflow:auto;overscroll-behavior:contain}
-.sdm-panel{position:absolute;box-sizing:border-box;background:#1a2031;border:3px solid #56648a;border-radius:2px;
+.sdm-panel{position:absolute;box-sizing:border-box;background:#1a2031;border:3px solid #56648a;border-radius:2px;touch-action:pan-x pan-y;
   box-shadow:0 4px 0 #07080d,inset 0 2px 0 #2a3350;color:#e9edf7;padding:12px 14px 12px;text-transform:uppercase;
   letter-spacing:.05em}
 .sdm-title{color:#ffcf57;font-weight:700;font-size:18px;margin:0 0 6px;text-shadow:2px 2px 0 #2a1a08}
 .sdm-text{font-size:12px;line-height:1.45;margin:0 0 6px;color:#c9d3f0}
 .sdm-field{display:block;box-sizing:border-box;width:100%;margin:4px 0 4px;background:#0b0f18;color:#fff3c4;
   border:2px solid #56648a;border-radius:0;padding:8px 10px;font:600 16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  -webkit-user-select:text;user-select:text;touch-action:auto;outline:none;-webkit-appearance:none;appearance:none}
+  -webkit-user-select:text;user-select:text;touch-action:auto;-webkit-touch-callout:default;outline:none;-webkit-appearance:none;appearance:none}
 .sdm-field:focus{border-color:#ffd76a}
 .sdm-seed{font-size:24px;letter-spacing:.3em;text-transform:uppercase;text-align:center}
 textarea.sdm-field{font-size:12px;line-height:1.35;word-break:break-all;resize:none;text-transform:none;letter-spacing:0}
@@ -66,6 +78,7 @@ textarea.sdm-field{font-size:12px;line-height:1.35;word-break:break-all;resize:n
 .sdm-error{color:#ff8a8a}
 .sdm-ok{color:#8fe0a0}
 .sdm-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px}
+.sdm-actions-top{margin:4px 0 8px}
 .sdm-btn{min-height:44px;min-width:92px;padding:0 14px;background:#1a2031;color:#e9edf7;border:2px solid #56648a;
   border-radius:0;box-shadow:0 3px 0 #07080d;font:700 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   text-transform:uppercase;letter-spacing:.05em;touch-action:manipulation;cursor:pointer;-webkit-appearance:none;appearance:none}
@@ -86,6 +99,9 @@ export class DomModal {
   private spec: ModalSpec | null = null;
   /** Main.ts: a modal opened (true) / closed (false). */
   onChange: ((open: boolean) => void) | null = null;
+  /** The visual viewport listeners while open (the iPhone keyboard moves / shrinks it). */
+  private viewportHooked = false;
+  private readonly onViewport = (): void => this.place();
 
   constructor(display: Display) {
     this.display = display;
@@ -122,8 +138,15 @@ export class DomModal {
       const root = document.createElement('div');
       root.setAttribute('data-sd-modal', spec.kind);
       root.addEventListener('pointerdown', (e) => {
-        // A tap on the dimmed backdrop (outside the panel) cancels.
-        if (e.target === root) this.spec?.cancel();
+        if (e.target !== root) return;
+        // A tap on the dimmed backdrop (outside the panel): with typed / pasted text in the field it only dismisses
+        // the keyboard (what a tap outside means on a phone); an empty field cancels.
+        const el = this.fieldEl;
+        if (el && !el.readOnly && el.value.trim() !== '') {
+          if (document.activeElement === el) el.blur();
+          return;
+        }
+        this.spec?.cancel();
       });
       root.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -153,6 +176,21 @@ export class DomModal {
       panel.appendChild(p);
     }
     this.fieldEl = null;
+    const actions = document.createElement('div');
+    actions.className = `sdm-actions${spec.actionsFirst ? ' sdm-actions-top' : ''}`;
+    for (const a of spec.actions) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `sdm-btn${a.kind === 'primary' ? ' sdm-primary' : a.kind === 'danger' ? ' sdm-danger' : ''}`;
+      b.textContent = a.label;
+      b.setAttribute('data-action', a.id);
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        a.run();
+      });
+      actions.appendChild(b);
+    }
+    if (spec.actionsFirst) panel.appendChild(actions);
     if (spec.field) {
       const f = spec.field;
       const el = f.multiline ? document.createElement('textarea') : document.createElement('input');
@@ -197,29 +235,17 @@ export class DomModal {
     note.textContent = spec.note ?? '';
     panel.appendChild(note);
     this.noteEl = note;
-    const actions = document.createElement('div');
-    actions.className = 'sdm-actions';
-    for (const a of spec.actions) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = `sdm-btn${a.kind === 'primary' ? ' sdm-primary' : a.kind === 'danger' ? ' sdm-danger' : ''}`;
-      b.textContent = a.label;
-      b.setAttribute('data-action', a.id);
-      b.addEventListener('click', (e) => {
-        e.preventDefault();
-        a.run();
-      });
-      actions.appendChild(b);
-    }
-    panel.appendChild(actions);
+    if (!spec.actionsFirst) panel.appendChild(actions);
     this.root.appendChild(panel);
     this.panel = panel;
+    this.hookViewport(true);
     this.place();
     if (!reopen) this.onChange?.(true);
     // Focus the field right away: the modal opens inside the tap's pointerup / the key press, and iOS only
-    // raises the keyboard for a focus made during a user gesture. A read-only code gets selected.
+    // raises the keyboard for a focus made during a user gesture. A read-only code gets selected. (Import skips it:
+    // the keyboard would cover its buttons, and PASTE needs none.)
     const el = this.fieldEl;
-    if (el) {
+    if (el && spec.autoFocus !== false) {
       el.focus({ preventScroll: true });
       if (el.readOnly) this.selectAll();
       // Some browsers refuse a focus while the canvas still holds the pointer capture: try once more.
@@ -229,17 +255,76 @@ export class DomModal {
     }
   }
 
-  /** Keeps the panel inside the game image (called on open and every frame while open). */
+  /**
+   * Places the panel (on open, whenever the display changes — main.ts — and when the visual viewport moves). Landscape:
+   * inside the game image. Portrait: across the whole screen under the safe-area top (the game image is tiny there).
+   * Either way it stays inside the VISUAL viewport, so the iPhone keyboard never hides it: it gets shorter and scrolls.
+   */
   place(): void {
     const p = this.panel;
     if (!p) return;
-    const v = this.display.view;
-    const w = Math.min(560, Math.max(260, v.w - 40));
-    p.style.width = `${Math.round(w)}px`;
-    p.style.left = `${Math.round(v.x + (v.w - w) / 2)}px`;
-    p.style.top = `${Math.round(v.y + 8)}px`;
-    p.style.maxHeight = `${Math.round(Math.max(160, v.h - 16))}px`;
+    const r = modalRect(this.display, visibleViewport());
+    p.style.width = `${Math.round(r.w)}px`;
+    p.style.left = `${Math.round(r.x)}px`;
+    p.style.top = `${Math.round(r.y)}px`;
+    p.style.maxHeight = `${Math.round(r.maxH)}px`;
     p.style.overflowY = 'auto';
+  }
+
+  /** The panel's rect in CSS px (tests / __SD), null when closed. */
+  get panelRect(): { x: number; y: number; w: number; h: number } | null {
+    const b = this.panel?.getBoundingClientRect();
+    return b ? { x: b.left, y: b.top, w: b.width, h: b.height } : null;
+  }
+
+  private hookViewport(on: boolean): void {
+    const vv = typeof window === 'undefined' ? undefined : window.visualViewport;
+    if (!vv || on === this.viewportHooked) return;
+    this.viewportHooked = on;
+    if (on) {
+      vv.addEventListener('resize', this.onViewport);
+      vv.addEventListener('scroll', this.onViewport);
+    } else {
+      vv.removeEventListener('resize', this.onViewport);
+      vv.removeEventListener('scroll', this.onViewport);
+    }
+  }
+
+  /** Replaces the field's text (PASTE) and reports it like typing would. */
+  setValue(text: string): void {
+    const el = this.fieldEl;
+    if (!el) return;
+    el.value = text;
+    this.spec?.onInput?.(text);
+  }
+
+  /** Focuses the field (a paste that was refused: the player pastes by hand). */
+  focusField(): void {
+    this.fieldEl?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Reads the clipboard into the field. Must be called inside the tap (iOS shows its Paste callout for it); resolves
+   * with the text, or null when the browser refused / has no clipboard API / the modal closed meanwhile.
+   */
+  pasteFromClipboard(): Promise<string | null> {
+    const clip = typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+    if (!clip?.readText) return Promise.resolve(null);
+    let read: Promise<string>;
+    try {
+      read = clip.readText();
+    } catch {
+      return Promise.resolve(null);
+    }
+    const field = this.fieldEl;
+    return read.then(
+      (text) => {
+        if (!this.isOpen || this.fieldEl !== field) return null;
+        this.setValue(text);
+        return text;
+      },
+      () => null,
+    );
   }
 
   setNote(text: string, tone: 'plain' | 'error' | 'ok' = 'plain'): void {
@@ -285,6 +370,7 @@ export class DomModal {
     if (!this.root) return;
     const active = document.activeElement;
     if (active instanceof HTMLElement && this.root.contains(active)) active.blur();
+    this.hookViewport(false);
     this.root.remove();
     this.root = null;
     this.panel = null;
@@ -298,6 +384,44 @@ export class DomModal {
   cancel(): void {
     this.spec?.cancel();
   }
+}
+
+/** The visible part of the page (CSS px): the visual viewport (the keyboard shrinks it), else the window. */
+export interface VisibleArea {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function visibleViewport(): VisibleArea {
+  const vv = typeof window === 'undefined' ? undefined : window.visualViewport;
+  if (vv && vv.width > 0 && vv.height > 0) return { x: vv.offsetLeft, y: vv.offsetTop, w: vv.width, h: vv.height };
+  const w = typeof window === 'undefined' ? 0 : window.innerWidth;
+  const h = typeof window === 'undefined' ? 0 : window.innerHeight;
+  return { x: 0, y: 0, w, h };
+}
+
+/**
+ * Where the panel goes (pure, for tests): landscape — centred over the game image, 8 px under its top; portrait — the
+ * screen's width less 24 px, under the safe-area top. `maxH` keeps it inside the visible area (it scrolls inside).
+ */
+export function modalRect(
+  d: Pick<Display, 'portrait' | 'view' | 'safe'>,
+  area: VisibleArea,
+): { x: number; y: number; w: number; maxH: number } {
+  if (d.portrait) {
+    const w = Math.max(200, area.w - 24);
+    const y = area.y + d.safe.top + 8;
+    const bottom = area.y + area.h - Math.max(8, d.safe.bottom);
+    return { x: area.x + (area.w - w) / 2, y, w, maxH: Math.max(120, bottom - y) };
+  }
+  const v = d.view;
+  const w = Math.max(200, Math.min(560, Math.max(260, v.w - 40), area.w - 16));
+  const x = Math.max(area.x + 8, Math.min(v.x + (v.w - w) / 2, area.x + area.w - 8 - w));
+  const y = Math.max(v.y + 8, area.y + 8);
+  const bottom = Math.min(v.y + v.h - 8, area.y + area.h - 8);
+  return { x, y, w, maxH: Math.max(120, bottom - y) };
 }
 
 /** Is this event target inside the DOM modal layer (the game ignores keys / gestures aimed at it)? */

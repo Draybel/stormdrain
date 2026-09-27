@@ -6,7 +6,7 @@
 export interface Settings {
   /** Free 360° aim on the shoot stick instead of 4-way snapping. */
   aim360: boolean;
-  /** On-screen button size multiplier. */
+  /** On-screen button size multiplier (1-1.5: 100 % is the 44 pt floor, ui/touchControls.ts). */
   buttonScale: number;
   /** Screen shake multiplier (0 = off). */
   shake: number;
@@ -21,10 +21,13 @@ export interface Settings {
   reduceFlashing: boolean;
 }
 
-export const BUTTON_SCALES = [0.75, 1, 1.25, 1.5] as const;
+export const BUTTON_SCALES = [1, 1.25, 1.5] as const;
 export const SHAKE_LEVELS = [1, 0.5, 0] as const;
-/** The Settings sliders' ranges and steps. */
-export const BUTTON_SCALE_MIN = 0.75;
+/**
+ * The Settings sliders' ranges and steps. BUTTON SIZE starts at 100 % (polish batch 3): 100 % is already the 44 pt floor
+ * on every screen, so the old 75-95 % steps (30-43 pt) are gone; a saved 75 % reads as 100 % (SettingsStore).
+ */
+export const BUTTON_SCALE_MIN = 1;
 export const BUTTON_SCALE_MAX = 1.5;
 export const BUTTON_SCALE_STEP = 0.05;
 export const VOLUME_STEP = 0.05;
@@ -44,13 +47,20 @@ export function defaultSettings(): Settings {
   };
 }
 
+/** Runtime settings kept in range (the slider ranges above). */
+function sanitize(s: Settings): Settings {
+  const b = Number.isFinite(s.buttonScale) ? s.buttonScale : 1;
+  s.buttonScale = Math.min(BUTTON_SCALE_MAX, Math.max(BUTTON_SCALE_MIN, b));
+  return s;
+}
+
 /** Tiny observable wrapper so systems can react to changes (aim mode, button layout, volumes). */
 export class SettingsStore {
   private current: Settings;
   private readonly listeners: ((s: Readonly<Settings>) => void)[] = [];
 
   constructor(initial: Settings = defaultSettings()) {
-    this.current = { ...initial };
+    this.current = sanitize({ ...initial });
   }
 
   get value(): Readonly<Settings> {
@@ -58,7 +68,7 @@ export class SettingsStore {
   }
 
   update(patch: Partial<Settings>): void {
-    this.current = { ...this.current, ...patch };
+    this.current = sanitize({ ...this.current, ...patch });
     for (const l of this.listeners) l(this.current);
   }
 

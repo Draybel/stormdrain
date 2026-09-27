@@ -1,6 +1,12 @@
 /**
  * Bootstrap: display + input + audio + scenes + loop + lifecycle, saves (meta progress, the run save,
  * achievements — src/meta/save.ts), toasts, the service worker, and the window.__SD test hooks.
+ *
+ * Polish batch 3: the crash guard (an exception in a scene's update / render returns to the title with a toast,
+ * never overwriting the last good run save), the PWA state (`app.pwa`: a Safari tab or the home-screen app, a waiting
+ * update → the title's RELOAD), other tabs' meta saves merged in ('storage' events), and every display change
+ * re-lays out the run buttons (their 44 pt floor depends on the scale) and the DOM modal (portrait included; the
+ * rotate card is not drawn behind an open modal).
  */
 
 import { createAudio } from './audio/engine';
@@ -10,9 +16,11 @@ import { Input } from './engine/input';
 import { installLifecycle } from './engine/lifecycle';
 import { Loop } from './engine/loop';
 import { defaultSettings, SettingsStore } from './meta/settings';
-import { fromRuntimeSettings, toRuntimeSettings } from './meta/metaState';
+import { META_KEY, fromRuntimeSettings, toRuntimeSettings } from './meta/metaState';
+import { RUN_KEY } from './meta/runSave';
 import { GameSave, installGameSave, saveRunNow } from './meta/save';
 import { createStorage, requestPersistentStorage } from './meta/storage';
+import { readPlatform, type PwaState } from './pwa/platform';
 import { registerServiceWorker } from './pwa/register';
 import { TOAST_ACHIEVEMENT, TOAST_NOTICE, ToastLayer } from './render/toasts';
 import { ParticleSystem, PARTICLE_CAP } from './render/particles';
@@ -64,6 +72,18 @@ function boot(): void {
   const perf = new PerfOverlay();
   let rotate: RotateScreen | null = null;
   let clock = 0;
+  // Where the game runs and what the PWA knows (polish batch 3): the title / settings read it.
+  const pwa: PwaState = {
+    platform: readPlatform(),
+    firstLaunch: save.meta.loaded.status === 'empty',
+    persisted: null,
+    updateReady: false,
+    reload: () => {
+      // Nothing is lost: the run (if one is up — never, from the title) and meta are written first.
+      saveRunNow();
+      location.reload();
+    },
+  };
 
   const modal = new DomModal(display);
   const nav: Nav = {
@@ -124,6 +144,11 @@ function boot(): void {
       scenes.push(new MapScene(app, sim));
     },
     settings: () => scenes.push(new SettingsScene(app)),
+    importSave: () => {
+      const s = new SettingsScene(app);
+      scenes.push(s);
+      s.startImport();
+    },
     pause: () => {
       if (scenes.top?.name !== 'run') return;
       saveRunNow();
@@ -143,7 +168,7 @@ function boot(): void {
       scenes.push(new DebugMenu(app, debugActions));
     },
   };
-  const app: App = { display, input, scenes, audio, settings, particles, shake, nav, save, toasts, modal };
+  const app: App = { display, input, scenes, audio, settings, particles, shake, nav, save, toasts, modal, pwa };
   // A DOM modal (seed entry, save export / import) blocks the canvas UI while it is open.
   modal.onChange = (open) => {
     if (open) scenes.push(new ModalScene(app));
@@ -165,6 +190,19 @@ function boot(): void {
       return run instanceof RunScene ? run.savableSim() : null;
     },
   };
+  // Another tab of the game saved (polish batch 3): its meta progress is merged in at once — and its settings applied —
+  // so this tab's next save can't wipe it. Two live runs in two tabs would overwrite each other's run save: say so.
+  save.meta.subscribe((state, change) => {
+    if (change.external && change.settings) settings.update(toRuntimeSettings(state.settings));
+  });
+  let otherTabWarned = false;
+  window.addEventListener('storage', (e) => {
+    if (e.key === META_KEY) save.syncMetaFromStorage();
+    else if (e.key === RUN_KEY && !otherTabWarned && getSim()?.run) {
+      otherTabWarned = true;
+      toasts.push(TOAST_NOTICE, 'THE GAME IS OPEN IN ANOTHER TAB', 'PLAY IN ONE AT A TIME TO KEEP YOUR RUN');
+    }
+  });
   toasts.onShow = (kind) => {
     if (kind === TOAST_ACHIEVEMENT) audio.play('achievement');
   };
@@ -218,7 +256,35 @@ function boot(): void {
   };
 
   let wasPortrait = false;
+  let layoutVersion = display.version;
+
+  // ── Crash guard (polish batch 3) ──
+  // An exception escaping a scene used to skip every later render: the game froze without a word. Now the run scene
+  // that threw is never saved again (the stored save stays its last good checkpoint: the last room entry or clear),
+  // the player is back on the title with a toast, and play goes on. Three crashes within 5 s stop the loop with a note.
+  let crashAt = -Infinity;
+  let crashes = 0;
+  const onCrash = (err: unknown, phase: 'update' | 'render'): void => {
+    console.error(`Stormdrain: an error in the game's ${phase}`, err);
+    const now = performance.now();
+    crashes = now - crashAt < 5000 ? crashes + 1 : 1;
+    crashAt = now;
+    const run = scenes.find('run');
+    if (run instanceof RunScene) run.crashed = true;
+    if (crashes >= 3) {
+      loop.stop();
+      showFatal('Stormdrain hit a problem it could not get past', err);
+      return;
+    }
+    const inRun = run instanceof RunScene && run.mode === 'run';
+    if (modal.isOpen) modal.close();
+    input.releaseAll();
+    scenes.replace(new TitleScene(app));
+    toasts.push(TOAST_NOTICE, 'SOMETHING WENT WRONG', inRun && save.hasRun() ? 'YOUR RUN WAS SAVED AT THE LAST ROOM' : 'BACK TO THE TITLE');
+  };
+
   const loop = new Loop({
+    error: onCrash,
     update(dt) {
       clock += dt;
       perf.update(dt, perfLines);
@@ -237,6 +303,13 @@ function boot(): void {
     },
     render(alpha) {
       display.update();
+      if (display.version !== layoutVersion) {
+        layoutVersion = display.version;
+        // The run buttons' 44 pt floor depends on the display scale (not re-laid out for the portrait card: rotating
+        // back changes the layout again). The DOM modal follows the display in portrait too.
+        if (!display.portrait) scenes.relayout();
+        modal.place();
+      }
       if (display.portrait) {
         if (!wasPortrait) {
           // Rotating to portrait pauses the run; it resumes from the pause menu.
@@ -244,11 +317,16 @@ function boot(): void {
           input.releaseAll();
           scenes.background();
         }
-        rotate ??= new RotateScreen();
-        display.presentOther(rotate.draw(clock));
-        return;
+        // An open DOM modal (seed entry, save export / import) stays usable in portrait, laid out for the screen:
+        // no rotate card behind it (it would sit under a panel that still takes taps).
+        if (!modal.isOpen) {
+          rotate ??= new RotateScreen();
+          display.presentOther(rotate.draw(clock));
+          return;
+        }
+      } else {
+        wasPortrait = false;
       }
-      wasPortrait = false;
       const ctx = display.ctx;
       scenes.render(ctx, alpha);
       toasts.draw(ctx, scenes.top?.toastsAtTop === true);
@@ -281,16 +359,32 @@ function boot(): void {
     run.restartRun(opts, seed, character);
     return true;
   };
-  installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions, getPresentation, restartRun });
+  // A new version finished installing in the background: the title offers RELOAD (saves first); a run is never
+  // reloaded under the player — mid-run a short toast points to the title.
+  const onUpdate = (): void => {
+    if (pwa.updateReady) return;
+    pwa.updateReady = true;
+    if (scenes.find('title') === undefined) toasts.push(TOAST_NOTICE, 'UPDATE READY', 'RELOAD FROM THE TITLE');
+  };
+  installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions, getPresentation, restartRun, pwaUpdate: onUpdate });
   scenes.replace(new TitleScene(app));
   loop.start();
 
   // Offline play + the home-screen app (production builds on secure origins only; never blocks boot).
-  void registerServiceWorker({
-    onUpdate: () => toasts.push(TOAST_NOTICE, 'GAME UPDATED', 'RESTART TO PLAY THE NEW VERSION'),
+  void registerServiceWorker({ onUpdate });
+  // Ask the browser not to evict the saves (best effort); Settings says whether a Safari tab's saves are protected.
+  void requestPersistentStorage().then((ok) => {
+    pwa.persisted = ok;
   });
-  // Ask the browser not to evict the saves (best effort).
-  void requestPersistentStorage();
+}
+
+/** The last resort (the crash guard gave up): a plain page over the canvas. */
+function showFatal(title: string, err: unknown): void {
+  const msg = document.createElement('pre');
+  msg.style.cssText =
+    'position:fixed;inset:0;z-index:30;margin:0;background:#000;color:#ccc;font:12px monospace;padding:16px;white-space:pre-wrap';
+  msg.textContent = `${title}:\n${String(err)}\n\nYour progress is saved (a run continues from its last room). Reload the page to play on.`;
+  document.body.appendChild(msg);
 }
 
 const FPS_STYLE: TextStyle = { color: '#8fe0a0', shadow: '#07080d' };

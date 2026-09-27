@@ -8,6 +8,9 @@ import { expect, test, type Page } from '@playwright/test';
  * element covers the room. Checked in the default layout, left-handed, at 150 % buttons and both at once;
  * the home-screen profile repeats it all with the iPhone 15's landscape insets (Dynamic Island + home
  * indicator) applied.
+ * Polish batch 3 (B3-2): right / left-handed × 75 / 100 / 125 / 150 % × with / without Pip's DASH — no button's HIT
+ * rect (rect + pad) touches a MOVE / SHOOT resting ring, another button or the HUD; every run button is >= 44 CSS px;
+ * and a touch on each resting ring's centre plus a 6 px drag gets its stick (the SHOOT one fires: no bomb, no dash).
  */
 
 function trackErrors(page: Page): string[] {
@@ -68,6 +71,36 @@ function overlaps(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
+function hitRect(b: Rect & { pad: number }): Rect {
+  return { x: b.x - b.pad, y: b.y - b.pad, w: b.w + 2 * b.pad, h: b.h + 2 * b.pad };
+}
+
+/** Distance from a point to the nearest point of a rect (game px). */
+function distTo(r: Rect, p: { x: number; y: number }): number {
+  return Math.hypot(Math.max(0, r.x - p.x, p.x - (r.x + r.w)), Math.max(0, r.y - p.y, p.y - (r.y + r.h)));
+}
+
+/** Synthetic touch pointers at game px (the canvas maps them like a finger). */
+async function touchGame(page: Page, type: string, id: number, gx: number, gy: number): Promise<void> {
+  await page.evaluate(
+    ([t, i, x, y]) => {
+      const v = window.__SD.view;
+      document.getElementById('screen')!.dispatchEvent(
+        new PointerEvent(t as string, {
+          pointerId: i as number,
+          pointerType: 'touch',
+          isPrimary: false,
+          bubbles: true,
+          cancelable: true,
+          clientX: v.x + (x as number) * v.scale,
+          clientY: v.y + (y as number) * v.scale,
+        }),
+      );
+    },
+    [type, id, gx, gy] as const,
+  );
+}
+
 /** Every HUD element and button in CSS px vs the image, the viewport and the safe area. */
 async function checkHud(page: Page, label: string, dash: boolean): Promise<void> {
   const g = await page.evaluate(() => ({
@@ -78,6 +111,7 @@ async function checkHud(page: Page, label: string, dash: boolean): Promise<void>
     hud: window.__SD.hud(),
     buttons: window.__SD.buttons(),
     health: window.__SD.run()!.health,
+    rests: window.__SD.stickRests(),
   }));
   const { view, safe, iw, ih } = g;
   const eps = 0.51;
@@ -111,42 +145,83 @@ async function checkHud(page: Page, label: string, dash: boolean): Promise<void>
   for (const b of hudButtons) {
     inside(b.css, b.id);
     expect(overlaps(b, INTERIOR), `${label}: ${b.id} covers the room`).toBe(false);
-    if (b.id !== 'run.map') expect(b.css.h, `${label}: ${b.id} is thumb-sized`).toBeGreaterThanOrEqual(40);
+    // Polish batch 3: every run button (the minimap too) is at least 44 CSS px on both profiles.
+    expect(Math.min(b.css.w, b.css.h), `${label}: ${b.id} is thumb-sized`).toBeGreaterThanOrEqual(44 - 0.01);
   }
-  for (let i = 0; i < hudButtons.length; i++) {
-    for (let j = i + 1; j < hudButtons.length; j++) {
-      const a = hudButtons[i]!;
-      const b = hudButtons[j]!;
-      expect(overlaps(a, b), `${label}: ${a.id} overlaps ${b.id}`).toBe(false);
+  // No hit rect reaches another button, a resting stick ring, the hearts / counters or another button's decoration.
+  const rests = g.rests;
+  for (const b of hudButtons) {
+    const h = hitRect(b);
+    for (const o of hudButtons) if (o !== b) expect(overlaps(h, o), `${label}: ${b.id}'s hit rect covers ${o.id}`).toBe(false);
+    for (const [name, rest] of [
+      ['left', rests.left],
+      ['right', rests.right],
+    ] as const) {
+      expect(distTo(h, rest), `${label}: ${b.id} reaches the ${name} stick ring`).toBeGreaterThanOrEqual(rests.ring);
     }
-  }
-  // The counters and hearts don't sit under a button.
-  for (const r of g.hud.filter((x) => x.id === 'hearts' || x.id === 'counters')) {
-    for (const b of hudButtons) expect(overlaps(r, b), `${label}: ${r.id} under ${b.id}`).toBe(false);
+    for (const r of g.hud) {
+      const own = (r.id === 'charge' && b.id === 'run.active') || (r.id === 'trinkets' && b.id === 'run.consumable');
+      if (!own && r.id !== 'banner') expect(overlaps(h, r), `${label}: ${b.id}'s hit rect covers the ${r.id}`).toBe(false);
+    }
   }
 }
 
-const LAYOUTS: { name: string; buttonScale: number; leftHanded: boolean }[] = [
-  { name: 'default', buttonScale: 1, leftHanded: false },
-  { name: 'left-handed', buttonScale: 1, leftHanded: true },
-  { name: '150 % buttons', buttonScale: 1.5, leftHanded: false },
-  { name: 'left-handed, 150 % buttons', buttonScale: 1.5, leftHanded: true },
-];
+/**
+ * A thumb on each resting ring's centre + a 6 px drag gets its stick: the SHOOT ring fires (no bomb, no dash), the MOVE
+ * ring walks (no item used). Left-handed swaps the rings.
+ */
+async function checkRestTouches(page: Page, label: string, leftHanded: boolean): Promise<void> {
+  const rests = await page.evaluate(() => window.__SD.stickRests());
+  const shoot = leftHanded ? rests.left : rests.right;
+  const move = leftHanded ? rests.right : rests.left;
+  // Stand in the open, away from walls and doors.
+  await page.evaluate(() => window.__SD.sim!.world.player.placeAt(104, 56));
+  const a = (await page.evaluate(() => ({ run: window.__SD.run()!, dashCd: window.__SD.sim!.world.player.mech.dashCd })))!;
+  await touchGame(page, 'pointerdown', 71, shoot.x, shoot.y);
+  await touchGame(page, 'pointermove', 71, shoot.x, shoot.y - 6);
+  await page.waitForTimeout(250);
+  const b = await page.evaluate(() => ({ run: window.__SD.run()!, dashCd: window.__SD.sim!.world.player.mech.dashCd, aim: window.__SD.sticks().aim }));
+  await touchGame(page, 'pointerup', 71, shoot.x, shoot.y - 6);
+  expect(b.aim.hasDir, `${label}: the SHOOT ring's touch got the aim stick`).toBe(true);
+  expect(b.run.counters.shots - a.run.counters.shots, `${label}: the SHOOT ring fires`).toBeGreaterThan(0);
+  expect(b.run.counters.bombsPlaced - a.run.counters.bombsPlaced, `${label}: no bomb`).toBe(0);
+  expect(b.dashCd, `${label}: no dash`).toBe(0);
+  const inv0 = a.run.inv;
+  await touchGame(page, 'pointerdown', 72, move.x, move.y);
+  await touchGame(page, 'pointermove', 72, move.x + 6, move.y);
+  await page.waitForTimeout(150);
+  const c = await page.evaluate(() => ({ run: window.__SD.run()!, move: window.__SD.sticks().move }));
+  await touchGame(page, 'pointerup', 72, move.x + 6, move.y);
+  expect(c.move.active, `${label}: the MOVE ring's touch got the move stick`).toBe(true);
+  expect(c.run.player.vx, `${label}: the MOVE ring walks`).toBeGreaterThan(0);
+  expect(c.run.inv.consumables, `${label}: no consumable used`).toEqual(inv0.consumables);
+  expect(c.run.inv.active?.charge, `${label}: no active used`).toBe(inv0.active?.charge);
+  await page.waitForTimeout(100);
+}
+
+/** Right / left-handed × every BUTTON SIZE step (75 % reads as 100 %: the 44 pt floor). */
+const LAYOUTS: { name: string; buttonScale: number; leftHanded: boolean }[] = [];
+for (const leftHanded of [false, true]) {
+  for (const buttonScale of [0.75, 1, 1.25, 1.5]) {
+    LAYOUTS.push({ name: `${leftHanded ? 'left-handed' : 'right-handed'}, ${buttonScale * 100} % buttons`, buttonScale, leftHanded });
+  }
+}
 
 async function everyLayout(page: Page, dash: boolean, prefix: string): Promise<void> {
   for (const l of LAYOUTS) {
     await page.evaluate((s) => window.__SD.debug.settings({ buttonScale: s.buttonScale, leftHanded: s.leftHanded }), l);
-    // The run scene lays its buttons out again on the next frame.
+    // The run scene lays its buttons out again on the next frame (an old 75 % is kept at 100 %).
     await page.waitForFunction(
       (s) => {
         const set = window.__SD.debug.settings();
         const pause = window.__SD.button('run.pause');
-        return set.buttonScale === s.buttonScale && set.leftHanded === s.leftHanded && !!pause;
+        return set.buttonScale === Math.max(1, s.buttonScale) && set.leftHanded === s.leftHanded && !!pause;
       },
       l,
     );
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await checkHud(page, `${prefix}${l.name}`, dash);
+    await checkRestTouches(page, `${prefix}${l.name}`, l.leftHanded);
   }
 }
 
@@ -183,5 +258,10 @@ test('with the iPhone 15 landscape insets applied, nothing leaves the safe area'
   await page.waitForFunction(() => window.__SD.safe.left === 59 && window.__SD.safe.bottom === 21);
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   await everyLayout(page, false, 'insets, ');
+  // And Pip, whose DASH makes three thumb buttons (polish batch 3).
+  await page.evaluate(() => window.__SD.debug.runAt(1, 'main', null, 11, [], 'pip'));
+  await page.waitForFunction(() => window.__SD.sim?.world.player.character.id === 'pip' && !!window.__SD.button('run.dash'));
+  await fill(page);
+  await everyLayout(page, true, 'insets, pip, ');
   expect(errors).toEqual([]);
 });

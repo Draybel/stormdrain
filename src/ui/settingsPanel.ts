@@ -1,7 +1,7 @@
 /**
  * Settings (Phase 4B, overlay scene 'settings'): opened from the title or the pause menu.
  * Left column: MASTER / MUSIC / EFFECTS volume and SCREEN SHAKE sliders, SHOW FPS. Right column: AIM (4-way /
- * 360°), LEFT-HANDED (swaps the sticks and the thumb button columns), BUTTON SIZE (75-150 %), EXPORT / IMPORT
+ * 360°), LEFT-HANDED (swaps the sticks and the thumb button columns), BUTTON SIZE (100-150 %: 100 % is the 44 pt floor), EXPORT / IMPORT
  * SAVE (DOM modals, ui/modals.ts), REDUCE FLASHING (polish batch 2: every full-screen flash capped low); the note about
  * separate saves runs along the bottom edge. Every change persists through the meta save (main.ts).
  *
@@ -152,6 +152,12 @@ export class SettingsScene implements Scene {
     this.menu.set(this.sliders[0]!.b);
   }
 
+  /** Opens IMPORT SAVE right away (the title's first-launch hint in the home-screen app: nav.importSave). */
+  startImport(): void {
+    if (!this.importBtn.enabled) return;
+    openImport(this.app, () => this.syncDrafts());
+  }
+
   private syncDrafts(): void {
     const v = this.app.settings.value;
     for (const s of this.sliders) s.draft = v[s.def.key];
@@ -254,9 +260,8 @@ export class SettingsScene implements Scene {
       ctx.drawImage(pageBackdrop(), 0, 0);
     }
     drawPageHeader(ctx, 'SETTINGS');
-    const persistent = this.app.save.meta.persistent;
-    const status = persistent ? 'SAVED ON THIS DEVICE' : "THIS BROWSER CAN'T KEEP SAVES";
-    drawText(ctx, status, GAME_W - 6 - measureText(status), 14, persistent ? NOTE : WARN);
+    const { text: status, warn } = saveStatus(this.app.save.meta.persistent, this.app.pwa.platform.safariTab, this.app.pwa.persisted);
+    drawText(ctx, status, GAME_W - 6 - measureText(status), 14, warn ? WARN : NOTE);
     for (const s of this.sliders) this.drawSlider(ctx, s.def, s.b, s.b.held > 0 ? s.draft : this.app.settings.value[s.def.key]);
     for (const t of this.toggles) this.drawToggle(ctx, t.def, t.b);
     drawMenuButtons(ctx, [this.back, this.exportBtn, this.importBtn]);
@@ -322,8 +327,20 @@ export class SettingsScene implements Scene {
   }
 
   describe(): Record<string, unknown> {
-    return { ...this.app.settings.value, importEnabled: this.importBtn.enabled };
+    const status = saveStatus(this.app.save.meta.persistent, this.app.pwa.platform.safariTab, this.app.pwa.persisted).text;
+    return { ...this.app.settings.value, importEnabled: this.importBtn.enabled, status };
   }
+}
+
+/**
+ * The save status line (top-right of Settings, polish batch 3): nothing kept at all; a Safari tab (WebKit may wipe a
+ * site's storage after ~7 days without a visit, unless `navigator.storage.persist()` was granted); else saved here.
+ */
+export function saveStatus(persistent: boolean, safariTab: boolean, persisted: boolean | null): { text: string; warn: boolean } {
+  if (!persistent) return { text: "THIS BROWSER CAN'T KEEP SAVES", warn: true };
+  if (safariTab && persisted !== true) return { text: 'SAVED IN SAFARI · MAY BE CLEARED', warn: true };
+  if (safariTab) return { text: 'SAVED IN SAFARI · PROTECTED', warn: false };
+  return { text: 'SAVED ON THIS DEVICE', warn: false };
 }
 
 /** Rounds to the slider's step and clamps (no float drift: 0.8 stays 0.8). */

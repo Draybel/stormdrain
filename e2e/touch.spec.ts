@@ -4,6 +4,9 @@ import type { SimSummary } from '../src/sim/sim';
 /**
  * Multi-touch contract (ARCHITECTURE §2) in real WebKit: synthetic touch PointerEvents with
  * distinct pointerIds, dispatched on the canvas at game-pixel positions.
+ * Polish batch 3 (B3-1): with the iPhone 15 home-screen insets, thumbs that land on the black letterbox beside the
+ * image still drive the sticks all the way (full speed to the left, firing to the right), and the perf overlay's
+ * gesture can't be set off in play.
  */
 
 function trackErrors(page: Page): string[] {
@@ -56,6 +59,37 @@ async function startRun(page: Page): Promise<void> {
 }
 
 type Touch = (type: string, id: number, gx: number, gy: number) => void;
+
+/** A touch event at CLIENT (CSS) px — anywhere on the page, the letterbox included. */
+async function touchClient(page: Page, type: string, id: number, cx: number, cy: number): Promise<void> {
+  await page.evaluate(
+    ([t, i, x, y]) => {
+      document.getElementById('screen')!.dispatchEvent(
+        new PointerEvent(t as string, {
+          pointerId: i as number,
+          pointerType: 'touch',
+          isPrimary: false,
+          bubbles: true,
+          cancelable: true,
+          clientX: x as number,
+          clientY: y as number,
+        }),
+      );
+    },
+    [type, id, cx, cy] as const,
+  );
+}
+
+/** The iPhone 15 landscape insets on the probe the display reads (Playwright's WebKit reports none). */
+async function applyInsets(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const probe = document.getElementById('safe-probe')!;
+    probe.style.padding = '0px 59px 21px 59px';
+    window.dispatchEvent(new Event('resize'));
+  });
+  await page.waitForFunction(() => window.__SD.safe.left === 59 && window.__SD.view.x >= 58);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
 
 /** Puts Wren at the left end of row 2, which is open floor all the way across (~2 s of walking). */
 async function placeInOpenRow(page: Page): Promise<void> {
@@ -174,6 +208,84 @@ test('buttons still activate while both sticks are held', async ({ page }) => {
   // Menu (release-trigger) buttons work with a real tap while the pause overlay is up.
   await tap(page, 'pause.resume');
   await waitScene(page, 'run');
+  expect(errors).toEqual([]);
+});
+
+test('B3-1: a move thumb landing on the left letterbox and pushing left reaches full speed', async ({ page }) => {
+  const errors = trackErrors(page);
+  await startRun(page);
+  // The home-screen app: the 59 pt insets are the letterbox; a Safari tab has its own black bars beside the image.
+  if ((page.viewportSize()?.width ?? 0) >= 800) await applyInsets(page);
+  // Wren at the right end of the open row, so she can walk left for a while.
+  await page.evaluate(() => window.__SD.sim!.world.player.placeAt(200, 40));
+  const v = await page.evaluate(() => window.__SD.view);
+  const y = v.y + 150 * v.scale;
+  // The thumb lands on the black bar 10 pt left of the image and pushes to the bezel.
+  expect(v.x).toBeGreaterThan(40);
+  await touchClient(page, 'pointerdown', 41, v.x - 10, y);
+  for (const x of [v.x - 20, v.x / 2, 8, 0]) await touchClient(page, 'pointermove', 41, x, y);
+  await page.waitForTimeout(450);
+  const r = await run(page);
+  const max = r.stats.moveSpeed!;
+  expect(r.player.vx).toBeLessThan(0);
+  expect(Math.abs(r.player.vx)).toBeGreaterThanOrEqual(0.9 * max);
+  expect(Math.abs(r.player.vy)).toBeLessThan(0.05 * max);
+  // The stick's origin really is off the image (the drawn ring is clamped in, the stick isn't).
+  expect((await page.evaluate(() => window.__SD.sticks().move)).originX).toBeLessThan(0);
+  await touchClient(page, 'pointerup', 41, 0, y);
+  expect(errors).toEqual([]);
+});
+
+test('B3-1: an aim thumb in the right letterbox moving right fires at 0°', async ({ page }) => {
+  const errors = trackErrors(page);
+  await startRun(page);
+  // The home-screen app: the 59 pt insets are the letterbox; a Safari tab has its own black bars beside the image.
+  if ((page.viewportSize()?.width ?? 0) >= 800) await applyInsets(page);
+  await placeInOpenRow(page);
+  const a = await run(page);
+  const v = await page.evaluate(() => ({ ...window.__SD.view, iw: window.innerWidth }));
+  const right = v.x + v.w;
+  expect(v.iw - right).toBeGreaterThan(40);
+  const y = v.y + 150 * v.scale;
+  await touchClient(page, 'pointerdown', 42, right + 10, y);
+  for (const x of [right + 20, right + 30, v.iw - 1]) await touchClient(page, 'pointermove', 42, x, y);
+  await page.waitForTimeout(500);
+  const aim = await page.evaluate(() => ({ stick: window.__SD.sticks().aim, ax: window.__SD.sim!.world.player.aimX, ay: window.__SD.sim!.world.player.aimY }));
+  expect(aim.stick.hasDir).toBe(true);
+  expect([aim.stick.dirX, aim.stick.dirY]).toEqual([1, 0]);
+  expect([aim.ax, aim.ay]).toEqual([1, 0]);
+  const b = await run(page);
+  expect(b.counters.shots - a.counters.shots).toBeGreaterThanOrEqual(2);
+  await touchClient(page, 'pointerup', 42, v.iw - 1, y);
+  expect(errors).toEqual([]);
+});
+
+test('B3-1: two sticks plus a BOMB tap within 250 ms leave the perf overlay alone; the menu gesture still works', async ({ page }) => {
+  const errors = trackErrors(page);
+  await startRun(page);
+  const bomb = await centre(page, 'run.bomb');
+  // A room entry: both thumbs land and a third finger taps BOMB at once.
+  await touch(page, 'pointerdown', 51, 40, 150);
+  await touch(page, 'pointerdown', 52, 330, 150);
+  await touch(page, 'pointerdown', 53, bomb.x, bomb.y);
+  await touch(page, 'pointerup', 53, bomb.x, bomb.y);
+  await page.waitForTimeout(300);
+  await touch(page, 'pointerup', 51, 40, 150);
+  await touch(page, 'pointerup', 52, 330, 150);
+  expect((await page.evaluate(() => window.__SD.sticks())).perf).toBe(false);
+  // On a menu (no sticks): three fingers on no button, held 0.7 s, lifted together — the overlay toggles.
+  await page.evaluate(() => window.__SD.debug.title());
+  await waitScene(page, 'title');
+  const spots = [
+    [110, 22],
+    [192, 28],
+    [270, 22],
+  ] as const;
+  for (let i = 0; i < 3; i++) await touch(page, 'pointerdown', 61 + i, spots[i]![0], spots[i]![1]);
+  await page.waitForTimeout(700);
+  for (let i = 0; i < 3; i++) await touch(page, 'pointerup', 61 + i, spots[i]![0], spots[i]![1]);
+  expect((await page.evaluate(() => window.__SD.sticks())).perf).toBe(true);
+  await page.evaluate(() => window.__SD.debug.overlay(false));
   expect(errors).toEqual([]);
 });
 

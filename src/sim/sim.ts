@@ -211,12 +211,22 @@ export class Sim {
   }
 
   /**
-   * JSON-safe snapshot of the whole run as it was when the player entered the current room (runs only;
-   * floors, rooms, inventory, health, rng streams, stats). Resume with Sim.fromSnapshot.
+   * JSON-safe snapshot of the whole run at its last checkpoint (runs only; floors, rooms, inventory, health, rng
+   * streams, stats): as the player entered the current room, or — polish batch 3 — as the room stood when it was
+   * cleared / last refreshed (`refreshCheckpoint`). Resume with Sim.fromSnapshot.
    */
   snapshot(): RunSnapshot {
     if (!this.run) throw new Error('Sim.snapshot: only floor runs have snapshots');
     return this.run.snapshot();
+  }
+
+  /**
+   * Re-takes the run's checkpoint when the current room is settled (cleared, nothing fighting, no boss dying): the
+   * save on pause / background / quit keeps what was taken after the clear. False (nothing changed) mid-fight or
+   * outside a run. See Run.refreshCheckpoint.
+   */
+  refreshCheckpoint(): boolean {
+    return this.run?.refreshCheckpoint() ?? false;
   }
 
   get events(): EventQueue {

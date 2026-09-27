@@ -18,6 +18,8 @@ import type { DebugActions } from './actions';
 import type { FloorCurse } from '../sim/floor/types';
 import type { RunOptions } from '../sim/run/types';
 import type { Settings } from '../meta/settings';
+import type { VirtualStick } from '../engine/sticks';
+import { STICK_REST_L, STICK_REST_R, STICK_RING, STICK_ZONE_R } from '../ui/touchControls';
 import { findAchievement } from '../content/registry';
 import { demoProgress, registerDemoCharacters } from './demo';
 
@@ -72,8 +74,22 @@ export interface ButtonInfo {
   y: number;
   w: number;
   h: number;
+  /** Invisible hit margin around the rect (game px): the hit rect is the rect grown by it. */
+  pad: number;
+  /** 'press' (in-game action buttons: bomb, active, dash…) or 'release' (menus). */
+  trigger: string;
   enabled: boolean;
   css: CssRect;
+}
+
+/** Polish batch 3: the PWA state as the title / settings see it (window.__SD.pwa()). */
+export interface PwaInfo {
+  safariTab: boolean;
+  standalone: boolean;
+  ios: boolean;
+  firstLaunch: boolean;
+  persisted: boolean | null;
+  updateReady: boolean;
 }
 
 export interface SDHooks {
@@ -111,6 +127,15 @@ export interface SDHooks {
   run(): SimSummary | null;
   /** In-run HUD element rects (game px): hearts, counters, charge bar, trinkets, banner. */
   hud(): HudRect[];
+  /**
+   * Polish batch 3: the sticks' resting spots (the MOVE / SHOOT hint rings, game px; `left` / `right` of the screen) with
+   * the ring radius and the stick zone no run button's hit rect may enter.
+   */
+  stickRests(): { left: { x: number; y: number }; right: { x: number; y: number }; ring: number; zone: number };
+  /** Polish batch 3: where the game runs (Safari tab / home-screen app), protected storage, a waiting update. */
+  pwa(): PwaInfo;
+  /** Polish batch 3: the stick states (active, origin — may lie outside the image —, direction, flicks). */
+  sticks(): { move: StickInfo; aim: StickInfo; perf: boolean };
   readonly counts: { particles: number; projectiles: number; enemies: number; enemyShots: number; beams: number };
   readonly debug: {
     overlay(on?: boolean): boolean;
@@ -157,6 +182,8 @@ export interface SDHooks {
     aim360(on: boolean): void;
     /** Phase 5: changes runtime settings (button size, left-handed…) like the Settings page; returns them all. */
     settings(patch?: Partial<Settings>): Settings;
+    /** Polish batch 3: behaves as if a new version had just been installed in the background (the title's RELOAD). */
+    pwaUpdate(): void;
     newRun(): void;
     title(): void;
     pause(): void;
@@ -237,20 +264,51 @@ export interface SdDeps {
   getPresentation(): Presentation | null;
   /** Restarts the run scene's run (debug). */
   restartRun(opts: RunOptions, seed?: number | string, character?: string): boolean;
+  /** The service worker's update callback (debug / tests simulate one). */
+  pwaUpdate(): void;
+}
+
+export interface StickInfo {
+  active: boolean;
+  originX: number;
+  originY: number;
+  hasDir: boolean;
+  dirX: number;
+  dirY: number;
+  flicks: number;
 }
 
 export function installSdHooks(d: SdDeps): SDHooks {
   const { app, loop, perf, registry } = d;
   const tmp = vec2();
-  const info = (b: { id: string; x: number; y: number; w: number; h: number; enabled: boolean }): ButtonInfo => {
+  const info = (b: { id: string; x: number; y: number; w: number; h: number; pad: number; trigger: string; enabled: boolean }): ButtonInfo => {
     app.display.toClient(b.x, b.y, tmp);
     const x = tmp.x;
     const y = tmp.y;
     app.display.toClient(b.x + b.w, b.y + b.h, tmp);
     const w = tmp.x - x;
     const h = tmp.y - y;
-    return { id: b.id, x: b.x, y: b.y, w: b.w, h: b.h, enabled: b.enabled, css: { x, y, w, h, cx: x + w / 2, cy: y + h / 2 } };
+    return {
+      id: b.id,
+      x: b.x,
+      y: b.y,
+      w: b.w,
+      h: b.h,
+      pad: b.pad,
+      trigger: b.trigger,
+      enabled: b.enabled,
+      css: { x, y, w, h, cx: x + w / 2, cy: y + h / 2 },
+    };
   };
+  const stick = (s: VirtualStick): StickInfo => ({
+    active: s.active,
+    originX: s.originX,
+    originY: s.originY,
+    hasDir: s.hasDir,
+    dirX: s.dirX,
+    dirY: s.dirY,
+    flicks: s.flicks,
+  });
   const hooks: SDHooks = {
     get scene() {
       return app.scenes.name;
@@ -308,6 +366,16 @@ export function installSdHooks(d: SdDeps): SDHooks {
     },
     hud() {
       return d.getHudRects();
+    },
+    stickRests() {
+      return { left: { ...STICK_REST_L }, right: { ...STICK_REST_R }, ring: STICK_RING, zone: STICK_ZONE_R };
+    },
+    pwa() {
+      const p = app.pwa;
+      return { ...p.platform, firstLaunch: p.firstLaunch, persisted: p.persisted, updateReady: p.updateReady };
+    },
+    sticks() {
+      return { move: stick(app.input.moveStick), aim: stick(app.input.aimStick), perf: perf.visible };
     },
     get counts() {
       const w = d.getSim()?.world;
@@ -394,6 +462,9 @@ export function installSdHooks(d: SdDeps): SDHooks {
       settings(patch?: Partial<Settings>) {
         if (patch) app.settings.update(patch);
         return { ...app.settings.value };
+      },
+      pwaUpdate() {
+        d.pwaUpdate();
       },
       newRun() {
         app.nav.newRun();

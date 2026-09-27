@@ -2,10 +2,12 @@
  * Touch + mouse + keyboard → InputState (ARCHITECTURE §2).
  *
  * Pointer Events on the canvas, multi-touch by pointerId. On pointer-down the button registry is
- * hit-tested FIRST; a pointer that starts on a button belongs to that button until it lifts.
- * Otherwise (when the current scene wants sticks) the left half spawns the floating move stick and
- * the right half the floating shoot stick. Keyboard: WASD move, arrows shoot (last pressed wins),
- * E bomb, Space active, Q consumable, Shift dash (Pip), Esc/P pause, Tab map, ` debug.
+ * hit-tested FIRST (with the point clamped into the image); a pointer that starts on a button belongs to
+ * that button until it lifts. Otherwise (when the current scene wants sticks) the left half spawns the
+ * floating move stick and the right half the floating shoot stick; sticks get the UNCLAMPED point
+ * (`Display.toGameRaw`), so a thumb on the letterbox or at the image edge still pushes toward the bezel.
+ * Keyboard: WASD move, arrows shoot (last pressed wins), E bomb, Space active, Q consumable, Shift dash (Pip),
+ * Esc/P pause, Tab map, ` debug.
  *
  * Edge flags accumulate between ticks and are cleared by `endTick()` after each sim step.
  */
@@ -30,6 +32,14 @@ const ARROW_DY = [-1, 1, 0, 0] as const;
 /** Extra slop (game px) a finger may drift outside a button and still count as "inside". */
 const RELEASE_SLOP = 6;
 
+/**
+ * The perf overlay's touch gesture (polish batch 3): three fingers that land outside every button while no sticks are
+ * enabled (menus, the pause screen — never in play), held together at least this long (ms)…
+ */
+export const PERF_HOLD_MS = 600;
+/** …and lifted within this many ms of each other. */
+export const PERF_LIFT_MS = 250;
+
 export class Input {
   readonly state: InputState = createInputState();
   readonly moveStick = new VirtualStick(MOVE_STICK);
@@ -47,7 +57,7 @@ export class Input {
   keyHandler: ((code: string) => boolean) | null = null;
   /** Backquote: open / close the debug menu. */
   onDebugToggle: (() => void) | null = null;
-  /** Three fingers landing together (touch): toggle the perf overlay. */
+  /** Three fingers held together and lifted together outside a run (touch): toggle the perf overlay. */
   onPerfToggle: (() => void) | null = null;
   /** Mouse wheel over the canvas: dy in CSS px-ish units (positive = down), position in game px. */
   wheelHandler: ((dy: number, x: number, y: number) => void) | null = null;
@@ -62,8 +72,11 @@ export class Input {
   private lastAimX = 1;
   private lastAimY = 0;
   private readonly pt = vec2();
-  /** Touch pointers currently down, and when they landed (3-finger tap = perf overlay). */
-  private readonly touchDown = new Map<number, number>();
+  /** Touches on no button and no stick while sticks are off, and when they landed (the perf gesture). */
+  private readonly loose = new Map<number, number>();
+  /** The perf gesture: when its third finger landed (-1 none) and when its first finger lifted (-1 not yet). */
+  private gestureAt = -1;
+  private gestureLift = -1;
 
   constructor(canvas: HTMLCanvasElement, display: Display, registry: ButtonRegistry) {
     this.canvas = canvas;
@@ -86,8 +99,10 @@ export class Input {
     canvas.addEventListener('touchstart', prevent, nonPassive);
     canvas.addEventListener('touchmove', prevent, nonPassive);
     canvas.addEventListener('touchend', prevent, nonPassive);
-    document.addEventListener('gesturestart', preventOutsideModal, nonPassive);
-    document.addEventListener('gesturechange', preventOutsideModal, nonPassive);
+    // Pinch-zoom is blocked everywhere, the DOM modal included (polish batch 3): a zoom begun there would leave the
+    // whole game zoomed in after it closed, since every other surface blocks the pinch that could undo it.
+    document.addEventListener('gesturestart', prevent, nonPassive);
+    document.addEventListener('gesturechange', prevent, nonPassive);
     document.addEventListener('dblclick', preventOutsideModal, nonPassive);
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -193,7 +208,8 @@ export class Input {
       }
     }
     this.owners.clear();
-    this.touchDown.clear();
+    this.loose.clear();
+    this.gestureAt = -1;
     resetInput(this.state);
   };
 
@@ -222,8 +238,6 @@ export class Input {
     } else {
       this.lastDevice = 'touch';
       this.touchUsed = true;
-      this.touchDown.set(e.pointerId, e.timeStamp);
-      this.checkThreeFingerTap(e.timeStamp);
     }
     try {
       this.canvas.setPointerCapture(e.pointerId);
@@ -242,11 +256,16 @@ export class Input {
       if (b.trigger === 'press') this.activate(b);
       return;
     }
-    if (!this.sticksEnabled) return;
+    if (!this.sticksEnabled) {
+      if (e.pointerType === 'touch') this.gestureDown(e.pointerId, e.timeStamp);
+      return;
+    }
     const left = p.x < GAME_W / 2;
     const stick = left !== this.leftHanded ? this.moveStick : this.aimStick;
     if (stick.active) return; // one thumb per stick
-    stick.begin(e.pointerId, p.x, p.y);
+    // The stick takes the unclamped point: landing on the letterbox is a real position left of / below the image.
+    const r = this.display.toGameRaw(e.clientX, e.clientY, this.pt);
+    stick.begin(e.pointerId, r.x, r.y, e.timeStamp);
     this.owners.set(e.pointerId, stick);
   };
 
@@ -254,17 +273,18 @@ export class Input {
     const o = this.owners.get(e.pointerId);
     if (!o) return;
     e.preventDefault();
-    const p = this.display.toGame(e.clientX, e.clientY, this.pt);
     if (o instanceof VirtualStick) {
       if (o.pointerId !== e.pointerId) return;
       const had = o.hasDir;
-      o.move(p.x, p.y);
+      const r = this.display.toGameRaw(e.clientX, e.clientY, this.pt);
+      o.move(r.x, r.y, e.timeStamp);
       if (o === this.aimStick && !had && o.hasDir) {
         this.state.firePressed = true;
         this.lastAimX = o.dirX;
         this.lastAimY = o.dirY;
       }
     } else {
+      const p = this.display.toGame(e.clientX, e.clientY, this.pt);
       o.curX = p.x;
       o.curY = p.y;
       if (o.draggable && !o.dragged) {
@@ -293,7 +313,7 @@ export class Input {
   };
 
   private finishPointer(e: PointerEvent, allowActivate: boolean): void {
-    this.touchDown.delete(e.pointerId);
+    if (this.loose.has(e.pointerId)) this.gestureUp(e.pointerId, e.timeStamp, allowActivate);
     const o = this.owners.get(e.pointerId);
     if (!o) return;
     this.owners.delete(e.pointerId);
@@ -318,11 +338,43 @@ export class Input {
     if (allowActivate && o.trigger === 'release' && inside && !o.dragged && o.enabled && this.registry.has(o)) this.activate(o);
   }
 
-  /** Three fingers landing within 250 ms toggles the debug overlay (no keyboard on phones). */
-  private checkThreeFingerTap(t: number): void {
-    if (this.touchDown.size !== 3) return;
-    for (const t0 of this.touchDown.values()) if (t - t0 > 250) return;
-    this.onPerfToggle?.();
+  // ── The perf overlay gesture (no keyboard on phones) ──────────────────────
+  // Three loose fingers (no button, no stick: only while sticks are off, i.e. never in play) held together for
+  // PERF_HOLD_MS and lifted within PERF_LIFT_MS of each other. Two thumbs on the sticks + a tap on BOMB can't do it.
+
+  private gestureDown(id: number, t: number): void {
+    this.loose.set(id, t);
+    if (this.loose.size === 3) {
+      this.gestureAt = t;
+      this.gestureLift = -1;
+    } else {
+      // A fourth finger (or a stray one after a lift began) spoils it.
+      this.gestureAt = -1;
+    }
+  }
+
+  private gestureUp(id: number, t: number, lifted: boolean): void {
+    this.loose.delete(id);
+    if (this.gestureAt < 0) return;
+    if (!lifted) {
+      this.gestureAt = -1;
+      return;
+    }
+    if (this.gestureLift < 0) {
+      // The first finger up: all three must have been held long enough.
+      if (t - this.gestureAt < PERF_HOLD_MS) {
+        this.gestureAt = -1;
+        return;
+      }
+      this.gestureLift = t;
+    } else if (t - this.gestureLift > PERF_LIFT_MS) {
+      this.gestureAt = -1;
+      return;
+    }
+    if (this.loose.size === 0) {
+      this.gestureAt = -1;
+      this.onPerfToggle?.();
+    }
   }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────

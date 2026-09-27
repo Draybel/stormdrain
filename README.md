@@ -6,7 +6,8 @@ an oversized yellow raincoat, follows a trail of glowing marbles down there to g
 STORMDRAIN is a top-down, room-by-room shooter: fight your way through each room, pick up items that stack and
 combine in surprising ways, beat the boss, drop through the trapdoor to the next floor. Every run is different.
 There are 12 chapters (6 main ones and 6 hidden ones), 8 characters to unlock, over 200 items and three endings.
-Your progress (unlocks, collection, achievements) is saved on the device.
+Your progress (unlocks, collection, achievements) is saved on the device, and a run in progress is saved every time
+you enter or clear a room, so closing the app never costs more than the room you were fighting in.
 
 It is made for an **iPhone in landscape**, added to the home screen, and it also plays in any desktop browser with
 a keyboard. It works offline once it has been opened.
@@ -16,12 +17,15 @@ a keyboard. It works offline once it has been opened.
 **Touch (phone)**
 
 - **Move:** put your left thumb anywhere on the left half of the screen and slide it. The stick appears under
-  your thumb.
-- **Shoot:** put your right thumb anywhere on the right half and slide it toward where you want to shoot.
-- **Buttons** along the edges: bomb, active item (its charge bar is beside it), consumable (left edge), pause and
-  the map (top right). Pip gets an extra **DASH** button.
+  your thumb. It works right up to the edge of the screen, the black bars beside the picture included.
+- **Shoot:** put your right thumb anywhere on the right half and slide it toward where you want to shoot. A quick
+  flick turns your aim at once.
+- **Buttons** along the edges: bomb and active item (its charge bar is beside it) just above your shooting thumb,
+  consumable (left edge), pause and the map (top right). Pip gets an extra **DASH** button. The faint MOVE / SHOOT
+  circles at the start show where your thumbs rest; no button is ever in their way.
 - Tap the small map to open the big map. Tap anywhere to close it.
-- Settings: left-handed mode (swaps the sticks and the buttons), 360° aiming, button size, volumes.
+- Settings: left-handed mode (swaps the sticks and the buttons), 360° aiming, button size (100-150 %; never smaller
+  than a fingertip), volumes.
 
 **Keyboard (computer)**
 
@@ -124,6 +128,11 @@ There is nothing to save. This step is never needed again.
 >
 > Safari may delete a website's saved data if you don't visit it for about 7 days. The home-screen app is exempt
 > from that, which is another reason to play from the icon.
+>
+> The game helps: in a Safari tab the title screen says **ADD TO HOME SCREEN TO KEEP YOUR SAVES** and, once you have
+> some progress, shows an **EXPORT SAVE** button in its bottom-left corner. The first time you open the home-screen
+> app it offers **IMPORT SAVE** in the same corner (tap it, then **PASTE**: the code is checked at once). Settings says
+> where your saves are kept ("SAVED IN SAFARI · MAY BE CLEARED" in a Safari tab).
 
 ### 8. Updating the game
 
@@ -132,9 +141,11 @@ When the game's files change (you edited something, or received a new version):
 1. Push the changes: in the terminal, in this folder, type `git add -A`, then `git commit -m "Update"`, then
    `git push`. (GitHub Desktop: write a summary, click **Commit to main**, then **Push origin**.)
 2. Wait until the new **Test & deploy** run in the **Actions** tab is green.
-3. On the iPhone, **close the app completely** (swipe it away in the app switcher) and open it again. The game
-   checks for a new version when it starts and when you come back to it; when it finds one it shows a notice that
-   an update is ready. Follow the notice (or close and reopen the app once more) to play the new version.
+3. On the iPhone, open the app. The game checks for a new version when it starts and when you come back to it
+   (at most once an hour) and downloads it in the background. When it is ready, the title screen shows
+   **NEW VERSION READY** and a **RELOAD** button (bottom right): tap it. Your progress and your run are saved first,
+   so you can Continue right after. During a run you only get a short "UPDATE READY" notice — the game never reloads
+   while you play. (Closing the app completely in the app switcher and opening it again works too.)
 
 ### 9. When something goes wrong
 
@@ -145,8 +156,10 @@ When the game's files change (you edited something, or received a new version):
   is exactly `https://<user>.github.io/<repo>/` with your username and repository name (and the `/` at the end),
   and that the last run is green. Right after the first deploy it can take a minute: wait, then refresh.
 - **The old version still shows.** The game keeps a copy of itself on the phone so it works offline. Make sure the
-  latest run is green, then close the app completely and open it again (in Safari: reload the page). It can take
-  one more restart after the update notice.
+  latest run is green, then close the app completely and open it again (in Safari: reload the page), and tap
+  **RELOAD** on the title when it appears.
+- **"SOMETHING WENT WRONG" and you are back on the title.** The game hit an unexpected error; your run is kept as
+  it was at the last room you entered or cleared: tap **CONTINUE**.
 - **"git push" is refused.** Check that you are signed in to the right GitHub account and that the repository
   address in step 3 is right (`git remote -v` shows it).
 

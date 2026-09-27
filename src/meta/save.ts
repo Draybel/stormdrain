@@ -5,10 +5,12 @@
  * - META saves itself: important changes (settings, unlocks, achievements, run start / end) at the end of
  *   the tick, frequent ones (kills, collection, play time) at most every 5 s — `endTick()` once per loop
  *   tick; `saveRunNow()` / `flush()` write at once (background, pause, room transitions).
- * - The RUN save is `Sim.snapshot()` (the run as it was when the player entered the current room),
- *   written on every room transition, on pause and when the page is hidden (`saveRunNow()`; the host
- *   says which run may be saved — a floor run in progress, never the yard, never a finished run), and
- *   cleared when the run ends (death, victory) or is abandoned (a New Run over it).
+ * - The RUN save is `Sim.snapshot()` (the run's checkpoint: as the player entered the current room, or as it stood
+ *   when that room was cleared — polish batch 3), written on every room transition and room clear, on pause and
+ *   when the page is hidden (`saveRunNow()`; the host says which run may be saved — a floor run in progress, never
+ *   the yard, never a finished run), and cleared when the run ends (death, victory) or is abandoned (a New Run
+ *   over it). Pause / background / quit pass `refresh`: a settled cleared room is checkpointed again first, so
+ *   what was taken after the clear survives.
  * - `loadRun()` for Continue: the snapshot (migrated; the previous room's copy when the latest save is
  *   damaged) or a plain-language reason it can't be continued.
  *
@@ -79,6 +81,10 @@ export class GameSave {
     this.runs = new RunSaveStore({ storage, version: RUN_SNAPSHOT_VERSION, migrations: RUN_SNAPSHOT_MIGRATIONS });
     this.achievements = new AchievementEngine(this.meta);
     this.tracker = new MetaTracker(this.meta, this.achievements);
+    // Another tab's progress merged in (polish batch 3): achievements it earned are no longer pending here.
+    this.meta.subscribe((_, change) => {
+      if (change.external) this.achievements.rebuild();
+    });
     // Content may have grown since the last session: rewards of achievements already earned, and
     // counter achievements the lifetime stats already satisfy (those toast on the title).
     this.achievements.syncRewards();
@@ -96,19 +102,30 @@ export class GameSave {
     return null;
   }
 
+  /**
+   * Another tab of the game saved its progress (main.ts: the window 'storage' event on `stormdrain.meta`): merged into
+   * this tab's at once (MetaStore.syncFromStorage), so neither tab's next save can wipe the other's unlocks.
+   */
+  syncMetaFromStorage(): boolean {
+    return this.meta.syncFromStorage();
+  }
+
   /** Is there a run to continue (a readable save; the title's Continue button)? */
   hasRun(): boolean {
     return this.runs.hasRun();
   }
 
   /**
-   * Saves the host's run now (if one may be saved) and flushes meta. Called on room transitions, pause,
-   * backgrounding and before leaving the run for the title. Returns false when a write failed.
+   * Saves the host's run now (if one may be saved) and flushes meta. Called on room transitions and clears, pause,
+   * backgrounding and before leaving the run for the title. `refresh` (pause / background / quit): a settled cleared
+   * room re-takes its checkpoint first (`Sim.refreshCheckpoint`; mid-fight nothing changes). Returns false when a
+   * write failed.
    */
-  saveRunNow(): boolean {
+  saveRunNow(opts: { refresh?: boolean } = {}): boolean {
     const sim = this.host?.savableRun() ?? null;
     let ok = true;
     if (sim?.run) {
+      if (opts.refresh) sim.refreshCheckpoint();
       const r = this.runs.save(sim.snapshot());
       if (r.ok) {
         this.runSaves++;
@@ -255,12 +272,12 @@ export function gameSave(): GameSave | null {
 }
 
 /**
- * Persist the current run (if any) and meta immediately: on room transitions, pause, background
- * (visibilitychange / pagehide / blur) and before leaving a run for the title.
+ * Persist the current run (if any) and meta immediately: on pause, background (visibilitychange / pagehide / blur)
+ * and before leaving a run for the title — a settled cleared room is checkpointed again first (`refresh`).
  */
 export function saveRunNow(): void {
   saveCalls++;
-  active?.saveRunNow();
+  active?.saveRunNow({ refresh: true });
 }
 
 /** Diagnostics for tests / the debug overlay. */

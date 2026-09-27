@@ -3,6 +3,8 @@
  * at most 4 catch-up steps per frame, the rest dropped); rendering happens once per
  * requestAnimationFrame with an interpolation factor. Tracks fps, the smoothed update/render cost and (`stats`,
  * polish batch 2) the raw spikes: the worst frame, the worst rAF-to-rAF gap and the frames over 20 ms in the last second.
+ * Polish batch 3: an exception thrown by `update` or `render` goes to the `error` hook (the game's crash guard) and
+ * the loop keeps running — it used to skip the render of every later frame too, freezing the game without a word.
  */
 
 import { FrameStats } from './frameStats';
@@ -17,6 +19,11 @@ export interface LoopHooks {
   update(dt: number): void;
   /** Render; alpha = how far we are between the last tick and the next (0..1). */
   render(alpha: number, frameDt: number): void;
+  /**
+   * An exception escaped `update` / `render`. The frame's remaining ticks are dropped and the loop carries on with the
+   * next frame (the hook recovers: main.ts returns to the title). Without this hook the exception is rethrown.
+   */
+  error?(err: unknown, phase: 'update' | 'render'): void;
 }
 
 export class Loop {
@@ -61,6 +68,21 @@ export class Loop {
     this.acc = 0;
   }
 
+  /** Errors reported to the `error` hook so far (diagnostics / tests). */
+  errors = 0;
+
+  private fail(err: unknown, phase: 'update' | 'render'): void {
+    this.errors++;
+    const onError = this.hooks.error;
+    if (!onError) throw err;
+    try {
+      onError(err, phase);
+    } catch (again) {
+      // The recovery itself failed: log it, keep the loop alive (the hook may succeed next frame).
+      console.error('loop error handler failed', again);
+    }
+  }
+
   /** One rAF callback at timestamp `now` (ms). Public so tests can drive the loop with synthetic frame times. */
   tick(now: number): void {
     this.step(now);
@@ -88,7 +110,14 @@ export class Loop {
     let steps = 0;
     const t0 = performance.now();
     while (this.acc >= STEP - 1e-9 && steps < MAX_STEPS) {
-      this.hooks.update(STEP);
+      try {
+        this.hooks.update(STEP);
+      } catch (err) {
+        // Don't run the rest of this frame's ticks into the same exception.
+        this.acc = 0;
+        this.fail(err, 'update');
+        break;
+      }
       this.acc -= STEP;
       steps++;
       this.ticks++;
@@ -101,7 +130,11 @@ export class Loop {
     const t1 = performance.now();
     if (steps > 0) this.updateMs += ((t1 - t0) / steps - this.updateMs) * 0.1;
 
-    this.hooks.render(Math.min(1, this.acc / STEP), dt);
+    try {
+      this.hooks.render(Math.min(1, this.acc / STEP), dt);
+    } catch (err) {
+      this.fail(err, 'render');
+    }
     const t2 = performance.now();
     this.renderMs += (t2 - t1 - this.renderMs) * 0.1;
     this.stats.record(now, t2 - t0, gapMs);

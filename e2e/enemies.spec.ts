@@ -127,10 +127,16 @@ test("every chapter's enemy shots next to lime, orange and cyan player builds (s
     }, items as unknown as string[]);
     // Fire along the top of the room: her shots stream past while theirs come at her.
     await page.keyboard.down('ArrowUp');
-    await page.waitForFunction(() => window.__SD.counts.enemyShots > 0 && window.__SD.counts.projectiles > 0, undefined, { timeout: 6000 }).catch(() => undefined);
+    // (Counted when both were on screen together — not in a sample taken later, when a slow-firing build's shots may
+    // all have landed: that raced and failed on slower machines.)
+    const together = await page
+      .waitForFunction(() => window.__SD.counts.enemyShots > 0 && window.__SD.counts.projectiles > 0, undefined, { timeout: 6000 })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (together) both++;
     await page.waitForTimeout(250);
-    const c = await page.evaluate(() => window.__SD.counts);
-    if (c.enemyShots > 0 && c.projectiles > 0) both++;
     const chapter = (await page.evaluate(() => window.__SD.run()!.run!.chapter)) as string;
     const v = await page.evaluate(() => window.__SD.view);
     // The room only (72..312 × 48..192 game px).

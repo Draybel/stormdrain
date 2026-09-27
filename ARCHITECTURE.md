@@ -104,7 +104,24 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
     unless Settings → Aim = 360°. Holding the shoot stick = `fireHeld` (charges charge attacks); release = `fireReleased`.
   - Buttons (bomb, active, consumable, pause, minimap) are hit-tested **before** sticks; a pointer that starts on a
     button never becomes a stick. UI buttons activate on pointer-up inside the button (also on click for desktop).
-  - `touchstart/touchmove` `preventDefault` (passive:false) on the canvas only; `gesturestart` prevented;
+  - Polish batch 3: button hit tests use `Display.toGame` (clamped into the image: a tap on the bar beside a button
+    reaches it); the sticks get `Display.toGameRaw` (the same maths, unclamped — the letterbox maps outside 0..384 ×
+    0..192), so a thumb landing on the black bars or at the image edge still pushes all the way toward the bezel; only the
+    drawn ring is clamped into the image. The aim stick (`AIM_STICK`) follows at 12 px and keeps its 4-way direction to
+    51° (turning at the rim ≈ 13 px of travel); a flick — ≥ 6 px within 80 ms clearly along a new cardinal, out
+    into that side of the origin (`StickConfig.flickPx`, event times passed to `begin` / `move`) — switches at once and
+    re-centres the stick; a wobble across the current axis or easing back toward the centre is no flick.
+  - Stick zones (polish batch 3, `ui/touchControls.ts`): the resting spots `STICK_REST_L` (44, 142) / `STICK_REST_R`
+    (340, 142) — where the MOVE / SHOOT hint rings sit — own a `STICK_ZONE_R` (26 px) circle no run button's HIT rect
+    enters. `layoutRunButtons(b, scale, leftHanded, dash, { minSize, bell })`: pause + minimap top-right; the thumb column
+    (active, bomb, Pip's DASH) bottom-aligned above the shoot thumb's zone; the consumable in the other margin; gaps close
+    to 4 px, then a second column opens toward the room (walls may be covered, never the interior; the active innermost
+    for its charge bar), then the size shrinks — never below `minSize` = `minTapSize(view.scale)` (44 CSS px). The base
+    size is max(24, that floor) × BUTTON SIZE (100-150 %). The run scene lays out again on every display change.
+  - The perf overlay's touch gesture: three touches on no button while sticks are off (never in play), held ≥ 600 ms
+    and lifted together (`PERF_HOLD_MS` / `PERF_LIFT_MS`).
+  - `touchstart/touchmove` `preventDefault` (passive:false) on the canvas only; `gesturestart` / `gesturechange`
+    prevented everywhere, the DOM modal included (polish batch 3: a pinch begun there left the game zoomed);
     CSS disables selection, callouts, overscroll, zoom. DOM text inputs (seed entry, save import/export)
     are the only exceptions and live in a DOM modal layer.
 - Keyboard (desktop testing): WASD move, Arrow keys shoot (last pressed wins), E bomb, Space active, Q consumable, Shift dash,
@@ -123,7 +140,12 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
 - `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run** (`saveRunNow()`: the run save + a meta
   flush, §7), suspend audio.
 - Portrait orientation (height > width): draw a "rotate your phone" screen, pause, and ignore pointer-downs and menu
-  keys (the hidden UI underneath must not be pressable).
+  keys (the hidden UI underneath must not be pressable). Polish batch 3: an open DOM modal stays usable in portrait (laid
+  out for the screen; no rotate card behind it); main.ts re-places it on every display change.
+- Crash guard (polish batch 3): `Loop` hands an exception from `update` / `render` to its `error` hook instead of
+  freezing (every later render used to be skipped); main.ts marks the run scene `crashed` (never saved again), closes a
+  DOM modal, goes back to the title and toasts "SOMETHING WENT WRONG · YOUR RUN WAS SAVED AT THE LAST ROOM"; three
+  crashes within 5 s stop the loop with a plain page.
 
 ---
 
@@ -910,7 +932,11 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB); `Sim.fromSnapshot(snap)` restores world + player
   and runs the same `enterCurrent()`, so play continues exactly as it did after the snapshot (same room, same future
   rolls and floors; a boss fight replays identically; tests step both side by side). Progress inside the current
-  room is not part of it (resuming = walking into that room again).
+  room is not part of it (resuming = walking into that room again). Polish batch 3: a room that becomes CLEARED is
+  checkpointed again at the end of `onWaveCleared` (`saveRoom(false)` + checkpoint, `entrySide` kept: a restore walks in
+  through the same door into the cleared room — trapdoor, rewards, nook, loot), and `Sim.refreshCheckpoint()` /
+  `Run.refreshCheckpoint()` re-takes it in a settled cleared room (no wave running or due, no boss dying, no teleport
+  pending; false otherwise). `saveRoom(leaving)` seals the start room's grate only when she leaves it.
 - **Item links** (content merge; `FLOOR_LINKS` in `sim/tonics.ts`, set at module load by run.ts, the world's Run found
   through a WeakMap — outside a run they answer false and the item refunds): `revealMapBy(level)` (Treasure Map Sticker)
   and `queueTeleport(to)` ('random' = any other room of the floor on the combatRng — Hopscotch Chalk; 'treasure' / 'shop' /
@@ -1076,12 +1102,15 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   one keeps the local run), rebuilds the achievement engine's pending lists, re-applies earned rewards quietly and flushes;
   the caller re-applies the imported settings. Import is offered from the title only (a live run would overwrite the run
   it brings).
-- **The run save** = `Sim.snapshot()` (the room-entry checkpoint, §6b): written when a run starts / is continued, after every
-  room entry (door, trapdoor, grate, whirlpool — the run scene sees 'roomEnter'), on pause, when the page is hidden
-  (visibilitychange / pagehide / blur) and before leaving a run for the title (`nav.title`). `save.host.savableRun()` (the
-  run scene's `savableSim()`) decides what may be written: a floor run in progress — never the yard, never a dead or won
-  run. Death clears the save the moment the player dies (closing the app can't dodge it); a win clears it at 'runEnd'. A
-  New Run over a saved run abandons it (`abandonSavedRun`: a 'quit', the win streak ends).
+- **The run save** = `Sim.snapshot()` (the run's checkpoint, §6b): written when a run starts / is continued, after every
+  room entry (door, trapdoor, grate, whirlpool — the run scene sees 'roomEnter') and every room clear ('roomClear', polish
+  batch 3: the cleared-room checkpoint), on pause, when the page is hidden (visibilitychange / pagehide / blur) and
+  before leaving a run for the title (`nav.title`) — those three through the module-level `saveRunNow()`, i.e.
+  `GameSave.saveRunNow({ refresh: true })`: a settled cleared room is checkpointed again first. `save.host.savableRun()`
+  (the run scene's `savableSim()`) decides what may be written: a floor run in progress — never the yard, never a dead
+  or won run, never a scene that crashed. Death clears the save the moment the player dies (closing the app can't
+  dodge it); a win clears it at 'runEnd'. A New Run over a saved run abandons it (`abandonSavedRun`: a 'quit', the win
+  streak ends).
 - **Continue** (title, shown when `runs.hasRun()`): `save.loadRun()` → `new RunScene(app, 'run', snapshot)` → `Sim.fromSnapshot`
   (the same room, re-entered exactly). A damaged latest save continues from the previous room's copy (toast "RUN RESTORED"),
   a damaged / unknown-version one is dropped with a toast, a newer version's is left alone (toast). Restore errors are caught.
@@ -1108,6 +1137,13 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   unlocks, achievements, run start/end, import) save at the end of the tick — call `meta.endTick()` once per loop
   tick; frequent ones (kills, counts, play time) at most every 5 s; a failed write retries after 10 s. `flush()`,
   `subscribe()`; `toRuntimeSettings` / `fromRuntimeSettings` adapt to `meta/settings.ts` structurally.
+  Polish batch 3 (several tabs): every write first merges what another tab stored meanwhile (`SaveSlot.readExternal` —
+  only when the stored text differs from what this tab last loaded / wrote — then `mergeMeta(base, mine, theirs)`, a
+  three-way merge against that base: additions / increases from both tabs kept, records the higher, settings per key
+  the side that changed it), except the write after a reset / import (`replaceState`, `resetProgress`: it replaces).
+  `syncFromStorage()` (main.ts: the window 'storage' event on `stormdrain.meta`, via `GameSave.syncMetaFromStorage`)
+  merges another tab's save into memory at once; listeners get `MetaChange.external` (settings re-applied, the
+  achievement engine rebuilt). docs/saving.md §8.
 - `runSave.ts` `RunSaveStore` (`stormdrain.run`): save / load / clear / hasRun of any plain-JSON snapshot ≤ 1 M chars
   (NaN, Infinity, cycles, Map / Set / class instances are rejected with the offending path). The snapshot is
   `Sim.snapshot()` (`RunSnapshot`, §6b: the whole `FloorLayout` included; ≈ 20 KB, < 0.5 ms per save on desktop).
@@ -1121,11 +1157,18 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   The worker precaches with `cache: 'reload'`, serves navigations from the cached `index.html`, is cache-first
   otherwise, and ignores `Vary` on lookups. `src/pwa/register.ts` `registerServiceWorker()` (production + secure
   origins only; main.ts calls it after boot, plus `requestPersistentStorage()`) applies updates quietly on the next
-  launch, never reloads the page (a toast says "GAME UPDATED · RESTART TO PLAY THE NEW VERSION" — only when an OLDER worker
-  runs the page: a first install that has already claimed it, which WebKit may report before its late 'installed' event,
-  is not an update). It assumes a single JS
+  launch and never reloads the page by itself (`onUpdate` fires only when an OLDER worker runs the page: a first install
+  that has already claimed it, which WebKit may report before its late 'installed' event, is not an update). Polish
+  batch 3: `onUpdate` sets `app.pwa.updateReady` — mid-run a toast "UPDATE READY · RELOAD FROM THE TITLE", on the title
+  a RELOAD button (`title.reload`) that saves (`saveRunNow()`) and calls `location.reload()`. It assumes a single JS
   bundle (code splitting would need old chunks kept). e2e/pwa.spec.ts checks the links, the manifest's icons,
-  `dist/sw.js` and the registration.
+  `dist/sw.js`, the registration, the Safari-tab / home-screen notices and the RELOAD flow.
+- `src/pwa/platform.ts` (polish batch 3): `isIosSafariTab(env)` (iOS / iPadOS WebKit with touch, `navigator.standalone ===
+  false`, no standalone / fullscreen display mode), `isStandalone`, `platformInfo`, `readPlatform()`; `PwaState` = `app.pwa`
+  (`platform`, `firstLaunch` = no meta save at boot, `persisted` = the `persist()` result, `updateReady`, `reload()`). The
+  title warns a Safari tab (Add to Home Screen; EXPORT SAVE once there is progress) and offers the home-screen app's first
+  launch IMPORT SAVE once (the meta unlock `hints:importPrompt`); Settings' status line says "SAVED IN SAFARI · MAY BE
+  CLEARED" in a tab unless storage was made persistent.
 
 ## 7a. Meta progress & achievements (`meta/tracker.ts`, `meta/achievements.ts`, `meta/unlocks.ts`)
 
@@ -1216,7 +1259,13 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   pixel-styled panel placed inside the game image; text selection / typing only inside it (inputs 16 px+ so iOS doesn't
   zoom; focused synchronously inside the tap so the iPhone keyboard comes up); Escape / a tap on the backdrop cancels.
   While open, main.ts pushes `ModalScene` (scene 'modal': dims, no buttons, swallows keys); engine/input.ts ignores keys
-  aimed at the modal and lets its gestures through.
+  aimed at the modal and lets its taps through (not pinches). Polish batch 3: `ModalSpec.autoFocus` (false for Import)
+  and `actionsFirst` (Import: its buttons above the field); Import's primary PASTE (`DomModal.pasteFromClipboard()`:
+  `navigator.clipboard.readText()` inside the tap, then CHECK CODE at once; refused → a note, paste by hand). A backdrop
+  tap with typed text in an editable field only blurs it (cancels when empty). `place()` = `modalRect(display, visible
+  area)`: over the image in landscape, across the screen in portrait, always inside the visual viewport (its resize /
+  scroll events re-place it: the keyboard only shortens the panel, which scrolls). `touch-action: pan-x pan-y` on the
+  layer and panel; the field keeps `auto` and `-webkit-touch-callout: default` (the iOS paste callout).
 - Pause (`ui/pause.ts`): left — PAUSED (the secret 5-tap `pause.title`), the character, floor + chapter, the seed (DAILY /
   PRACTICE tag), the curse, the run time; RESUME / SETTINGS / QUIT TO TITLE (`pause.resume` / `pause.settings` /
   `pause.quit`; Esc / P resume, S settings, Q quit). Right — HEALTH across the panel (`healthParts`: red now / max, '+N TIN',
@@ -1226,7 +1275,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   description underneath (this run's names: `itemName` / `itemDesc`, so an unidentified tonic stays '???').
 - Settings (`ui/settingsPanel.ts`, overlay 'settings', from the title or the pause menu): MASTER / MUSIC / EFFECTS / SHAKE
   sliders (tap the track to jump, drag to slide; volumes are heard live and committed on release — a quick tap is caught by
-  the release), SHOW FPS, AIM 4-WAY / 360°, LEFT-HANDED, BUTTON SIZE 75-150 % (5 % steps), EXPORT / IMPORT SAVE (import
+  the release), SHOW FPS, AIM 4-WAY / 360°, LEFT-HANDED, BUTTON SIZE 100-150 % (5 % steps; polish batch 3: 100 % is the 44 pt floor), EXPORT / IMPORT SAVE (import
   only from the title: it replaces the saved run), REDUCE FLASHING (polish batch 2: every full-screen flash capped at 0.2;
   `MetaSettings.reduceFlashing`, additive — older saves normalize to off); the separate-saves note runs along the bottom
   edge. Ids `settings.<master|music|sfx|shake|fps|aim|lefty|buttons|export|import|flash|back>`. Everything persists
@@ -1472,6 +1521,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.
 - Phase 5 (guide: docs/testing.md): `__SD.debug.settings(patch?)` (runtime settings — button size, left-handed… — like the
   Settings page; returns them), `__SD.debug.unlockAll()` / `resetUnlocks()`; the debug menu's `debug.tab.bosses`.
+- Polish batch 3: `ButtonInfo` has `pad` and `trigger` (hit rect = rect + pad); `__SD.stickRests()` (the resting spots,
+  the ring radius and the stick zone), `__SD.sticks()` (move / aim: active, origin — may lie off the image —, direction,
+  flicks; `perf` = the overlay is up), `__SD.pwa()` (safariTab, standalone, ios, firstLaunch, persisted, updateReady),
+  `__SD.debug.pwaUpdate()` (as if a new version had just activated); the title's `describe()` adds `notice`,
+  `saveShortcut` ('export' | 'import' | '') and `reload`, settings' adds `status`; new title buttons `title.saveShortcut`,
+  `title.reload`; the Import modal's `data-action="paste"`.
   - **Synergy stress** (`tests/stress-synergy.test.ts`, harness `tests/helpers/stress.ts`): (a) every carrier as the primary
     × every modifier and every carrier pair, (b) seeded random stacks of 10-30 items from the whole pool through the real
     pickup flow, every character in turn — each fought for seconds against waves of real chapter enemies (and bosses) in a

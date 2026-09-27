@@ -317,6 +317,28 @@ export class SaveSlot {
     this.primed = true;
   }
 
+  /**
+   * Another writer's save (polish batch 3: another tab of the game): the primary's text when it differs from what this
+   * slot last loaded or wrote, decoded and migrated; null when unchanged, missing or unreadable. A save from a NEWER
+   * version makes the slot read-only, exactly as finding one at load would.
+   */
+  readExternal(): { text: string; data: unknown } | null {
+    const raw = this.storage.get(this.key);
+    if (raw === null || raw === this.lastGood) return null;
+    const r = this.attempt(raw);
+    if (!r.ok) {
+      if (r.future) this.readOnly = true;
+      return null;
+    }
+    return { text: raw, data: r.data };
+  }
+
+  /** The primary holds `text` now (merged from another writer): it is the next `.bak`, and no longer "external". */
+  adopt(text: string): void {
+    this.lastGood = text;
+    this.primed = true;
+  }
+
   /** Cheap presence test (primary or backup text exists; not validated). */
   exists(): boolean {
     return this.storage.get(this.key) !== null || this.storage.get(this.bakKey) !== null;

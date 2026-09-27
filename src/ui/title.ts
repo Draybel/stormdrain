@@ -4,6 +4,12 @@
  * on the walls — COLLECTION, BESTIARY (left), ACHIEVEMENTS, STATS (right); SETTINGS in the top-right corner;
  * the lasting save notice on the bottom line. Every button is >= 26 game px tall (≈ 46 pt).
  *
+ * Polish batch 3 (saves and updates): in an iPhone Safari TAB the bottom line says how to keep the saves (Add to Home
+ * Screen: WebKit may wipe a tab's storage after ~7 days) and, once there is progress, an EXPORT SAVE corner button opens
+ * the export code; the home-screen app's very first launch (no meta save) offers IMPORT SAVE instead (once: it is
+ * remembered in the meta save) — the two keep separate storage. When a new version has been installed in the
+ * background, RELOAD (bottom-right) saves and reloads into it; runs are never reloaded mid-play.
+ *
  * Keyboard: arrows move the focus, Enter / Space pick; shortcuts C continue, N new run, D daily, E enter seed,
  * O collection, B bestiary, A achievements, T stats, S settings.
  */
@@ -21,6 +27,7 @@ import { drawSprite, drawSpriteAnchored } from '../render/sprites';
 import { TITLE_GROUND_Y, buildLogo, buildTitleBackdrop } from '../render/titleArt';
 import { MUSIC } from '../audio/music/ids';
 import type { App } from './app';
+import { openExport } from './modals';
 import type { Scene } from './scene';
 import { BTN_H, MenuNav, drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets';
 
@@ -47,6 +54,19 @@ const TILE_W = 70;
 const TILE_H = 42;
 const TILE_Y0 = 62;
 const TILE_GAP = 5;
+/** The bottom corners under the wall tiles: the save shortcut (left) and RELOAD (right). */
+const CORNER_Y = 156;
+
+/** Bottom-line texts (polish batch 3); each fits the 384 px title between the corners. */
+export const TITLE_LINES = {
+  safari: 'ADD TO HOME SCREEN TO KEEP YOUR SAVES · SHARE > ADD TO HOME SCREEN',
+  importHint: 'PLAYED IN SAFARI BEFORE? IMPORT YOUR SAVE',
+  update: 'NEW VERSION READY · TAP RELOAD',
+} as const;
+
+/** The meta unlock set ('hints', an open kind) that remembers the home-screen app's import hint was shown. */
+const HINT_KIND = 'hints';
+const HINT_IMPORT = 'importPrompt';
 
 export class TitleScene implements Scene {
   readonly name = 'title';
@@ -60,6 +80,12 @@ export class TitleScene implements Scene {
   private readonly seed: UiButton;
   private readonly settings: UiButton;
   private readonly tiles: UiButton[];
+  /** Bottom-left: EXPORT SAVE (Safari tab with progress) or IMPORT SAVE (the home-screen app's first launch). */
+  private readonly saveBtn: UiButton;
+  /** Bottom-right: RELOAD into a new version that finished installing in the background. */
+  private readonly reloadBtn: UiButton;
+  /** What saveBtn does now. */
+  private saveMode: 'export' | 'import' | '' = '';
   private readonly menu: MenuNav;
   /** The save line at the bottom ('' = none). */
   private notice = '';
@@ -67,6 +93,10 @@ export class TitleScene implements Scene {
   private dailyDone = false;
   /** Seconds until the tick is checked against the UTC date again (it clears at midnight). */
   private dailyCheckT = 1;
+  /** The import hint was shown on this title (it stays while the title is up, then never again). */
+  private importShown = false;
+  /** The RELOAD button reflects an update (one that arrives while the title is up re-lays it out). */
+  private updateShown = false;
   private time = 0;
   private rainAcc = 0;
   private lightning = 0;
@@ -116,7 +146,33 @@ export class TitleScene implements Scene {
       h: BTN_H,
       onActivate: go(() => nav.settings()),
     });
-    this.buttons = [this.cont, this.newRun, this.daily, this.seed, ...this.tiles, this.settings];
+    this.saveBtn = uiButton({
+      id: 'title.saveShortcut',
+      label: 'EXPORT SAVE',
+      textScale: 1,
+      x: 6,
+      y: CORNER_Y,
+      w: TILE_W,
+      h: BTN_H,
+      visible: false,
+      onActivate: go(() => {
+        if (this.saveMode === 'export') openExport(app);
+        else if (this.saveMode === 'import') nav.importSave();
+      }),
+    });
+    this.reloadBtn = uiButton({
+      id: 'title.reload',
+      label: 'RELOAD',
+      kind: 'primary',
+      textScale: 1,
+      x: right,
+      y: CORNER_Y,
+      w: TILE_W,
+      h: BTN_H,
+      visible: false,
+      onActivate: go(() => app.pwa.reload()),
+    });
+    this.buttons = [this.cont, this.newRun, this.daily, this.seed, ...this.tiles, this.settings, this.saveBtn, this.reloadBtn];
     this.menu = new MenuNav(() => this.buttons);
     this.menu.onMove = () => app.audio.play('menu_move');
     this.layout();
@@ -137,11 +193,45 @@ export class TitleScene implements Scene {
       b.y = y;
       y += b.h + (saved ? 4 : 6);
     }
-    const n = this.app.save.notice;
-    this.notice = n?.lasting ? `${n.title} · ${n.line}` : '';
+    this.layoutNotices();
     this.dailyDone = this.app.save.meta.hasDaily(utcDateKey(Date.now()));
     const f = this.menu.current();
     if (!f || f === this.cont || f === this.newRun) this.menu.set(saved ? this.cont : this.newRun);
+  }
+
+  /**
+   * The bottom line and the corner buttons (polish batch 3). The line, most important first: a lasting save notice
+   * (a newer version's save, no storage), a waiting update, the home-screen app's first-launch import hint, the Safari
+   * tab's "Add to Home Screen" advice.
+   */
+  private layoutNotices(): void {
+    const app = this.app;
+    const save = app.save;
+    const pwa = app.pwa;
+    const meta = save.meta;
+    const n = save.notice;
+    const st = meta.state.stats;
+    const progress = st.runs > 0 || Object.keys(meta.state.achievements).length > 0 || save.hasRun();
+    // The home-screen app's very first launch (an empty meta save, nothing played yet): offer the import, once.
+    const importHint = pwa.platform.standalone && pwa.firstLaunch && !progress && (this.importShown || !meta.isUnlocked(HINT_KIND, HINT_IMPORT));
+    if (importHint && !this.importShown) {
+      this.importShown = true;
+      meta.unlock(HINT_KIND, HINT_IMPORT);
+    }
+    this.saveMode = importHint ? 'import' : pwa.platform.safariTab && progress ? 'export' : '';
+    this.saveBtn.visible = this.saveMode !== '';
+    this.saveBtn.label = this.saveMode === 'import' ? 'IMPORT SAVE' : 'EXPORT SAVE';
+    this.reloadBtn.visible = pwa.updateReady;
+    this.updateShown = pwa.updateReady;
+    this.notice = n?.lasting
+      ? `${n.title} · ${n.line}`
+      : pwa.updateReady
+        ? TITLE_LINES.update
+        : importHint
+          ? TITLE_LINES.importHint
+          : pwa.platform.safariTab
+            ? TITLE_LINES.safari
+            : '';
   }
 
   enter(): void {
@@ -194,6 +284,7 @@ export class TitleScene implements Scene {
 
   update(dt: number, _input: InputState): void {
     this.time += dt;
+    if (this.app.pwa.updateReady !== this.updateShown) this.layoutNotices();
     tickButtons(this.buttons, dt);
     // Rain + splash rings on the ledge/water.
     this.rainAcc += dt * 130;
@@ -264,6 +355,13 @@ export class TitleScene implements Scene {
   }
 
   describe(): Record<string, unknown> {
-    return { continue: this.cont.visible, dailyDone: this.dailyDone, notice: this.notice, focus: this.menu.current()?.id ?? null };
+    return {
+      continue: this.cont.visible,
+      dailyDone: this.dailyDone,
+      notice: this.notice,
+      saveShortcut: this.saveMode,
+      reload: this.reloadBtn.visible,
+      focus: this.menu.current()?.id ?? null,
+    };
   }
 }

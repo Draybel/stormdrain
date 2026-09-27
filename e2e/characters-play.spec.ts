@@ -88,6 +88,9 @@ async function installDriver(page: Page): Promise<void> {
         const AX = 318;
         const AY = 164;
         const R = 18;
+        // The aim thumb stays inside the aim stick's 12 px follow radius (polish batch 3), as a player aiming against the
+        // ring does: pointing 18 px from a fixed spot would drag the origin round and send the aim astray.
+        const RA = 10;
         let moveDown = false;
         let aimDown = false;
         let side = 1;
@@ -129,7 +132,7 @@ async function installDriver(page: Page): Promise<void> {
             const d = Math.hypot(dx, dy) || 1;
             const every = opts.release ?? 0;
             if (aimDown && every > 0 && now - lastRelease > every) {
-              send('pointerup', 12, AX + (dx / d) * R, AY + (dy / d) * R);
+              send('pointerup', 12, AX + (dx / d) * RA, AY + (dy / d) * RA);
               aimDown = false;
               lastRelease = now;
               res.releases++;
@@ -138,7 +141,7 @@ async function installDriver(page: Page): Promise<void> {
                 send('pointerdown', 12, AX, AY);
                 aimDown = true;
               }
-              send('pointermove', 12, AX + (dx / d) * R, AY + (dy / d) * R);
+              send('pointermove', 12, AX + (dx / d) * RA, AY + (dy / d) * RA);
             }
             // The move thumb: keep 50-90 px away, strafing round the foe (switching sides every 1.5 s).
             if (!opts.stand) {

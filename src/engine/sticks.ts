@@ -21,6 +21,11 @@ export interface StickConfig {
    * demand pinning the thumb exactly on the rim (1 = linear all the way out).
    */
   saturation: number;
+  /**
+   * 4-way aim flick (polish batch 3; 0 = off): a thumb that travels at least this many game px in a NEW cardinal
+   * direction within {@link FLICK_MS} switches to it at once and re-centres the stick behind the thumb.
+   */
+  flickPx: number;
 }
 
 export const MOVE_STICK: StickConfig = {
@@ -30,19 +35,32 @@ export const MOVE_STICK: StickConfig = {
   follow: true,
   axisMagnet: 7 * DEG,
   saturation: 0.85,
+  flickPx: 0,
 };
 
+/**
+ * Polish batch 3: the aim origin follows the thumb at 12 px (was 20), so turning at the rim costs ≈ 13 game px
+ * (≈ 4 mm) of travel instead of ≈ 24 (8 mm).
+ */
 export const AIM_STICK: StickConfig = {
-  radius: 20,
+  radius: 12,
   deadzone: 0,
   activation: 3,
   follow: true,
   axisMagnet: 0,
   saturation: 1,
+  flickPx: 6,
 };
 
-/** 4-way aim keeps the current direction until the thumb is this far off-axis (45° + margin). */
-const SNAP_KEEP_COS = Math.cos(56 * DEG);
+/** 4-way aim keeps the current direction until the thumb is this far off-axis (45° + 6° of hysteresis). */
+export const SNAP_KEEP_DEG = 51;
+const SNAP_KEEP_COS = Math.cos(SNAP_KEEP_DEG * DEG);
+/** The flick window (ms): see {@link StickConfig.flickPx}. */
+export const FLICK_MS = 80;
+/** A flick may start at most this far (game px) on the far side of the origin from its direction. */
+const FLICK_CROSS = 2;
+/** Recent thumb samples kept for the flick test (a small ring, no allocation). */
+const HIST = 8;
 
 export class VirtualStick {
   readonly cfg: StickConfig;
@@ -66,12 +84,21 @@ export class VirtualStick {
   snap4 = true;
   /** Seconds since `begin` (maintained by the owner for UI fades). */
   heldTime = 0;
+  /** Flicks taken since `begin` (tests / tools). */
+  flicks = 0;
+  /** Recent thumb samples (time ms, x, y) for the flick test: a ring of {@link HIST}. */
+  private readonly histT = new Float64Array(HIST);
+  private readonly histX = new Float64Array(HIST);
+  private readonly histY = new Float64Array(HIST);
+  private histN = 0;
+  private histI = 0;
 
   constructor(cfg: StickConfig) {
     this.cfg = cfg;
   }
 
-  begin(pointerId: number, x: number, y: number): void {
+  /** `t`: the event time in ms (enables the aim flick; -1 = unknown). Coordinates may lie outside the image. */
+  begin(pointerId: number, x: number, y: number, t = -1): void {
     this.pointerId = pointerId;
     this.active = true;
     this.originX = x;
@@ -82,14 +109,73 @@ export class VirtualStick {
     this.dirX = 0;
     this.dirY = 0;
     this.heldTime = 0;
+    this.flicks = 0;
+    this.histN = 0;
+    this.record(t, x, y);
     this.compute();
   }
 
-  move(x: number, y: number): void {
+  move(x: number, y: number, t = -1): void {
     if (!this.active) return;
     this.thumbX = x;
     this.thumbY = y;
+    if (t >= 0 && this.cfg.flickPx > 0 && this.snap4 && this.hasDir) this.flick(t, x, y);
+    this.record(t, x, y);
     this.compute();
+  }
+
+  private record(t: number, x: number, y: number): void {
+    if (t < 0 || this.cfg.flickPx <= 0) return;
+    const i = this.histI;
+    this.histT[i] = t;
+    this.histX[i] = x;
+    this.histY[i] = y;
+    this.histI = (i + 1) % HIST;
+    if (this.histN < HIST) this.histN++;
+  }
+
+  /**
+   * A quick flick (≥ flickPx within FLICK_MS) clearly along a NEW cardinal direction (the major axis at least twice
+   * the minor one) switches the 4-way aim to it at once and moves the origin behind the thumb (thumb on the rim in the
+   * new direction), so the ordinary angle test that follows agrees with it instead of snapping back.
+   * The stroke must move the thumb OUT into that direction's side of the origin: it may not start more than
+   * FLICK_CROSS px on the far side (a thumb wobbling across the current axis — 30° above "right" to 30° below — is not
+   * a flick down) and must end at least half a flick into it (easing back toward the centre is not a flick back).
+   */
+  private flick(t: number, x: number, y: number): void {
+    // Where the thumb was FLICK_MS ago: the newest sample at least that old (a resting thumb sends no events, so it
+    // was still there), else the oldest one kept.
+    if (this.histN === 0) return;
+    let sx = x;
+    let sy = y;
+    for (let k = 1; k <= this.histN; k++) {
+      const i = (this.histI - k + HIST) % HIST;
+      sx = this.histX[i]!;
+      sy = this.histY[i]!;
+      if (t - this.histT[i]! >= FLICK_MS) break;
+    }
+    const dx = x - sx;
+    const dy = y - sy;
+    const ax = Math.abs(dx);
+    const ay = Math.abs(dy);
+    const min = this.cfg.flickPx;
+    if (dx * dx + dy * dy < min * min) return;
+    let cx = 0;
+    let cy = 0;
+    if (ax >= 2 * ay) cx = dx > 0 ? 1 : -1;
+    else if (ay >= 2 * ax) cy = dy > 0 ? 1 : -1;
+    else return;
+    if (cx === this.dirX && cy === this.dirY) return;
+    const s0 = (sx - this.originX) * cx + (sy - this.originY) * cy;
+    const s1 = (x - this.originX) * cx + (y - this.originY) * cy;
+    if (s0 < -FLICK_CROSS || s1 < min / 2) return;
+    this.dirX = cx;
+    this.dirY = cy;
+    this.originX = x - cx * this.cfg.radius;
+    this.originY = y - cy * this.cfg.radius;
+    this.flicks++;
+    // A fresh window from here: the same stroke can't flick twice.
+    this.histN = 0;
   }
 
   end(): void {

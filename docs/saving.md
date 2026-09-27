@@ -25,6 +25,37 @@ first tick, so the "damaged" toast never repeats and the old text becomes the `.
 damaged (`runs.hasRun()` false while `runs.slot.exists()`) is dropped at boot by `GameSave.dropDamagedRun()` — its text
 kept as `stormdrain.run.corrupt` — and main.ts toasts "SAVED RUN LOST" instead of silently losing Continue.
 
+**Polish batch 3 (mobile UX, saving and PWA)** — no progress may be lost:
+- **Room-clear checkpoints.** The run save is no longer only the room-entry checkpoint: when a room becomes CLEARED
+  (`Run.onWaveCleared`, after the boss reward / challenge reward / trapdoor / nook) the run saves that room
+  (`saveRoom`) and checkpoints again, keeping `entrySide`; the run scene writes it at once on the 'roomClear' event.
+  Pause, background (visibilitychange / pagehide / blur) and quit-to-title call `saveRunNow()` with `refresh`:
+  in a SETTLED cleared room (no wave running or due, no boss dying, no teleport pending) the checkpoint is re-taken
+  first (`Sim.refreshCheckpoint()`), so items picked up, bought or opened after the clear survive. A restore walks
+  her in through the door she came by, into the room as it stood. Mid-fight nothing changes: Continue replays the
+  room entry (no mid-fight save-scumming). A checkpoint inside the start room never seals its hidden-route grate
+  (only leaving the room does).
+- **Crash guard.** `Loop` passes an exception from `update` / `render` to its `error` hook instead of freezing;
+  main.ts marks the run scene `crashed` (its `savableSim()` is null from then on, so the stored save stays the last
+  good checkpoint), closes a DOM modal, returns to the title and toasts "SOMETHING WENT WRONG · YOUR RUN WAS SAVED AT
+  THE LAST ROOM". Three crashes within 5 s stop the loop with a plain page.
+- **Safari tabs** (`src/pwa/platform.ts` `isIosSafariTab`: iOS / iPadOS WebKit, touch, `navigator.standalone ===
+  false`, no standalone display mode): the title's bottom line says "ADD TO HOME SCREEN TO KEEP YOUR SAVES · SHARE >
+  ADD TO HOME SCREEN" and, once there is progress, EXPORT SAVE sits in its bottom-left corner. Settings' status line
+  says "SAVED IN SAFARI · MAY BE CLEARED" unless `requestPersistentStorage()` was granted ("· PROTECTED"). The
+  home-screen app's first launch (no meta save at all) offers IMPORT SAVE there instead, once (remembered as the meta
+  unlock `hints:importPrompt`).
+- **Updates in one tap.** `registerServiceWorker({ onUpdate })` sets `app.pwa.updateReady`: mid-run a toast
+  "UPDATE READY · RELOAD FROM THE TITLE"; on the title the line "NEW VERSION READY · TAP RELOAD" and a RELOAD button
+  that calls `saveRunNow()` and then `location.reload()` (the run stays for Continue). Nothing reloads mid-run.
+- **Several tabs.** Every meta write first merges what another tab saved meanwhile (`MetaStore` → `mergeMeta`, a
+  three-way merge against the state this tab last read / wrote), and the window 'storage' event on `stormdrain.meta`
+  merges another tab's save into memory at once (`GameSave.syncMetaFromStorage`). See section 8.
+- **The import modal on an iPhone**: no auto-focus (the keyboard would hide its buttons), its buttons above the field,
+  a PASTE button (`navigator.clipboard.readText()` inside the tap, then the code is checked at once; refused → paste by
+  hand), a backdrop tap with text in the field only dismisses the keyboard, the panel follows the visual viewport and
+  portrait.
+
 | Module | What it gives you |
 |---|---|
 | `src/meta/storage.ts` | `createStorage()` (localStorage, or an in-memory fallback with `persistent = false`), `MemoryStorage` (tests), `SaveSlot` (envelope + checksum + migrations + `.bak`), `requestPersistentStorage()` |
@@ -34,6 +65,7 @@ kept as `stormdrain.run.corrupt` — and main.ts toasts "SAVED RUN LOST" instead
 | `src/meta/runSave.ts` | **`RunSaveStore`**: `save / load / clear / hasRun / peek / restore` on `stormdrain.run` |
 | `src/meta/exportCode.ts` | `exportCode()` / `importCode()` (`SD1:` codes), `IMPORT_MESSAGES`, `summarizeMeta()` |
 | `src/pwa/register.ts` | `registerServiceWorker()` (production only, quiet updates) |
+| `src/pwa/platform.ts` | `isIosSafariTab()` / `isStandalone()` / `platformInfo()` over a stubbable env, `readPlatform()`, `PwaState` (`app.pwa`) |
 | `scripts/sw-plugin.mjs` | Vite plugin: writes `dist/sw.js` after every production build (already in `vite.config.ts`) |
 | `scripts/gen-icons.mjs` | `npm run icons`: regenerates `public/icons/*.png` from the pixel-art map |
 
@@ -55,8 +87,8 @@ settings.subscribe((s) => meta.updateSettings(fromRuntimeSettings(s)));   // no-
 // showFps / leftHanded exist only in MetaSettings: read meta.settings / meta.updateSettings({...}).
 
 // After boot (never blocks startup; no-op in dev and on http://LAN-IP):
-registerServiceWorker({ onUpdate: () => { /* optional: title shows "Updated — restart to play the new version" */ } });
-void requestPersistentStorage();                 // best effort
+registerServiceWorker({ onUpdate });             // polish batch 3: app.pwa.updateReady → the title's RELOAD
+void requestPersistentStorage().then((ok) => (pwa.persisted = ok));   // best effort; Settings shows it in a Safari tab
 ```
 
 Show a one-time notice from `meta.loaded.status` (and `meta.loaded.error`):
@@ -135,8 +167,14 @@ export function saveRunNow(): void {
 
 Call `saveRunNow()`:
 - on every **room transition** (after the new room is set up, so Continue resumes in that room);
-- on **pause** and on **background** (`visibilitychange` hidden / `pagehide` / `blur`) — already wired;
-- before navigating from the run to the title.
+- on every **room clear** (polish batch 3: the run has just checkpointed the cleared room — 'roomClear');
+- on **pause** and on **background** (`visibilitychange` hidden / `pagehide` / `blur`) — already wired, with
+  `{ refresh: true }` (the module-level `saveRunNow()` does that): a settled cleared room is checkpointed again first;
+- before navigating from the run to the title (also with the refresh).
+
+What a restore gives back: the room as it was at the checkpoint — at its entry (mid-fight: the fight starts over),
+or once cleared as it stood at the clear / the last refresh (trapdoor, rewards, pickups, tonics identified) — with the
+player walking in through the door she entered by. A scene that crashed never writes again (main.ts crash guard).
 
 On **run end** (win, death, abandon from pause, New Run over an existing save):
 `meta.recordRunEnd(...)`, `runs.clear()` (removes the save *and* its backup), `meta.flush()`.
@@ -233,8 +271,33 @@ from one and import into the other to move progress.
   (no lazy chunks): after an update the old page keeps running on already-loaded code until the
   next launch.
 - Updates are quiet: `registerServiceWorker()` sends `SKIP_WAITING` to a freshly installed version,
-  never reloads the page, and checks for updates when the app returns to the foreground (≥ 1 h
-  apart). The next launch runs the new version.
+  never reloads the page by itself, and checks for updates when the app returns to the foreground (≥ 1 h
+  apart). The next launch runs the new version — or, polish batch 3, the title's RELOAD button (shown once
+  `onUpdate` fired: a new version activated behind an older one) saves and reloads into it right away. On an iPhone
+  "restart" would mean force-quitting the home-screen app, which players don't know to do.
 - Icons: edit the maps in `scripts/gen-icons.mjs`, run `npm run icons`, commit the PNGs. A test
   fails if the committed PNGs don't match the art (stale icons).
 - Dev server: no service worker (registration is production-only), so HMR is unaffected.
+
+## 8. Several tabs / windows (polish batch 3)
+
+Each tab has its own `MetaStore` in memory and used to write its whole state: tab B, loaded earlier, saved its play
+time 5 s after tab A earned an achievement and wiped it. Now:
+- **Merge on write.** Before each meta write, `MetaStore` reads the stored text (`SaveSlot.readExternal()`: only when it
+  differs from what this tab last loaded / wrote — the common case costs one `getItem` and a string compare) and merges
+  it with `mergeMeta(base, mine, theirs)`, `base` being what this tab last read / wrote:
+  unlocks and achievements = storage's + this tab's additions (an achievement earned in both keeps the earlier date);
+  counts (collection / bestiary entries, runs, kills, play time, per-character counts, achievement counters) = storage's
+  + this tab's increase since `base` (both tabs' play time adds up, nothing goes down); records (best floor, best win
+  streak, `max*` counters) = the higher, when this tab raised its own; the win streak and unknown fields = this tab's
+  if it changed them, else storage's; settings per setting = this tab's if it changed it since `base` (the newer
+  change), else storage's; daily results by date (the one this tab changed, else storage's; both → the finished /
+  higher-scoring one). The stored text becomes the next `.bak` (`SaveSlot.adopt`).
+- **'storage' events.** main.ts listens for `storage` on `stormdrain.meta` and calls `GameSave.syncMetaFromStorage()`:
+  the other tab's progress is merged into memory at once, listeners get `change.external` (main.ts re-applies merged
+  settings; the achievement engine rebuilds its pending lists, so nothing is earned twice). A `storage` event on the
+  run key during a live run toasts "THE GAME IS OPEN IN ANOTHER TAB" once (the run save itself is not merged: the last
+  tab to save its run wins).
+- **Resets and imports replace.** `resetProgress()` / `replaceState()` (debug reset, import) mark the next write as a
+  replacement: it is never merged, and a stale tab's next write only adds what IT did since (three-way), so it can't
+  bring the old progress back. A newer version's save written by another tab turns this tab's slot read-only, as at load.

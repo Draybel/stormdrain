@@ -205,12 +205,24 @@ export class Display {
 
   /**
    * Client (CSS) coordinates → game pixels. Points in the letterbox still map, clamped to the
-   * edge, so a thumb resting on the black bar keeps working.
+   * edge, so a tap on the black bar next to a button still reaches it (button hit tests, menus).
    */
   toGame(clientX: number, clientY: number, out: Vec2): Vec2 {
+    this.toGameRaw(clientX, clientY, out);
+    out.x = clamp(out.x, 0, GAME_W - 0.001);
+    out.y = clamp(out.y, 0, GAME_H - 0.001);
+    return out;
+  }
+
+  /**
+   * {@link toGame} without the clamp (polish batch 3): a point in the letterbox maps OUTSIDE 0..GAME_W × 0..GAME_H
+   * (e.g. x = -20 in the home-screen app's 59 pt left inset). The floating sticks use it, so a thumb that lands near the
+   * image edge or on the black bar can still push toward the bezel (a clamped point stops dead at the edge).
+   */
+  toGameRaw(clientX: number, clientY: number, out: Vec2): Vec2 {
     const v = this.view;
-    out.x = clamp((clientX - this.rectLeft - v.x) / v.scale, 0, GAME_W - 0.001);
-    out.y = clamp((clientY - this.rectTop - v.y) / v.scale, 0, GAME_H - 0.001);
+    out.x = (clientX - this.rectLeft - v.x) / v.scale;
+    out.y = (clientY - this.rectTop - v.y) / v.scale;
     return out;
   }
 

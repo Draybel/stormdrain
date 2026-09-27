@@ -13,11 +13,14 @@ import {
   serializeMeta,
   toRuntimeSettings,
   utcDateKey,
+  mergeMeta,
   type MetaChange,
 } from '../src/meta/metaState';
 import { META_VERSION } from '../src/meta/migrations';
 import { decodeEnvelope, encodeEnvelope } from '../src/meta/saveCodec';
 import { MemoryStorage } from '../src/meta/storage';
+import { GameSave } from '../src/meta/save';
+import { findAchievement } from '../src/content/registry';
 
 function clock(start = 1_700_000_000_000) {
   const c = { t: start, now: () => c.t };
@@ -358,8 +361,8 @@ describe('MetaStore mutators & notifications', () => {
     store.unlock('items', 'x');
     store.endTick();
     expect(seen).toEqual([
-      { settings: true, unlocked: ['characters:pip'], achievements: ['a1'], other: false },
-      { settings: false, unlocked: [], achievements: [], other: true },
+      { settings: true, unlocked: ['characters:pip'], achievements: ['a1'], other: false, external: false },
+      { settings: false, unlocked: [], achievements: [], other: true, external: false },
     ]);
   });
 
@@ -464,5 +467,163 @@ describe('MetaStore mutators & notifications', () => {
     expect(store.settings.masterVol).toBe(1);
     expect(store.updateSettings({ masterVol: undefined, musicVol: undefined })).toBe(false);
     expect(store.settings.musicVol).toBe(0.7);
+  });
+});
+
+describe('two tabs on one save (polish batch 3, B3-6)', () => {
+  it('tab A earns an achievement; tab B, loaded earlier, saves play time: a fresh load has both', () => {
+    const storage = new MemoryStorage();
+    const a = new GameSave(storage);
+    const b = new GameSave(storage);
+    expect(a.achievements.grant(findAchievement('first-splash')!)).toBe(true);
+    expect(a.meta.flush()).toBe(true);
+    b.meta.addPlayTime(3);
+    expect(b.meta.flush()).toBe(true);
+    const fresh = new GameSave(storage);
+    expect(fresh.meta.hasAchievement('first-splash')).toBe(true);
+    expect(fresh.meta.state.stats.playTimeSec).toBeCloseTo(3, 5);
+    expect(b.meta.merges).toBe(1);
+    // B holds the merged state in memory too: its next saves keep the achievement.
+    expect(b.meta.hasAchievement('first-splash')).toBe(true);
+  });
+
+  it('counts add up and never go down; records keep the higher value', () => {
+    const storage = new MemoryStorage();
+    const a = new MetaStore({ storage });
+    const b = new MetaStore({ storage });
+    for (let i = 0; i < 5; i++) a.killEnemy('slug');
+    a.bump('coinsCollected', 10);
+    a.maxCounter('maxCoinsHeld', 40);
+    a.maxStat('bestFloor', 4);
+    a.recordRunStart('wren');
+    a.addPlayTime(60);
+    a.flush();
+    b.killEnemy('slug');
+    b.killEnemy('slug');
+    b.killEnemy('rat', true);
+    b.maxCounter('maxCoinsHeld', 25);
+    b.maxStat('bestFloor', 2);
+    b.recordRunStart('pip');
+    b.addPlayTime(30);
+    b.flush();
+    // A writes again after B (it merges B's progress on its turn).
+    a.bump('coinsCollected', 1);
+    a.flush();
+    const m = new MetaStore({ storage }).state;
+    expect(m.stats.kills).toBe(8);
+    expect(m.stats.bossKills).toBe(1);
+    expect(m.bestiary.slug).toEqual({ seen: 7, killed: 7 });
+    expect(m.bestiary.rat).toEqual({ seen: 1, killed: 1 });
+    expect(m.stats.counters.coinsCollected).toBe(11);
+    expect(m.stats.counters.maxCoinsHeld).toBe(40);
+    expect(m.stats.bestFloor).toBe(4);
+    expect(m.stats.runs).toBe(2);
+    expect(m.stats.charRuns).toMatchObject({ wren: 1, pip: 1 });
+    expect(m.stats.playTimeSec).toBeCloseTo(90, 5);
+    // Neither tab's own numbers went down.
+    for (const s of [a.state, b.state]) {
+      expect(m.stats.kills).toBeGreaterThanOrEqual(s.stats.kills);
+      expect(m.stats.playTimeSec).toBeGreaterThanOrEqual(s.stats.playTimeSec - 1e-9);
+    }
+  });
+
+  it('settings: each tab keeps what it changed itself; the same setting changed in both → the later save wins', () => {
+    const storage = new MemoryStorage();
+    const a = new MetaStore({ storage });
+    const b = new MetaStore({ storage });
+    a.updateSettings({ masterVol: 0.2, musicVol: 0.1 });
+    a.flush();
+    b.updateSettings({ masterVol: 0.5, sfxVol: 0.3 });
+    b.flush();
+    const s = new MetaStore({ storage }).settings;
+    expect(s).toMatchObject({ masterVol: 0.5, musicVol: 0.1, sfxVol: 0.3 });
+    // A tab that didn't touch a setting never reverts another tab's change.
+    const c = new MetaStore({ storage });
+    a.updateSettings({ leftHanded: true });
+    a.flush();
+    c.bump('bombsUsed');
+    c.flush();
+    expect(new MetaStore({ storage }).settings).toMatchObject({ leftHanded: true, masterVol: 0.5, musicVol: 0.1, sfxVol: 0.3 });
+  });
+
+  it("the 'storage' event merges another tab's save into memory at once (listeners hear it, nothing is re-earned)", () => {
+    const storage = new MemoryStorage();
+    const a = new GameSave(storage);
+    const b = new GameSave(storage);
+    const heard: MetaChange[] = [];
+    b.meta.subscribe((_s, ch) => heard.push({ ...ch, unlocked: [...ch.unlocked], achievements: [...ch.achievements] }));
+    a.achievements.grant(findAchievement('first-splash')!);
+    a.meta.updateSettings({ aim360: true });
+    a.meta.flush();
+    const writes = storage.writes;
+    expect(b.syncMetaFromStorage()).toBe(true);
+    expect(storage.writes).toBe(writes); // merged in memory; nothing of B's own to write
+    expect(b.meta.dirty).toBe(false);
+    expect(b.meta.hasAchievement('first-splash')).toBe(true);
+    expect(b.meta.settings.aim360).toBe(true);
+    b.endTick();
+    expect(heard).toEqual([{ settings: true, unlocked: [], achievements: [], other: true, external: true }]);
+    // B's achievement engine knows it is earned: no second toast.
+    expect(b.achievements.grant(findAchievement('first-splash')!)).toBe(false);
+    // Nothing new since: a second event is a no-op.
+    expect(b.syncMetaFromStorage()).toBe(false);
+  });
+
+  it("a progress reset or an import in one tab isn't undone by another tab's older state", () => {
+    const storage = new MemoryStorage();
+    const a = new MetaStore({ storage });
+    a.unlock('items', 'lance');
+    a.unlockAchievement('old');
+    for (let i = 0; i < 4; i++) a.killEnemy('slug');
+    a.flush();
+    const b = new MetaStore({ storage }); // loaded with the old progress
+    a.resetProgress();
+    a.flush();
+    b.killEnemy('rat');
+    b.flush();
+    const m = new MetaStore({ storage });
+    expect(m.isUnlocked('items', 'lance')).toBe(false);
+    expect(m.hasAchievement('old')).toBe(false);
+    expect(m.state.stats.kills).toBe(1); // only what B did since
+    expect(m.state.bestiary.slug).toBeUndefined();
+    // An import replaces everything too.
+    const imported = defaultMeta();
+    imported.unlocks.endings.add('ending1');
+    b.replaceState(imported);
+    b.flush();
+    expect(new MetaStore({ storage }).isUnlocked('endings', 'ending1')).toBe(true);
+    expect(new MetaStore({ storage }).state.stats.kills).toBe(0);
+  });
+
+  it('a newer version saved by another tab turns this tab read-only (it never overwrites newer progress)', () => {
+    const storage = new MemoryStorage();
+    const a = new MetaStore({ storage });
+    a.bump('bombsUsed');
+    a.flush();
+    storage.set(META_KEY, encodeEnvelope(META_VERSION + 1, { future: true }));
+    a.bump('bombsUsed');
+    expect(a.flush()).toBe(false);
+    expect(a.persistent).toBe(false);
+    expect(decodeEnvelope(storage.get(META_KEY)).ok && (decodeEnvelope(storage.get(META_KEY)) as { v: number }).v).toBe(META_VERSION + 1);
+  });
+
+  it('mergeMeta: daily results by date, achievements keep the earlier date, unknown fields ride along', () => {
+    const base = defaultMeta();
+    const mine = cloneMeta(base);
+    const theirs = cloneMeta(base);
+    mine.stats.daily['2026-09-26'] = { seed: 'AAAA2222', character: 'wren', won: false, floor: 3, kills: 9, timeSec: 60, score: 3090, at: 5 };
+    theirs.stats.daily['2026-09-27'] = { seed: 'BBBB3333', character: 'pip', won: false, floor: 1, kills: 0, timeSec: 0, score: 1000, at: 6, done: false };
+    mine.achievements.a = 200;
+    theirs.achievements.a = 100;
+    theirs.extra.fromNewerBuild = { x: 1 };
+    mine.unlocks.hints = new Set(['importPrompt']);
+    const m = mergeMeta(base, mine, theirs);
+    expect(Object.keys(m.stats.daily).sort()).toEqual(['2026-09-26', '2026-09-27']);
+    expect(m.stats.daily['2026-09-27']!.done).toBe(false);
+    expect(m.achievements.a).toBe(100);
+    expect(m.extra.fromNewerBuild).toEqual({ x: 1 });
+    expect(m.unlocks.hints?.has('importPrompt')).toBe(true);
+    // The inputs are untouched.
+    expect(Object.keys(theirs.stats.daily)).toEqual(['2026-09-27']);
   });
 });

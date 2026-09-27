@@ -2,6 +2,11 @@
  * The DOM modal flows (Phase 4B): Enter Seed (→ character select), Export save (the `SD1:` code, select all +
  * copy) and Import save (validate → confirm → replace). While one is open the canvas shows {@link ModalScene}:
  * the scene below dimmed, no buttons, every key swallowed (Escape cancels).
+ *
+ * Import on an iPhone (polish batch 3): it opens WITHOUT focusing the field (the keyboard would hide its buttons),
+ * with its buttons above the field and a primary PASTE that reads the clipboard inside the tap and checks the code at
+ * once; a refused paste falls back to pasting by hand (long-press the box). This modal is the only way to move saves
+ * between Safari and the home-screen app.
  */
 
 import type { InputState } from '../engine/inputState';
@@ -33,9 +38,9 @@ export class ModalScene implements Scene {
   }
 
   update(dt: number, _input: InputState): void {
+    // (The panel follows the display — main.ts re-places it on every layout change, portrait included — and the
+    // visual viewport — the modal's own listeners — so there is nothing to do per tick.)
     this.t += dt;
-    // Follow the game image if the window changes (rotation, the keyboard sliding up).
-    this.app.modal.place();
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -140,6 +145,8 @@ export function openExport(app: App): void {
   });
 }
 
+export const PASTE_REFUSED = 'PASTE WAS BLOCKED · LONG-PRESS THE BOX, PASTE, THEN CHECK CODE';
+
 /** Settings → IMPORT SAVE: paste, check, confirm, replace. `done` runs after a successful import. */
 export function openImport(app: App, done: () => void): void {
   const m = app.modal;
@@ -147,15 +154,32 @@ export function openImport(app: App, done: () => void): void {
     app.audio.play('ui_back');
     m.close();
   };
+  // Inside the tap: iOS shows its Paste callout for readText(); the code is checked the moment it arrives.
+  const paste = (): void => {
+    void m.pasteFromClipboard().then((text) => {
+      if (m.kind !== 'import') return;
+      if (text === null) {
+        m.setNote(PASTE_REFUSED, 'error');
+        m.focusField();
+      } else if (text.trim() === '') {
+        m.setNote('THE CLIPBOARD IS EMPTY · COPY YOUR CODE FIRST', 'error');
+      } else {
+        check();
+      }
+    });
+  };
   const ask = (text: string): void => {
     m.open({
       kind: 'import',
       title: 'Import save',
-      text: ['Paste a save code (it starts with SD1:). Importing replaces ALL progress on this device.'],
-      field: { multiline: true, value: text, placeholder: 'SD1:...', rows: 4 },
+      text: ['Copy your save code (it starts with SD1:), then tap PASTE. Importing replaces ALL progress on this device.'],
+      field: { multiline: true, value: text, placeholder: 'SD1:...', rows: 3 },
+      autoFocus: false,
+      actionsFirst: true,
       actions: [
         { id: 'cancel', label: 'Cancel', run: close },
-        { id: 'check', label: 'Check code', kind: 'primary', run: () => check() },
+        { id: 'check', label: 'Check code', run: () => check() },
+        { id: 'paste', label: 'Paste', kind: 'primary', run: paste },
       ],
       cancel: close,
       onInput: () => m.setNote(''),
