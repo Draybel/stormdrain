@@ -39,6 +39,7 @@ const items: ItemDef[] = [
   // ── Spawn: more shots, other directions ──
   {
     id: 'twin-straws',
+    unlock: 'it-clicks',
     name: 'Twin Straws',
     desc: 'SIP TWICE · ONE MORE SHOT EVERY VOLLEY',
     kind: 'passive',
@@ -80,6 +81,7 @@ const items: ItemDef[] = [
   // ── Motion: how shots travel ──
   {
     id: 'lantern-moth',
+    unlock: 'glow-in-the-dark',
     name: 'Lantern Moth',
     desc: 'SHOTS FLUTTER STRAIGHT FOR FOES',
     kind: 'passive',

@@ -10,7 +10,7 @@ import { WREN } from '../src/content/characters/wren';
 import B_FAMILIARS from '../src/content/familiars/itemsB';
 import GENERAL from '../src/content/items/passives-b-general';
 import SET_ITEMS from '../src/content/items/passives-b-sets';
-import { FAMILIARS, ITEMS, SETS, allItems, allSets, getItem } from '../src/content/registry';
+import { ACHIEVEMENTS, FAMILIARS, ITEMS, SETS, allItems, allSets, getItem } from '../src/content/registry';
 import GLIMMER from '../src/content/sets/glimmer';
 import OSSUARY from '../src/content/sets/ossuary';
 import TIDEWALKER from '../src/content/sets/tidewalker';
@@ -97,7 +97,8 @@ describe('items B: data', () => {
 
   it.each(ITEMS_B.map((d) => [d.id, d] as const))('%s is well-formed', (_id, d) => {
     expect(d.kind).toBe('passive');
-    expect(d.unlock).toBeUndefined();
+    // Gated items (characters & achievements pass) name a real achievement.
+    if (d.unlock !== undefined) expect(ACHIEVEMENTS.has(d.unlock)).toBe(true);
     expect(d.name.length).toBeGreaterThan(2);
     expect(d.desc.length).toBeGreaterThan(8);
     expect(d.desc.length).toBeLessThanOrEqual(46);

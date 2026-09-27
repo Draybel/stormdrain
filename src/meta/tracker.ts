@@ -103,6 +103,7 @@ export class MetaTracker {
         done: false,
       });
       this.daily = claimed ? daily : null;
+      if (claimed) this.meta.bump('dailyRuns');
     }
     this.reportFloor();
   }
@@ -194,6 +195,9 @@ export class MetaTracker {
         this.meta.killEnemy(id, true);
         this.feat('bossKilled', id, w.boss.kind);
         if (w.boss.kind === 1) this.meta.bump('minibossKills');
+        // A chapter's own boss (not a miniboss or a final): Pip's UNDER THE ROOTS waits for chapter 2's.
+        const run = sim.run;
+        if (w.boss.kind === 0 && run) this.feat('chapterBossKilled', run.data.chapter, Math.min(6, Math.ceil(run.data.floor / 2)));
         this.dirty = true;
       }
     }
@@ -338,6 +342,10 @@ export class MetaTracker {
       case 'slots':
         if (e.a !== 0) return;
         meta.bump('slotPlays');
+        break;
+      case 'robbed':
+        // A blast broke the donation jar or a Gumball Gambler open (SMASH AND GRAB).
+        meta.bump('shopsDestroyed');
         break;
       case 'trade':
         meta.bump('trades');

@@ -47,6 +47,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'neon-tube',
+    unlock: 'still-ticking',
     name: 'Neon Tube',
     desc: 'FIRES THIN ZAPPING LASERS',
     kind: 'passive',
@@ -81,6 +82,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'firecracker-pouch',
+    unlock: 'mole-in-one',
     name: 'Firecracker Pouch',
     desc: 'YOUR SHOTS ARE TINY BOMBS',
     kind: 'passive',
@@ -104,6 +106,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'tin-pinwheel',
+    unlock: 'mad-tinkerer',
     name: 'Tin Pinwheel',
     desc: 'BLADES SPIN AROUND YOU',
     kind: 'passive',

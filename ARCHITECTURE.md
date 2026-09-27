@@ -39,7 +39,7 @@ scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plug
 public/              static files copied verbatim (manifest, icons)
 docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8); content packs (Phase 6):
                      content-itemsA.md, content-itemsB.md, content-items-c.md, content-enemies-a.md,
-                     content-enemies-b.md, content-rooms.md
+                     content-enemies-b.md, content-rooms.md; characters.md (characters, mechanics, achievements)
 ```
 
 ### Content registries (IMPORTANT for parallel work)
@@ -88,7 +88,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
 - Fixed-timestep simulation at **60 Hz** (accumulator, max 4 catch-up steps, drop the rest). Render once per rAF.
 - `InputState` (plain object, reused, no allocations) is the ONLY way the sim reads input:
   `moveX, moveY` (analog −1..1), `aimX, aimY` (unit vector or 0,0), `fireHeld`, `firePressed`, `fireReleased`,
-  `bomb`, `active`, `consumable`, `pause`, `map` (edge-triggered booleans cleared after each sim tick).
+  `bomb`, `active`, `consumable`, `dash` (Pip's burrow; other characters ignore it), `pause`, `map` (edge-triggered
+  booleans cleared after each sim tick).
 - Touch (Pointer Events on the canvas, `touch-action:none`, multi-touch by pointerId):
   - Left half: floating move stick. Right half: floating shoot stick. Shoot stick snaps to 4 directions
     unless Settings → Aim = 360°. Holding the shoot stick = `fireHeld` (charges charge attacks); release = `fireReleased`.
@@ -97,7 +98,7 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   - `touchstart/touchmove` `preventDefault` (passive:false) on the canvas only; `gesturestart` prevented;
     CSS disables selection, callouts, overscroll, zoom. DOM text inputs (seed entry, save import/export)
     are the only exceptions and live in a DOM modal layer.
-- Keyboard (desktop testing): WASD move, Arrow keys shoot (last pressed wins), E bomb, Space active, Q consumable,
+- Keyboard (desktop testing): WASD move, Arrow keys shoot (last pressed wins), E bomb, Space active, Q consumable, Shift dash,
   Esc/P pause, Tab map, Backquote (`) debug menu (outside a run it toggles the perf overlay).
 - Buttons may opt into `draggable` (scrollable lists): a press that moves more than `DRAG_SLOP` (4 game px) becomes a
   drag (`dragged`) that never activates; `downX/downY/curX/curY` give the gesture. The mouse wheel over the canvas goes
@@ -186,6 +187,36 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   emits 'bell' and sets `world.bellRung`, and the Sim starts a wave. `Sim.autoWaves` (debug) starts the next wave
   `autoWaveDelay` s after each clear. The yard: 3 rotating treasure-pool pedestals, a rotating attack-type pedestal,
   both actives, the bell at (1, 5).
+
+### Character mechanics (`sim/mechanics.ts`; content: `src/content/characters/*.ts`, guide docs/characters.md)
+Every character = its data (stats, hearts, start items / pickups, `innate` persistent effects that can't be lost — a
+carrier, a modifier, flags, familiars, triggers — added by `recomputePlayer`, source = the character id) + ONE mechanic:
+`CharacterDef.mechanic` names a hook (a placeholder in `content/hooks/characters.ts`, for validation); the sim implements
+the ones it knows by id (`MECH_*`), numbers from `MECHANIC_TUNING` (sim/tuning.ts) overridden by `mechanicParams`.
+`Player.mech` (`MechanicState`) holds the resolved numbers and the run state (`PlayerSnap.mech`: Juniper's extra fireflies,
+the soak timer, the dash cooldown). Hot paths stay allocation-free.
+- **Wren — Lucky Marble** (`wren.luckyMarble`): the attack pipeline's keeper marble (§4.3).
+- **Pip — Burrow** (`pip.burrow`): the `dash` input (DASH button, Shift) digs in for 0.4 s: a straight tunnel at 2.1 ×
+  move speed along the stick (else the facing), 1.5 s cooldown from the dig-in, 0.15 s of i-frames on surfacing.
+  `Player.underground` = untouchable: `damagePlayer` refuses everything (contact, shots, blasts, hazards, beams), enemy
+  shots / creep / shockwaves pass over, no firing (the charge and cooldowns wait), floor exits (trapdoor, grate…) are
+  tunnelled under. A room load surfaces her. Events: 'burrow' (id 'pip', a = 0 dig, 1 rumble, 2 surface).
+- **Marrow — Bone Toss** (`marrow.boneToss`, data): the boomerang carrier innate, no red containers (Tin hearts), the
+  `noRedHearts` flag — red pickups, heals (a whole Tin heart at most per heal) and new containers (2 Tin halves each) all
+  become Tin (`effects.ts` `healPlayer` / `applyHearts`, `pickups.ts`).
+- **Juniper — Firefly Jar** (`juniper.fireflyJar`): two innate 'firefly' familiars (orbit, shooters at 0.3, don't block);
+  every room clear adds a temporary one (up to 6 in all), a hit that lands scares one of the extras off, a floor start
+  empties the jar back to the innate two ('mechanic' a = 0 / 1).
+- **Bolt — Wind-Up** (`bolt.windUp`): the charge rider innate; the held active winds up over time — a room of charge every
+  12 s (fractional `ActiveSlot.charge`; the HUD fills a segment part-way), timed actives 1.5 × faster ('mechanic' a = 2
+  per whole charge). Starts with the Jar of Lightning.
+- **Sable — Pickpocket** (`sable.pickpocket`): the melee carrier + `haggler` innate; a landed SRC_PLAYER hit
+  (`damageEnemy` → `mechanicEnemyHit`) knocks a coin loose at 14 % + 3 % per luck (≤ 40 %), one per enemy (three from
+  bosses / big ones, remembered by uid), 8 % of them silver ('mechanic' a = 3).
+- **Mosswick — Bog Blood** (`mosswick.bogBlood`): the puddle modifier innate; standing in an allied puddle (not flying)
+  soaks up half a Tin heart every 2.5 s, up to 6 Tin halves ('mechanic' a = 4).
+- **Drizzle (secret) — Rainmaker** (`drizzle.rainmaker`, data): `flying` innate + a 'hurt' trigger bursting a room-wide
+  slow ('itemsB.statusBurst'). Unlocked by the hidden WHAT THE RAIN KEPT.
 
 ### Health model (`sim/health.ts`, pure; `sim/combat.ts` applies it)
 Half-heart units. `redMax` (containers ×2), `red`, bonus hearts stack in order after red:
@@ -629,7 +660,9 @@ Toybox set's toy soldiers —, Threadbare Bear, Tadpole, Gutter Ferret: a chase 
   Sporeling, Waxen (items pack A), Toybox, Ossuary, Tidewalker, Glimmer (pack B); members carry `set` AND the set's tag),
   `FamiliarDef { id, name, desc, sprite, behavior: 'follow'|'hover'|'orbit'|'guard'|'chase', radius, attackScale
   (0 = never fires), fireRateMul?, contactDamage?, speed?, blocks? (swats enemy shots), glow? }` (§4.8),
-  `AchievementDef { id, name, desc (≤ 52 chars), hidden?, condition, unlocks: UnlockRef[] }` — `condition` = `{ counter,
+  `AchievementDef { id, name, desc (≤ 52 chars), hidden?, condition, unlocks: UnlockRef[], icon?, reward? }` — `icon` = a
+  badge name (`content/sprites/achievementIcons.ts`), `'item:<id>'`, `'char:<id>'` or `'win:<id>'` (a face with a crown);
+  `reward` = a display line besides what it unlocks (every achievement rewards something); `condition` = `{ counter,
   atLeast }` (a lifetime counter: stat, meta counter id or `killed.<id>` / `collected.<id>` / `charWins.<id>` /
   `charRuns.<id>` / `achievements` / `discovered`) or `{ kind: 'event', event: ACHIEVEMENT_EVENTS, id?, value?, atLeast? }`
   (§7a); `UnlockRef { kind: 'item' | 'character' | 'route' | 'ending' | 'challenge' | 'chapter' | 'feature', id }`.
@@ -669,8 +702,11 @@ Toybox set's toy soldiers —, Threadbare Bear, Tadpole, Gutter Ferret: a chase 
   `@` player start, `D` training dummy.
 - `CharacterDef { id, name, desc, stats, hearts: { redMax, red?, tin?, ember? } (half hearts), startItems,
   startPickups: { coins, bombs, keys }, sprite, shotColor? (base ShotStyle colour), mechanic: hookId, mechanicDesc? (the
-  mechanic in a line or two for the character select, Phase 4B), unlock? }`. Mechanics implemented inside the attack
-  pipeline register a placeholder hook (`content/hooks/characters.ts`) so validation can check the reference.
+  mechanic in a line or two for the character select, Phase 4B), mechanicParams?, innate?: Effect[] (persistent effects
+  it always has), order? (character-select position; `allCharacters()` sorts by it), unlock? }`. The sprite is 14×16 in
+  Wren's 12-frame layout (`WREN_FRAME`: down, 2 down steps, blink, up, 2 up steps, 2 side, hurt, death slump, death heap;
+  builder `characterSprite` in `content/sprites/characters.ts`; validation checks it). Mechanics are implemented by the sim
+  (§3 "Character mechanics"); their hooks in `content/hooks/characters.ts` are placeholders so validation can check them.
 - `ChapterDef { id, name, floors: [n, n+1], track: 'main'|'alt', palette, tileset, enemyPool, bossPool, minibossPool,
   music, curses?, decor? }`. `palette` holds every `CHAPTER_PALETTE_KEYS` colour (floor, floorLight, floorDark, mortar,
   deep, brick, brickShade, brickLight, moss, mossLight, stone, stoneLight, stoneShade, void, voidSpeck, water,
@@ -799,7 +835,8 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   world: WorldSnap, player: PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck
   bonus, temporary effects by value, trigger cooldowns by list position, the per-player timers that carry across
   rooms, the run's transformations and announced synergies (`sets`, `synergiesSeen`, optional), rng states, counters
-  (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode, and — content merge, optional so older
+  (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode, the character mechanic's state
+  (`PlayerSnap.mech`, optional), and — content merge, optional so older
   snapshots load — `world.tonics`: the Mystery Tonic deal and the bottles identified; a snapshot without it is dealt from the
   run seed by `Run.restore`, as `Run.start` does). The run save (§7) stores exactly this.
   `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB); `Sim.fromSnapshot(snap)` restores world + player
@@ -877,6 +914,10 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
   that cell (`solidPropCell`: preferred corners first, BFS check); FLAT floor objects (grate, whirlpool, skylight) on
   any plain non-marker floor (`floorCell`). Wall NPCs perch on the top wall's ledge (`world.props.npc`, `npcX`).
 - **Keepsake Room**: a treasure-pool pedestal (seen items leave the pools, §6b).
+- **Robbing a shop** (characters pass): a blast that reaches Magpie's donation jar smashes it (`breakJar`: 2-4 coins + 1
+  per 5 donated this run, at most +4; Magpie squawks "THIEF!" and shakes her head; the wreck takes no donations, saved as
+  the slot's `broken`); a wrecked jar or Gumball Gambler emits 'robbed' (id 'jar' | 'slots'), which the tracker counts as
+  `shopsDestroyed` (SMASH AND GRAB unlocks Sable).
 - **Magpie's Stall**: Magpie on the wall (greets on the first visit, flaps at a sale, shakes her head at an empty
   purse), ≤ 5 slots: 2-3 items (10 / 12 / 15 / 20 / 25 coins by quality, trinkets 10, consumables 5 + quality) and
   pickups for sale (heart 3, key / bomb / Tin heart 5, spark 6, double bomb / Ember heart 7); buying = walking onto a
@@ -1000,7 +1041,18 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - **Unlocks** (`meta/unlocks.ts`): an item / character with `unlock` is unlocked when its id is in the unlock set OR its
   achievement is earned. `runUnlocks(meta)` = unlocked `unlock`-flagged items + endings + routes: the snapshot a NEW run takes
   (`RunOptions.unlocked` — RunScene.makeSim / restartRun); a continued run keeps the one it started with.
-- Content: `src/content/achievements/core.ts` (15: first kill, first chest, first boss, 10 items held, 50 coins, 3
+- Characters pass: the tracker also reports 'chapterBossKilled' (a kind-0 boss: id = chapter id, value = chapter number
+  1-6), counts 'robbed' events as `shopsDestroyed` and a claimed scored daily as `dailyRuns`. Reward lines put a new
+  character first (the toast shows the first line), then routes / endings, then items, then the `reward` text.
+- Content (characters pass, 54 achievements): `core.ts` (the first 15, now with icons / rewards), `heroes.ts` (Pip, Bolt
+  and Sable's unlocks, SMASH AND GRAB, a win with each character — the secret one's hidden) and `milestones.ts` (chapters,
+  the hidden route, bosses, clean floors, transformations, synergies, the collection, the daily run, Rain Barrel Arenas,
+  secrets, shops, the gambler, tonics, bombs, a win streak). 45 items carry `unlock` (the strong and weird ones: 6 starters
+  + 39 more; the Storm Lance stays unlocked); a fresh player still has ≥ 40 treasure, ≥ 20 shop and ≥ 10 boss-pool items
+  (tests/achievements-content.test.ts). Characters: Pip ← UNDER THE ROOTS (chapter 2's boss), Marrow ← SOAKED THROUGH (10
+  deaths), Juniper ← LITTLE PARADE (3 familiars), Bolt ← WOUND UP (50 actives), Sable ← DEEP POCKETS (60 coins) or SMASH AND
+  GRAB, Mosswick ← CLEAR SKIES (Old Thunderhead), Drizzle ← WHAT THE RAIN KEPT (hidden).
+- Content (Phase 4A): `src/content/achievements/core.ts` (15: first kill, first chest, first boss, 10 items held, 50 coins, 3
   familiars, a clean floor, chapter 3, 5 secrets, a transformation, 10 deaths, Endings 1-3, a win with Wren). Six starter
   items are locked behind them (Party Popper, Ice-Cube Tray, Paper Valentine, Geode, Wick Wisp, Rooftop Rod).
 
@@ -1025,6 +1077,8 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   DAILY RUN (a tick once today's daily is claimed) / ENTER SEED; wall tiles COLLECTION, BESTIARY (left), ACHIEVEMENTS, STATS
   (right); SETTINGS in the top-right corner; the lasting save notice on the bottom line. Keys: arrows + Enter, C / N / D / E
   / O / B / A / T / S. `focus()` re-lays it out (Continue appears after an import, the daily tick after a daily).
+- Character select (characters pass): eight characters in `allCharacters()` order (Wren, Pip, Marrow, Juniper, Bolt, Sable,
+  Mosswick, Drizzle — the strip fits eight without paging); the stats page keeps a locked, never-played character '???'.
 - Character select (`ui/characterSelect.ts`, scene 'chars', `nav.characters(seed)`): New Run (seed null = a random code
   rolled at START), Daily Run and Enter Seed all come here. A strip of slots for every `CharacterDef` (registry order; paged
   with `<` `>` when more than 8), locked ones as dark silhouettes with a padlock; the picked one big (3× portrait, glow,
@@ -1060,7 +1114,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   Bestiary (`ui/bestiary.ts`): tabs FOES / BOSSES; '?' never met, dimmed met, full colour + kill count defeated; the detail
   animates the sprite with met / defeated counts, where it lives and its blurb. Stats (`ui/statsPage.ts`): two scrolling
   columns (runs, combat, routes & rooms; finds, the daily run with the last five days, per-character runs / wins).
-  Achievements (`ui/achievementsPage.ts`): earned (gold cup, date, "UNLOCKED: …") / locked (grey cup + padlock, "REWARD:
+  Achievements (`ui/achievementsPage.ts`; characters pass: each row shows its icon — `render/achievementIcon.ts`: a badge,
+  an item icon or a character's face, a silhouette / dimmed badge + padlock while locked, the grey trophy for a hidden one):
+  earned (gold cup, date, "UNLOCKED: …") / locked (grey cup + padlock, "REWARD:
   …", `rewardLines`) / hidden ('???' until earned), with a progress bar.
 - Toasts (`render/toasts.ts` `ToastLayer`, `app.toasts`): achievements (trophy, gold) and notices (drop, blue) slide up over the
   bottom wall one at a time (3.2 s), drawn by main.ts over every scene (from the top edge while a `toastsAtTop` scene is on
@@ -1158,7 +1214,10 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - The room background is pre-rendered and rebuilt only on `RoomGrid.version` changes; per-cell variation uses a
   positional hash so breaking one crate never reshuffles the rest. Fires are drawn live (flame height from hp).
 - HUD (`render/hud.ts`), never over the room interior: hearts top-left (6 per row, wraps to a 2nd row), coin/bomb/key
-  counters below (hop + flash when they rise), a segmented charge bar beside the active button (one segment per
+  counters below (hop + flash when they rise), Pip's DASH button (`run.dash`, only for a character with a dash:
+  `characterDashes`) under the bomb on the aim thumb's side — right margin, left margin when left-handed (the column lifts
+  at big button sizes to fit) — shaded while it cools down; a burrowed Pip is drawn as a travelling dirt mound. A segmented
+  charge bar beside the active button (one segment per
   room; a continuous bar for timed items), the active/consumable buttons show the held items' icons, trinket icons
   beside the consumable button, and the pickup banner in the top band (content merge: named through `itemName` /
   `itemDesc` — resolved on the next update — and also shown when a consumable is used, so a drunk tonic reveals itself; an
@@ -1212,7 +1271,8 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   killEnemies, god(on), aim360, newRun, title, pause, spawnItem(id) (pedestal next to the player), giveRandom(n),
   items(), enemies(), heal, add(coins?, bombs?, keys?), clearRoom, resetItems, autoWaves(on), menu(open?)}` (the
   debug menu's actions, `debug/actions.ts`; Phase 3A: `yard()`, `door(side)`, `teleport(room?)` (default: the boss room),
-  `skipFloor()`, `revealMap()`, `curse(c | null)`, `map()`, `runAt(floor, track?, curse?, seed?, unlocked?)`; Phase 3B:
+  `skipFloor()`, `revealMap()`, `curse(c | null)`, `map()`, `runAt(floor, track?, curse?, seed?, unlocked?, character?)` (the
+  character defaults to the current run's); Phase 3B:
   `bosses()`, `boss(id?)` — a boss fight in the current room), `presentation()` (the run scene's slide / iris / card /
   ending + `endingId` / `bossCard` / `slowmo`); `hud()` includes `bossBar` during a fight; `run()` has `boss`
   (id, hp, maxHp, phase, phases, dying, kind — null without a fight) and pedestals carry price / hearts / keys (after
@@ -1247,6 +1307,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `e2e/menus.spec.ts` (Phase 4B) every title item by real touch taps + back, typed seed entry → a seeded run, settings
   across a reload, the pause menu's stats / items, the daily attempt, export → import, retry-seed and keyboard navigation.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.
+- Characters pass: `tests/characters.test.ts` (the roster validates and follows the sprite contract; every mechanic's core
+  rule; every character clears a god-mode floor with the explorer while using its mechanic — `ExploreOptions.dashEvery`
+  presses Pip's dash in fights; the explorer lets a dash finish before walking to a door), `tests/achievements-content.test.ts`
+  (≈ 50 achievements with icons and rewards; conditions → character / item / route unlocks; real play reports the new
+  conditions; persistence; locked items never roll; the starting pool sizes), `e2e/characters.spec.ts` (the character select's
+  eight cards, an achievement unlocking Pip, his DASH button by touch and Shift, the achievements page).
 - Content merge: `tests/content-integration.test.ts` (validation, unique display names, chapter pools ≥ 3 enemies and ≥ 5
   own templates used by runs, the nine sets transforming in a run, tonics dealt from the seed and kept by the run save,
   every new active / consumable from the HUD's buttons and every trinket in a run, the map / teleport stickers and the

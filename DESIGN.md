@@ -55,7 +55,7 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
 3. **The Undertow** — the living whirlpool at the bottom of every drain; after Endings 1 and 2, defeating either final
    boss opens a whirlpool to floor 13 "The Undertow". Ending 3 "What the Rain Kept" (true ending).
 
-## Characters (7) — each with look, stats, start items, ONE unique mechanic
+## Characters (7 + 1 secret) — each with look, stats, start items, ONE unique mechanic
 1. **Wren** (start) — yellow oversized raincoat, glowing marbles. Balanced. *Mechanic — Lucky Marble:* the first shot
    fired in each uncleared room is a big "keeper marble" that deals triple damage and pierces.
 2. **Pip** — tiny mole with a mining lamp. High HP, slow. *Burrow:* dashing (double-tap move or button) ducks
@@ -70,7 +70,10 @@ Other interactables: **Donation Jar** (feed coins → luck/secret unlocks), **Sl
    loose; shop prices −25%. Unlock: steal from/destroy a shop or hold 60 coins.
 7. **Mosswick** — a small swamp sprite with a lily-pad hat. *Bog Blood:* shots leave puddles (puddle modifier);
    standing in own puddles slowly heals tin hearts. Unlock: defeat Old Thunderhead.
-(Extra secret characters are welcome if time allows.)
+8. **Drizzle** (secret) — a little raincloud that followed the storm home. Floats. *Rainmaker:* every hit Drizzle takes
+   bursts a cloud over the room that soaks and slows every foe. Unlock: the hidden true ending (What the Rain Kept).
+Details and numbers: docs/characters.md. Pip's burrow has its own DASH button (Shift on a keyboard); Juniper's extra
+fireflies leave when she is hit or a new floor begins; "rob a shop" = blast Magpie's donation jar or a Gumball Gambler open.
 
 ## Item sets (transformations: collect 3 items of a set → new look + strong bonus)
 1. **Stormcaller** (lightning) — cape of static; all shots chain lightning, +damage.

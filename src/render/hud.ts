@@ -229,14 +229,21 @@ export class Hud {
       ctx.fillStyle = lit;
       ctx.fillRect(x, y + h - fill, 3, fill);
     } else {
-      // One segment per room of charge, 1 px gaps.
+      // One segment per room of charge, 1 px gaps. A segment part-way (Bolt's wind-up charges by the second)
+      // fills from the bottom in a dimmer blue.
       const n = slot.max;
       const seg = (h - (n - 1)) / n;
       for (let i = 0; i < n; i++) {
         const sy = Math.round(y + h - (i + 1) * seg - i);
         const sh = Math.max(1, Math.round(seg));
-        ctx.fillStyle = i < slot.charge ? lit : '#2a3350';
+        const f = slot.charge - i;
+        ctx.fillStyle = f >= 1 ? lit : '#2a3350';
         ctx.fillRect(x, sy, 3, sh);
+        if (f > 0 && f < 1) {
+          const fh = Math.max(1, Math.round(sh * f));
+          ctx.fillStyle = '#2f6f9a';
+          ctx.fillRect(x, sy + sh - fh, 3, fh);
+        }
       }
     }
     if (this.chargeFlash < 0.3) {

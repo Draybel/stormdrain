@@ -342,7 +342,8 @@ export function updateEnemyShots(w: World, dt: number): void {
           done = true;
           break;
         }
-      } else if (!p.dead) {
+      } else if (!p.dead && !p.underground) {
+        // (A burrowed Pip is passed over.)
         const dx = p.x - s.x;
         const dy = p.y - s.y;
         const rr = hitR + s.r;
@@ -386,7 +387,7 @@ export function updateCreep(w: World, dt: number): void {
       }
       continue;
     }
-    if (p.dead || p.invuln > 0 || p.flags.flying) continue;
+    if (p.dead || p.invuln > 0 || p.flags.flying || p.underground) continue;
     // Puddles are flat ellipses (half as tall as wide).
     const dx = p.x - c.x;
     const dy = (p.y - c.y) * 2;
@@ -420,7 +421,7 @@ export function updateWaves(w: World, dt: number): void {
       }
       continue;
     }
-    if (v.hitPlayer || p.dead || p.flags.flying) continue;
+    if (v.hitPlayer || p.dead || p.flags.flying || p.underground) continue;
     const dx = p.x - v.x;
     const dy = p.y - v.y;
     const d = Math.sqrt(dx * dx + dy * dy);

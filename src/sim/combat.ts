@@ -5,9 +5,10 @@
  */
 
 import { damageDummy } from './dummies';
-import { fireTrigger } from './effects';
+import { fireTrigger, recomputePlayer } from './effects';
 import { damageHealth, makeDamageResult } from './health';
 import { ST_CHARM, hasStatus } from './enemies/status';
+import { mechanicHurt } from './mechanics';
 import { SRC_BOMB, SRC_PLAYER } from './hittable';
 import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { World } from './world';
@@ -23,13 +24,14 @@ const result = makeDamageResult();
 
 /**
  * Hurts the player by `halves` half hearts (bonus hearts first — see sim/health.ts). Ignored while
- * dead or invulnerable. Starts ~1 s of i-frames (the renderer flickers the sprite), releases a fire
- * nova for every Ember heart emptied, fires the 'hurt' trigger, and kills at zero health.
+ * dead, invulnerable or burrowed (Pip, sim/mechanics.ts). Starts ~1 s of i-frames (the renderer flickers the
+ * sprite), releases a fire nova for every Ember heart emptied, fires the 'hurt' trigger (and the character
+ * mechanic's hurt rule: one of Juniper's temporary fireflies flees), and kills at zero health.
  * Returns true if any damage was taken.
  */
 export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by = 0): boolean {
   const p = w.player;
-  if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0) return false;
+  if (p.dead || halves <= 0 || p.invuln > 0 || w.godMode || w.safeT > 0 || p.underground) return false;
   damageHealth(p.health, halves, result);
   if (result.taken <= 0) return false;
   const emberBroken = result.emberBroken;
@@ -48,6 +50,7 @@ export function damagePlayer(w: World, halves: number, source = DMG_GENERIC, by 
     killPlayer(w);
     return true;
   }
+  if (mechanicHurt(w)) recomputePlayer(w);
   fireTrigger(w, 'hurt', p.x, p.y);
   return true;
 }

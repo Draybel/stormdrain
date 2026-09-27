@@ -3,9 +3,10 @@
  * combat, routes (left); finds, the daily run, characters (right). Drag / wheel / arrows scroll.
  */
 
-import { CHARACTERS } from '../content/registry';
+import { allCharacters } from '../content/registry';
 import { UI } from '../content/sprites/palette';
 import { utcDateKey, type MetaState } from '../meta/metaState';
+import { characterUnlocked } from '../meta/unlocks';
 import { drawText, measureText, type TextStyle } from '../render/font';
 import type { App } from './app';
 import { PageScene } from './page';
@@ -111,10 +112,12 @@ export class StatsScene extends PageScene {
     }
     // Characters.
     right.push({ head: 'CHARACTERS' });
-    for (const ch of CHARACTERS.values()) {
+    for (const ch of allCharacters()) {
       const runs = s.charRuns[ch.id] ?? 0;
       const wins = s.charWins[ch.id] ?? 0;
-      right.push({ label: ch.name.toUpperCase(), value: `${runs} ${runs === 1 ? 'RUN' : 'RUNS'} · ${wins} ${wins === 1 ? 'WIN' : 'WINS'}`, good: wins > 0 });
+      // A character still locked (and never played) keeps its name a secret, like on the character select.
+      const known = runs > 0 || characterUnlocked(m, ch);
+      right.push({ label: known ? ch.name.toUpperCase() : '???', value: `${runs} ${runs === 1 ? 'RUN' : 'RUNS'} · ${wins} ${wins === 1 ? 'WIN' : 'WINS'}`, good: wins > 0 });
     }
     this.cols = [left, right];
     const h = Math.max(height(left), height(right));

@@ -158,6 +158,7 @@ export class AchievementEngine {
   grant(def: AchievementDef): boolean {
     if (!this.meta.unlockAchievement(def.id)) return false;
     const rewards = this.applyRewards(def);
+    if (def.reward) rewards.push(def.reward.toUpperCase());
     this.earned.push({ id: def.id, name: def.name, desc: def.desc, rewards });
     return true;
   }
@@ -179,26 +180,35 @@ export class AchievementEngine {
     const meta = this.meta;
     const lines: string[] = [];
     for (const u of def.unlocks) if (meta.unlock(UNLOCK_SET[u.kind] ?? `${u.kind}s`, u.id)) lines.push(rewardText(u));
-    for (const d of allItems()) {
-      if (d.unlock === def.id && meta.unlock('items', d.id)) lines.push(`NEW ITEM: ${d.name.toUpperCase()}`);
-    }
+    // Characters first: the toast shows the first line.
     for (const c of CHARACTERS.values()) {
       if (c.unlock === def.id && meta.unlock('characters', c.id)) lines.push(`NEW CHARACTER: ${c.name.toUpperCase()}`);
     }
-    return lines;
+    for (const d of allItems()) {
+      if (d.unlock === def.id && meta.unlock('items', d.id)) lines.push(`NEW ITEM: ${d.name.toUpperCase()}`);
+    }
+    return charactersFirst(lines);
   }
 }
 
 /**
  * Everything an achievement unlocks, as display lines (the achievements page; nothing is unlocked): its
- * `unlocks` entries, then every item / character whose `unlock` names it.
+ * `unlocks` entries, then every character / item whose `unlock` names it, then its `reward` line.
  */
 export function rewardLines(def: AchievementDef): string[] {
   const lines: string[] = [];
   for (const u of def.unlocks) lines.push(rewardText(u));
-  for (const d of allItems()) if (d.unlock === def.id) lines.push(`NEW ITEM: ${d.name.toUpperCase()}`);
   for (const c of CHARACTERS.values()) if (c.unlock === def.id) lines.push(`NEW CHARACTER: ${c.name.toUpperCase()}`);
-  return lines;
+  for (const d of allItems()) if (d.unlock === def.id) lines.push(`NEW ITEM: ${d.name.toUpperCase()}`);
+  if (def.reward) lines.push(def.reward.toUpperCase());
+  return charactersFirst(lines);
+}
+
+/** A new character is the biggest news (the toast shows the first line): those lines go first, the rest keep their order. */
+function charactersFirst(lines: string[]): string[] {
+  const chars = lines.filter((l) => l.startsWith('NEW CHARACTER'));
+  if (chars.length === 0 || chars.length === lines.length) return lines;
+  return [...chars, ...lines.filter((l) => !l.startsWith('NEW CHARACTER'))];
 }
 
 function rewardText(u: UnlockRef): string {

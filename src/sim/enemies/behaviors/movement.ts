@@ -479,7 +479,15 @@ const burrow: MoveBehavior = {
       case 0: {
         e.burrowed = true;
         const d = goalDir(w, e);
-        if (d !== Infinity) {
+        if (e.modeT < -0.75 && !walkableAt(w, e.x, e.y, e.r)) {
+          // Overdue under a rock / pit (its target stands where it can't come up): tunnel for the middle of the
+          // room and come up on the first open floor on the way, so it never stays down for good.
+          const cx = ROOM_W / 2 - e.x;
+          const cy = ROOM_H / 2 - e.y;
+          const cl = Math.sqrt(cx * cx + cy * cy) || 1;
+          e.tvx = (cx / cl) * spd * p.tunnel!;
+          e.tvy = (cy / cl) * spd * p.tunnel!;
+        } else if (d !== Infinity) {
           e.tvx = e.dirX * spd * p.tunnel!;
           e.tvy = e.dirY * spd * p.tunnel!;
         } else {

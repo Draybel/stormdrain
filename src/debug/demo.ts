@@ -1,8 +1,7 @@
 /**
- * Debug / test fixtures for the menus (window.__SD.debug.demoCharacters / __SD.save.demoProgress): placeholder
- * characters so the character select can be seen with N cards and locked silhouettes before Phase 6 adds the
- * real ones, and a spread of sample progress so the collection / bestiary / stats / achievements pages have
- * something to show. Never used by the game itself.
+ * Debug / test fixtures for the menus (window.__SD.debug.demoCharacters / __SD.save.demoProgress): two placeholder
+ * characters so the character select (seven real characters) has to page, and a spread of sample progress so the
+ * collection / bestiary / stats / achievements pages have something to show. Never used by the game itself.
  */
 
 import { WREN } from '../content/characters/wren';
@@ -11,15 +10,8 @@ import type { GameSave } from '../meta/save';
 import { utcDateKey } from '../meta/metaState';
 import type { CharacterDef } from '../sim/types';
 
-/** Recoloured Wrens standing in for the characters DESIGN.md plans (locked behind existing achievements). */
+/** Recoloured Wrens: two extra cards so the strip has to page (more than eight characters). */
 const DEMO: readonly { id: string; name: string; coat: string; light: string; unlock: string; desc: string }[] = [
-  { id: 'demo-pip', name: 'Pip', coat: '#8a5a2b', light: '#b98040', unlock: 'drain-cleaner', desc: 'A tiny mole with a mining lamp.' },
-  { id: 'demo-marrow', name: 'Marrow', coat: '#d8d0c0', light: '#ffffff', unlock: 'soaked-through', desc: 'A friendly skeleton in a red scarf.' },
-  { id: 'demo-juniper', name: 'Juniper', coat: '#35523a', light: '#4f7447', unlock: 'little-parade', desc: 'Moss cloak, jar of fireflies.' },
-  { id: 'demo-bolt', name: 'Bolt', coat: '#8e98b5', light: '#c9d3f0', unlock: 'deeper-still', desc: 'A tin robot kid with a wind-up key.' },
-  { id: 'demo-sable', name: 'Sable', coat: '#3a2a4a', light: '#6a4a8a', unlock: 'magpies-envy', desc: 'A masked fox with quick paws.' },
-  { id: 'demo-mosswick', name: 'Mosswick', coat: '#3b7e6e', light: '#6dc0a0', unlock: 'what-the-rain-kept', desc: 'A swamp sprite in a lily-pad hat.' },
-  // Two extra cards so the strip has to page (more than eight characters).
   { id: 'demo-ember', name: 'Ember', coat: '#a0402a', light: '#e07050', unlock: 'hidey-ho', desc: 'A spark that fell down a chimney.' },
   { id: 'demo-quill', name: 'Quill', coat: '#4a4a6a', light: '#8a8ab0', unlock: 'pack-rat', desc: 'A hedgehog postie with a soggy bag.' },
 ];

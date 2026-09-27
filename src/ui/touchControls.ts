@@ -10,6 +10,7 @@ import { drawSprite, getFrame } from '../render/sprites';
 import { drawTextCentered, type TextStyle } from '../render/font';
 import { drawPanel, pixelCircle } from '../render/pixel';
 import { ICON_ACTIVE, ICON_BOMB, ICON_CONSUMABLE, ICON_MAP, ICON_PAUSE } from '../content/sprites/ui';
+import { ICON_DASH } from '../content/sprites/characters';
 import { UI } from '../content/sprites/palette';
 import { uiButton, type UiButton } from './widgets';
 
@@ -19,6 +20,8 @@ export interface RunButtons {
   active: UiButton;
   bomb: UiButton;
   consumable: UiButton;
+  /** Pip's burrow (only visible for a character with a dash: sim/mechanics.ts characterDashes). */
+  dash: UiButton;
   all: UiButton[];
 }
 
@@ -30,7 +33,9 @@ export function createRunButtons(): RunButtons {
   const active = mk('active', 'active', ICON_ACTIVE);
   const bomb = mk('bomb', 'bomb', ICON_BOMB);
   const consumable = mk('consumable', 'consumable', ICON_CONSUMABLE);
-  return { pause, map, active, bomb, consumable, all: [map, active, bomb, consumable, pause] };
+  const dash = mk('dash', 'dash', ICON_DASH);
+  dash.visible = false;
+  return { pause, map, active, bomb, consumable, dash, all: [map, active, bomb, consumable, dash, pause] };
 }
 
 /** Base button size in game px (24 px ≈ 46 pt on iPhone 15). */
@@ -42,28 +47,46 @@ const EDGE = 4;
 const LEFTY_TOP = 56;
 
 /**
- * Right margin column: pause (top-right corner), active, bomb. Minimap to the left of pause.
+ * Right margin column: pause (top-right corner), active, bomb (then Pip's DASH). Minimap to the left of pause.
  * Left margin: consumable at mid height (hearts/counters own the top-left).
- * Left-handed (Settings): the thumb columns swap — active + bomb go down the left margin (under the
+ * Left-handed (Settings): the thumb columns swap — active + bomb (+ dash) go down the left margin (under the
  * counters), the consumable to the right margin under pause; pause and the minimap stay top-right.
+ * The DASH button sits on the AIM thumb's side, under the bomb: the move thumb keeps steering, so the burrow
+ * goes where Pip is heading (burrowing stops the firing anyway). `dash` = the character has one (it is hidden
+ * otherwise and the layout is unchanged).
  */
-export function layoutRunButtons(b: RunButtons, scale: number, leftHanded = false): void {
+export function layoutRunButtons(b: RunButtons, scale: number, leftHanded = false, dash = false): void {
   const s = Math.round(BASE * scale);
   const right = GAME_W - EDGE - s;
+  b.dash.visible = dash;
   place(b.pause, right, EDGE, s, s);
   const mw = Math.round(36 * scale);
   const mh = Math.round(26 * scale);
   place(b.map, right - GAP - mw, EDGE, mw, mh);
   if (leftHanded) {
-    const top = Math.max(LEFTY_TOP, EDGE + (s + GAP) * 2);
+    let top = Math.max(LEFTY_TOP, EDGE + (s + GAP) * 2);
+    // With a third button, big button sizes lift the column (never above the counters) so it fits.
+    if (dash) top = Math.max(LEFTY_TOP, Math.min(top, GAME_H - EDGE - 3 * s - 2 * GAP));
     place(b.active, EDGE, top, s, s);
     place(b.bomb, EDGE, top + s + GAP, s, s);
+    place(b.dash, EDGE, top + (s + GAP) * 2, s, s);
     place(b.consumable, right, EDGE + s + GAP, s, s);
     return;
   }
   place(b.active, right, EDGE + s + GAP, s, s);
   place(b.bomb, right, EDGE + (s + GAP) * 2, s, s);
+  place(b.dash, right, EDGE + (s + GAP) * 3, s, s);
   place(b.consumable, EDGE, EDGE + (s + GAP) * 2, s, s);
+}
+
+/** The DASH button's cooldown: the part still recharging is shaded (0 = ready, 1 = just used). */
+export function drawDashCooldown(ctx: CanvasRenderingContext2D, b: UiButton, left: number): void {
+  if (!b.visible || left <= 0) return;
+  const h = Math.max(1, Math.round((b.h - 2) * Math.min(1, left)));
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = '#07080d';
+  ctx.fillRect(Math.round(b.x) + 1, Math.round(b.y) + 1, b.w - 2, h);
+  ctx.globalAlpha = 1;
 }
 
 function place(b: UiButton, x: number, y: number, w: number, h: number): void {

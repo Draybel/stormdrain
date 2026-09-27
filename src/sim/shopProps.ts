@@ -5,7 +5,9 @@
  * - the GUMBALL GAMBLER (some normal rooms): 1 coin → a spin → a seeded outcome from the loot stream
  *   (mostly nothing, sometimes coins, a heart, a bomb, a key, rarely a trinket); a blast breaks it open
  *   and it spills coins.
- * Pure sim; events drive the presentation ('donate', 'slots').
+ * A blast that breaks the jar or the gambler open counts as robbing a shop ('robbed': Sable's SMASH AND GRAB);
+ * a smashed jar spills a few coins, Magpie squawks, and it takes no more donations.
+ * Pure sim; events drive the presentation ('donate', 'slots', 'robbed').
  */
 
 import { recomputePlayer } from './effects';
@@ -43,7 +45,7 @@ for (const o of SLOT_OUTCOMES) slotTotal += o[2];
 /** Leaning on the donation jar: one coin every `jarEvery` s while there are coins. */
 export function donate(w: World, ped: Pedestal): void {
   const inv = w.player.inv;
-  if (ped.coolT > 0 || inv.coins <= 0) return;
+  if (ped.broken || ped.coolT > 0 || inv.coins <= 0) return;
   ped.coolT = SHOP_TUNING.jarEvery;
   addCounter(inv, 'coins', -1);
   inv.version++;
@@ -107,4 +109,27 @@ export function breakSlots(w: World, ped: Pedestal): void {
   for (let i = 0; i < n; i++) spawnLoot(w, coin, undefined, ped.x, ped.y + 2);
   w.events.emit('slots', ped.x, ped.y - 10, 2, 0);
   w.events.emit('loot', ped.x, ped.y, n);
+  w.events.emit('robbed', ped.x, ped.y - 10, n, 0, 'slots');
+}
+
+/**
+ * A blast smashed Magpie's donation jar: a few coins spill out (more if you fed it), Magpie squawks at the thief,
+ * and the wreck takes no more donations. The luck already earned stays.
+ */
+export function breakJar(w: World, ped: Pedestal): void {
+  if (ped.broken) return;
+  ped.broken = true;
+  ped.changedT = 0;
+  const [lo, hi] = SHOP_TUNING.jarBreakCoins;
+  const n = w.lootRng.int(lo, hi) + Math.min(SHOP_TUNING.jarBreakBonus, Math.floor(w.counters.donated / 5));
+  const coin = pickupKindOf('coin');
+  for (let i = 0; i < n; i++) spawnLoot(w, coin, undefined, ped.x, ped.y + 2);
+  w.events.emit('loot', ped.x, ped.y, n);
+  w.events.emit('robbed', ped.x, ped.y - 10, n, 0, 'jar');
+  const props = w.props;
+  if (props.npc !== 0) {
+    props.npcMood = 2;
+    props.npcT = 0;
+    w.events.emit('npcSay', props.npcX, -8, 0, 0, 'MAGPIE: MY JAR! THIEF! THIEF!');
+  }
 }

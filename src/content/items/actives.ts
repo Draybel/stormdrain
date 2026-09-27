@@ -78,6 +78,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'bomb-parasol',
+    unlock: 'untouchable',
     name: 'Bomb Parasol',
     desc: 'BOMBS RAIN ON YOUR FOES · NOT ON YOU',
     kind: 'active',
@@ -98,6 +99,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'stormglass',
+    unlock: 'the-quiet-hive',
     name: 'Stormglass',
     desc: 'THE STORM ANSWERS · EVERYTHING, ONE ROOM',
     kind: 'active',
@@ -123,6 +125,7 @@ const items: ItemDef[] = [
   // ── Room-wide statuses ──
   {
     id: 'frozen-pocketwatch',
+    unlock: 'dry-as-a-bone',
     name: 'Frozen Pocketwatch',
     desc: 'FREEZES EVERY FOE AND THEIR SHOTS',
     kind: 'active',
@@ -139,6 +142,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'friendship-bracelet',
+    unlock: 'barrel-champion',
     name: 'Friendship Bracelet',
     desc: 'EVERY FOE IN THE ROOM BECOMES YOUR PAL',
     kind: 'active',
@@ -288,6 +292,7 @@ const items: ItemDef[] = [
   // ── Borrowed power for a while ──
   {
     id: 'storm-kite',
+    unlock: 'into-the-eye',
     name: 'Storm Kite',
     desc: 'BORROW THE STORM LANCE FOR THE ROOM',
     kind: 'active',
@@ -431,6 +436,7 @@ const items: ItemDef[] = [
   // ── Items, pickups and coins ──
   {
     id: 'shaken-snow-globe',
+    unlock: 'off-the-map',
     name: 'Shaken Snow Globe',
     desc: 'SHAKE IT! ITEMS IN THE ROOM CHANGE',
     kind: 'active',
@@ -448,6 +454,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'carbon-paper',
+    unlock: 'clean-getaway',
     name: 'Carbon Paper',
     desc: 'COPIES THE PICKUP NEAREST TO YOU',
     kind: 'active',

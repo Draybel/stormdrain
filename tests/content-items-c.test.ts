@@ -9,7 +9,7 @@ import ACTIVES from '../src/content/items/actives';
 import STICKERS from '../src/content/items/consumables-stickers';
 import BOTTLES, { TONICS } from '../src/content/items/consumables-tonics';
 import TRINKETS from '../src/content/items/trinkets';
-import { FAMILIARS, allItems, getItem } from '../src/content/registry';
+import { ACHIEVEMENTS, FAMILIARS, allItems, getItem } from '../src/content/registry';
 import { validateSpriteDef } from '../src/content/sprites/validate';
 import { sfxNames } from '../src/audio/sfx';
 import { LIBRARY_SFX_NAMES } from '../src/audio/sfxLibrary';
@@ -110,7 +110,8 @@ describe('item-C defs', () => {
     expect(d.desc.length).toBeGreaterThan(8);
     expect(d.desc.length).toBeLessThanOrEqual(46);
     expect(d.desc).toBe(d.desc.toUpperCase());
-    expect(d.unlock).toBeUndefined();
+    // Gated items (characters & achievements pass) name a real achievement.
+    if (d.unlock !== undefined) expect(ACHIEVEMENTS.has(d.unlock)).toBe(true);
     expect(d.set).toBeUndefined();
     expect(d.quality).toBeGreaterThanOrEqual(0);
     expect(d.quality).toBeLessThanOrEqual(4);

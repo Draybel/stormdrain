@@ -30,6 +30,27 @@ export const PLAYER_TUNING = {
   slipDecel: 0.2,
 } as const;
 
+/**
+ * Character mechanics (sim/mechanics.ts) — defaults; a CharacterDef's `mechanicParams` override them by name:
+ * burrow `time`, `speed`, `cooldown`, `surfaceGrace`; fireflies `max`, `perClear`; wind-up `every`, `timedMul`;
+ * pickpocket `chance`, `luck`, `maxChance`, `perEnemy`, `bigMax`, `silver`; soak `soakEvery`, `cap`.
+ */
+export const MECHANIC_TUNING = {
+  /** Pip's burrow: time underground (s), speed × moveSpeed, cooldown from the dig-in (s), i-frames on surfacing. */
+  burrow: { time: 0.4, speed: 2.1, cooldown: 1.5, surfaceGrace: 0.15, rumbleEvery: 0.1 },
+  /** Juniper's jar: fireflies at most (the innate ones included); temporary ones gained per room clear. */
+  fireflies: { max: 6, perClear: 1 },
+  /** Bolt's wind-up: seconds per room of charge (all the time), timed actives charge this much faster. */
+  windUp: { every: 12, timedMul: 1.5 },
+  /**
+   * Sable's pickpocket: coin chance per landed hit (+ per luck, capped), coins per enemy at most (bosses and
+   * big enemies: `bigMax`), chance that the coin is silver.
+   */
+  pickpocket: { chance: 0.14, luck: 0.03, maxChance: 0.4, perEnemy: 1, bigMax: 3, silver: 0.08 },
+  /** Mosswick's bog blood: seconds standing in Mosswick's own puddles per half Tin heart, up to `cap` Tin halves. */
+  soak: { every: 2.5, cap: 6 },
+} as const;
+
 /** Floor runs (sim/run): room entry, doors, trapdoor, curses. */
 export const RUN_TUNING = {
   /** Spawn protection after entering a room (s): no damage at all (enemies are still poofing in). */
@@ -104,6 +125,9 @@ export const SHOP_TUNING = {
   slotSpin: 0.9,
   slotCool: 0.35,
   slotBreakCoins: [3, 6] as readonly [number, number],
+  /** A smashed donation jar spills this many coins, + 1 per 5 donated this run (at most `jarBreakBonus`). */
+  jarBreakCoins: [2, 4] as readonly [number, number],
+  jarBreakBonus: 4,
   /** Explosions reach props this much beyond their tile radius (px). */
   blastReach: 14,
   /** Old Pell's price in keys. */

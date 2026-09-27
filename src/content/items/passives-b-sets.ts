@@ -338,6 +338,7 @@ const items: ItemDef[] = [
   // ── Glimmer ──
   {
     id: 'cracked-cats-eye',
+    unlock: 'quick-change',
     name: "Cracked Cat's-Eye",
     desc: 'SHOTS CRACK INTO A SPRAY OF SHARDS',
     kind: 'passive',

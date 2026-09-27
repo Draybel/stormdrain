@@ -8,6 +8,7 @@
 import { Rng } from '../../engine/rng';
 import { recomputePlayer } from '../effects';
 import { initHealth } from '../health';
+import { captureMechanic, restoreMechanic } from '../mechanics';
 import { restoreTonics, snapshotTonics } from '../tonics';
 import type { TempEffect } from '../loadout';
 import { TRIGGER_EVENTS, type Effect, type TriggerOn } from '../types';
@@ -76,6 +77,7 @@ export function capturePlayer(w: World): PlayerSnap {
     dead: p.dead,
     sets: [...p.sets],
     synergiesSeen: [...p.synergiesSeen],
+    mech: captureMechanic(p),
   };
 }
 
@@ -112,6 +114,8 @@ export function restorePlayer(w: World, s: PlayerSnap): void {
   p.sets.push(...(s.sets ?? []));
   p.synergiesSeen.length = 0;
   p.synergiesSeen.push(...(s.synergiesSeen ?? []));
+  // The character mechanic's run state (Juniper's temporary fireflies…) before the recompute counts them.
+  restoreMechanic(p, s.mech);
   recomputePlayer(w);
   p.triggerReady.clear();
   for (const [on, i, t] of s.triggerReady) {

@@ -254,6 +254,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'leaky-umbrella',
+    unlock: 'homeward-wren',
     name: 'Leaky Umbrella',
     desc: 'FLIGHT · IT HOLDS AIR, NOT WATER',
     kind: 'passive',

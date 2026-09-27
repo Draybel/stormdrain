@@ -18,6 +18,7 @@ import { Tile } from '../sim/tiles';
 import { PLAYER_TUNING, SHOP_TUNING } from '../sim/tuning';
 import type { SpriteDef } from '../sim/types';
 import { WREN_FRAME } from '../content/sprites/wren';
+import { BURROW_MOUND_SPRITE } from '../content/sprites/characters';
 import { DUMMY_SPRITE } from '../content/sprites/props';
 import { BELL_SPRITE } from '../content/sprites/combat';
 import { FIRE_BASE_SPRITE, FLAME_SPRITE } from '../content/sprites/obstacles';
@@ -159,7 +160,7 @@ export class WorldRenderer {
       const b = bombs.items[i]!;
       drawShadow(ctx, lerp(b.prevX, b.x, alpha) + ox, lerp(b.prevY, b.y, alpha) + oy + 1, 9);
     }
-    drawShadow(ctx, px, py + 3, p.flags.flying ? 9 : 11);
+    if (!p.underground) drawShadow(ctx, px, py + 3, p.flags.flying ? 9 : 11);
     this.enemies.drawShadows(ctx, world, alpha, ox, oy);
     this.attack.drawShadows(ctx, world, alpha, ox, oy);
 
@@ -333,7 +334,7 @@ export class WorldRenderer {
       if (ped.prop === PROP_JAR) {
         // Fuller with every luck threshold passed; a little jolt when a coin drops in.
         const n = world.counters.donated;
-        const frame = n >= SHOP_TUNING.jarThresholds[2]! ? 2 : n >= SHOP_TUNING.jarThresholds[0]! ? 1 : 0;
+        const frame = ped.broken ? 3 : n >= SHOP_TUNING.jarThresholds[2]! ? 2 : n >= SHOP_TUNING.jarThresholds[0]! ? 1 : 0;
         const jolt = ped.changedT < 0.12 ? -1 : 0;
         drawSpriteAnchored(ctx, DONATION_JAR_SPRITE, frame, x, y + 6 + jolt);
         continue;
@@ -468,6 +469,11 @@ export class WorldRenderer {
 
   private drawPlayer(ctx: CanvasRenderingContext2D, p: Player, x: number, y: number, time: number): void {
     const sprite = p.character.sprite;
+    if (p.underground) {
+      // Pip's burrow: only a travelling mound of dirt shows (the dirt bursts come from 'burrow' events).
+      drawSpriteAnchored(ctx, BURROW_MOUND_SPRITE, Math.floor(time * 12) & 1, x, y + 4);
+      return;
+    }
     // i-frame flicker (not while dead).
     if (!p.dead && p.invuln > 0 && p.hurtTimer <= 0 && Math.floor(p.invuln * 20) % 2 === 0) return;
 

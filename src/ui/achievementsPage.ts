@@ -1,14 +1,16 @@
 /**
- * Achievements (Phase 4B, scene 'achievements'): every achievement as a scrolling list — earned ones with a
- * gold cup, the date and what they unlocked; locked ones grey with how to earn them and their reward; hidden
- * ones stay '???' until earned. The header counts them with a progress bar.
+ * Achievements (Phase 4B, scene 'achievements'): every achievement as a scrolling list — earned ones with their
+ * icon in colour (render/achievementIcon.ts: a badge, an item or a character's face), the date and what they
+ * unlocked; locked ones with a dark silhouette / dimmed badge and a padlock, how to earn them and their reward;
+ * hidden ones stay '???' until earned. The header counts them with a progress bar.
  */
 
 import { allAchievements } from '../content/registry';
-import { ICON_LOCK, ICON_TROPHY, ICON_TROPHY_DIM } from '../content/sprites/menuIcons';
+import { ICON_LOCK } from '../content/sprites/menuIcons';
 import { UI } from '../content/sprites/palette';
 import { rewardLines } from '../meta/achievements';
 import { utcDateKey } from '../meta/metaState';
+import { drawAchievementIcon } from '../render/achievementIcon';
 import { drawText, measureText, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
 import { drawSprite } from '../render/sprites';
@@ -114,8 +116,8 @@ export class AchievementsScene extends PageScene {
     const d = r.def;
     const secret = d.hidden && !r.earned;
     drawPanel(ctx, x, y, w, ROW_H - 2, r.earned ? '#1a1d24' : '#10141f', r.earned ? '#8a6a2a' : '#262e44', r.earned ? '#2c2a26' : null);
-    drawSprite(ctx, r.earned ? ICON_TROPHY : ICON_TROPHY_DIM, 0, x + 5, y + 6);
-    if (!r.earned) drawSprite(ctx, ICON_LOCK, 0, x + 14, y + 15);
+    drawAchievementIcon(ctx, d, x + 5, y + 6, r.earned);
+    if (!r.earned) drawSprite(ctx, ICON_LOCK, 0, x + 15, y + 16);
     const tx = x + 27;
     drawText(ctx, secret ? '???' : d.name, tx, y + 4, r.earned ? NAME_ON : NAME_OFF);
     drawText(ctx, secret ? 'A HIDDEN ACHIEVEMENT. KEEP GOING...' : d.desc.toUpperCase(), tx, y + 12, r.earned ? DESC_ON : DESC_OFF);

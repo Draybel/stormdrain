@@ -43,7 +43,8 @@ import type { RunOptions, RunSeedInfo, RunSnapshot } from '../sim/run/types';
 import { randomSeedCode } from '../meta/seedCode';
 import type { App, RunEndInfo, RunStart } from './app';
 import type { Scene } from './scene';
-import { createRunButtons, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
+import { characterDashes } from '../sim/mechanics';
+import { createRunButtons, drawDashCooldown, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
 import { tickButtons, uiButton, type UiButton } from './widgets';
 
 const LABEL: TextStyle = { color: UI.textDim, shadow: UI.shadow };
@@ -56,6 +57,7 @@ const HINT_TIME = 7;
 const HINT_KEYS_1 = 'WASD MOVE · ARROWS SHOOT · ESC PAUSE';
 const HINT_KEYS_2 = 'E BOMB · SPACE ACTIVE · Q CONSUMABLE · F FIGHT';
 const HINT_KEYS_RUN = 'E BOMB · SPACE ACTIVE · Q CONSUMABLE · TAB MAP';
+const HINT_KEYS_DASH = 'E BOMB · SPACE ACTIVE · Q ITEM · SHIFT DIG · TAB MAP';
 /** Hit-stop ticks on the death of a big enemy / a champion. */
 const HITSTOP_BIG = 2;
 const HITSTOP_CHAMPION = 1;
@@ -234,11 +236,15 @@ export class RunScene implements Scene {
     this.app.save.clearRun();
   }
 
-  /** Debug / tests: replaces the sim with a fresh run (any floor, track, curse, seed). */
-  restartRun(opts: RunOptions = {}, seed: number | string = randomSeed()): void {
+  /**
+   * Debug / tests: replaces the sim with a fresh run (any floor, track, curse, seed), with the same character as
+   * the run being replaced unless `character` (an id) says otherwise.
+   */
+  restartRun(opts: RunOptions = {}, seed: number | string = randomSeed(), character?: string): void {
     const tracker = this.app.save.tracker;
     if (tracker.tracking === this.sim) tracker.detach();
-    this.sim = Sim.newRun(seed, { ...opts, unlocked: opts.unlocked ?? this.app.save.unlockedForRun() });
+    const who = (character ? CHARACTERS.get(character) : undefined) ?? this.sim.world.player.character;
+    this.sim = Sim.newRun(seed, { ...opts, unlocked: opts.unlocked ?? this.app.save.unlockedForRun() }, who);
     this.ending = '';
     this.endingId = 0;
     this.endShown = false;
@@ -273,11 +279,13 @@ export class RunScene implements Scene {
     this.time = 0;
     this.hitStop = 0;
     this.labelFor = -1;
+    // The character may have changed (debug restarts): its DASH button shows or hides.
+    this.onLayout();
   }
 
   onLayout(): void {
     const s = this.app.settings.value;
-    layoutRunButtons(this.ui, s.buttonScale, s.leftHanded);
+    layoutRunButtons(this.ui, s.buttonScale, s.leftHanded, characterDashes(this.sim.world.player.character));
     // The bell sits under the consumable button (left margin; right margin when left-handed).
     const c = this.ui.consumable;
     this.fight.x = c.x;
@@ -371,7 +379,7 @@ export class RunScene implements Scene {
     }
     // Hit-stop: hold the picture for a tick or two after a big kill (only when no button edge is
     // pending, so a press is never swallowed).
-    if (this.hitStop > 0 && !input.bomb && !input.active && !input.consumable && !input.firePressed) {
+    if (this.hitStop > 0 && !input.bomb && !input.active && !input.consumable && !input.dash && !input.firePressed) {
       this.hitStop--;
       return;
     }
@@ -381,7 +389,7 @@ export class RunScene implements Scene {
     if (this.slowT > 0) {
       this.slowT -= dt;
       this.slowSkip = !this.slowSkip;
-      if (this.slowSkip && !input.bomb && !input.active && !input.consumable && !input.firePressed) {
+      if (this.slowSkip && !input.bomb && !input.active && !input.consumable && !input.dash && !input.firePressed) {
         this.tickPresentation(dt, false);
         return;
       }
@@ -696,7 +704,7 @@ export class RunScene implements Scene {
     const hint = !input.touchUsed || this.usedSticks ? 0 : early ? 0.9 : 0.35;
     drawSticks(ctx, input, hint);
     if (!input.touchUsed && early && !banner) {
-      const second = this.sim.run ? HINT_KEYS_RUN : HINT_KEYS_2;
+      const second = !this.sim.run ? HINT_KEYS_2 : this.ui.dash.visible ? HINT_KEYS_DASH : HINT_KEYS_RUN;
       drawText(ctx, HINT_KEYS_1, (GAME_W - measureText(HINT_KEYS_1)) / 2, ROOM_OUTER_Y - 30, HINT);
       drawText(ctx, second, (GAME_W - measureText(second)) / 2, ROOM_OUTER_Y - 22, HINT);
     }
@@ -706,6 +714,8 @@ export class RunScene implements Scene {
       if (b === this.ui.map) this.drawMap(ctx, b);
       else drawHudButton(ctx, b);
     }
+    const mech = this.sim.world.player.mech;
+    drawDashCooldown(ctx, this.ui.dash, mech.dashCooldown > 0 ? mech.dashCd / mech.dashCooldown : 0);
     drawHudButton(ctx, this.fight);
     this.hud.draw(ctx, this.sim.world, this.ui, this.time);
     // The floor's curse: a small icon left of the minimap.

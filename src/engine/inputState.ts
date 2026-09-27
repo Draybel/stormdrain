@@ -20,6 +20,8 @@ export interface InputState {
   bomb: boolean;
   active: boolean;
   consumable: boolean;
+  /** Edge: the character's dash (Pip's burrow — the DASH button / Shift; ignored by the others). */
+  dash: boolean;
   pause: boolean;
   map: boolean;
 }
@@ -36,6 +38,7 @@ export function createInputState(): InputState {
     bomb: false,
     active: false,
     consumable: false,
+    dash: false,
     pause: false,
     map: false,
   };
@@ -48,6 +51,7 @@ export function clearEdges(s: InputState): void {
   s.bomb = false;
   s.active = false;
   s.consumable = false;
+  s.dash = false;
   s.pause = false;
   s.map = false;
 }
@@ -62,4 +66,4 @@ export function resetInput(s: InputState): void {
   clearEdges(s);
 }
 
-export type InputAction = 'bomb' | 'active' | 'consumable' | 'pause' | 'map';
+export type InputAction = 'bomb' | 'active' | 'consumable' | 'dash' | 'pause' | 'map';

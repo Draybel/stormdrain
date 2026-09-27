@@ -46,6 +46,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'fairy-ring',
+    unlock: 'jar-full-of-light',
     name: 'Fairy Ring',
     desc: 'FOES MAY BURST INTO SPORE CLOUDS ON DEATH',
     kind: 'passive',

@@ -122,6 +122,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'static-cling',
+    unlock: 'bone-deep',
     name: 'Static Cling',
     desc: 'SHOTS HANG IN THE AIR, CRACKLING',
     kind: 'passive',

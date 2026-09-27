@@ -149,7 +149,8 @@ export interface SDHooks {
      * Restarts the run scene on any floor / track (curse: undefined rolled, null none; unlocked: item ids /
      * 'ending1' / 'ending2'); returns false without a run scene.
      */
-    runAt(floor: number, track?: 'main' | 'alt', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[]): boolean;
+    /** A fresh run at a floor (debug); `character` = an id (default: the current run's character). */
+    runAt(floor: number, track?: 'main' | 'alt', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[], character?: string): boolean;
     // ── Bosses (Phase 3B) ──
     /** Every boss id. */
     bosses(): string[];
@@ -201,7 +202,7 @@ export interface SdDeps {
   /** The run scene's transition state (null without a run scene). */
   getPresentation(): Presentation | null;
   /** Restarts the run scene's run (debug). */
-  restartRun(opts: RunOptions, seed?: number | string): boolean;
+  restartRun(opts: RunOptions, seed?: number | string, character?: string): boolean;
 }
 
 export function installSdHooks(d: SdDeps): SDHooks {
@@ -366,8 +367,8 @@ export function installSdHooks(d: SdDeps): SDHooks {
       map() {
         app.nav.map();
       },
-      runAt(floor: number, track: 'main' | 'alt' = 'main', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[]) {
-        return d.restartRun({ floor, track, curse, unlocked }, seed);
+      runAt(floor: number, track: 'main' | 'alt' = 'main', curse?: FloorCurse | null, seed?: number | string, unlocked?: string[], character?: string) {
+        return d.restartRun({ floor, track, curse, unlocked }, seed, character);
       },
       bosses() {
         return d.actions.bosses();

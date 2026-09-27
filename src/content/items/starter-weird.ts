@@ -32,6 +32,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'paperweight',
+    unlock: 'secret-keeper',
     name: 'Paperweight',
     desc: 'HUGE, SLOW SHOTS THAT JUST... SIT THERE',
     kind: 'passive',
@@ -61,6 +62,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'crumbly-biscuit',
+    unlock: 'taste-tester',
     name: 'Crumbly Biscuit',
     desc: 'SHOTS SHRINK AWAY, THEN CRUMBLE APART',
     kind: 'passive',
@@ -76,6 +78,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'teacup-tempest',
+    unlock: 'bog-standard',
     name: 'Teacup Tempest',
     desc: 'ONCE IN A BLUE MOON, SHOTS GO FERAL',
     kind: 'passive',

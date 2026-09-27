@@ -6,6 +6,7 @@
 import type { RngState } from '../../engine/rng';
 import type { FloorCurse, FloorLayout, FloorTrack } from '../floor/types';
 import type { MinimapState } from '../floor/minimap';
+import type { MechanicSnap } from '../mechanics';
 import type { TonicState } from '../tonics';
 import type { WorldCounters } from '../world';
 
@@ -227,6 +228,8 @@ export interface PlayerSnap {
   sets?: string[];
   /** Synergies already announced this run (their one-time part ran). */
   synergiesSeen?: string[];
+  /** The character mechanic's run state (sim/mechanics.ts; optional so older snapshots load). */
+  mech?: MechanicSnap;
 }
 
 export interface WorldSnap {

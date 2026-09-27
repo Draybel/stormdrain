@@ -8,7 +8,7 @@
  * `runUnlocks()` is the snapshot a new run takes (`RunOptions.unlocked`): it never changes mid-run.
  */
 
-import { allItems, CHARACTERS } from '../content/registry';
+import { allCharacters, allItems } from '../content/registry';
 import type { CharacterDef, ItemDef } from '../sim/types';
 import type { MetaState } from './metaState';
 
@@ -39,7 +39,7 @@ export function characterUnlocked(m: MetaState, def: CharacterDef): boolean {
 
 /** Playable characters (registry order). */
 export function unlockedCharacters(m: MetaState): CharacterDef[] {
-  return [...CHARACTERS.values()].filter((c) => characterUnlocked(m, c));
+  return allCharacters().filter((c) => characterUnlocked(m, c));
 }
 
 /** Items flagged `unlock` that are still locked (the collection page shows them as locked). */

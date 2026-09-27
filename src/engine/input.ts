@@ -5,7 +5,7 @@
  * hit-tested FIRST; a pointer that starts on a button belongs to that button until it lifts.
  * Otherwise (when the current scene wants sticks) the left half spawns the floating move stick and
  * the right half the floating shoot stick. Keyboard: WASD move, arrows shoot (last pressed wins),
- * E bomb, Space active, Q consumable, Esc/P pause, Tab map, ` debug.
+ * E bomb, Space active, Q consumable, Shift dash (Pip), Esc/P pause, Tab map, ` debug.
  *
  * Edge flags accumulate between ticks and are cleared by `endTick()` after each sim step.
  */
@@ -351,6 +351,10 @@ export class Input {
         break;
       case 'KeyQ':
         s.consumable = true;
+        break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        s.dash = true;
         break;
       case 'Escape':
       case 'KeyP':

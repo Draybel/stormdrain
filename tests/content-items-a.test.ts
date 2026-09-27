@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { WREN } from '../src/content/characters/wren';
-import { FAMILIARS, ITEMS, SETS, getItem, getSet } from '../src/content/registry';
+import { ACHIEVEMENTS, FAMILIARS, ITEMS, SETS, getItem, getSet } from '../src/content/registry';
 import { ITEMS_A_COSTUME_SPRITES } from '../src/content/sprites/itemsA-costumes';
 import { ITEMS_A_FAMILIAR_SPRITES } from '../src/content/sprites/itemsA-familiars';
 import { ITEMS_A_ICONS } from '../src/content/sprites/itemsA-icons';
@@ -78,7 +78,8 @@ describe('items pack A: defs', () => {
 
   it.each(PACK.map((d) => [d.id, d] as const))('%s is well-formed', (_id, d) => {
     expect(d.kind).toBe('passive');
-    expect(d.unlock).toBeUndefined();
+    // Gated items (characters & achievements pass) name a real achievement.
+    if (d.unlock !== undefined) expect(ACHIEVEMENTS.has(d.unlock)).toBe(true);
     expect(d.name.length).toBeGreaterThan(2);
     expect(d.name.toUpperCase()).toMatch(FONT);
     expect(d.desc.length).toBeGreaterThan(8);

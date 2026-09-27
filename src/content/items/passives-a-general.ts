@@ -95,6 +95,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'gold-star-badge',
+    unlock: 'big-game',
     name: 'Gold Star Badge',
     desc: 'A LITTLE BETTER AT EVERYTHING (X1.1)',
     kind: 'passive',
@@ -179,6 +180,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'tracing-paper',
+    unlock: 'down-the-drain',
     name: 'Tracing Paper',
     desc: 'NOW AND THEN, YOUR SHOTS COME OUT DOUBLED',
     kind: 'passive',
@@ -247,6 +249,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'greasy-gloves',
+    unlock: 'gumball-wizard',
     name: 'Greasy Gloves',
     desc: 'SHOTS SLIP OUT EARLY... AND GO POP',
     kind: 'passive',

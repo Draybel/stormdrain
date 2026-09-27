@@ -21,6 +21,7 @@ import {
   SETS,
   SYNERGIES,
 } from './registry';
+import { ACHIEVEMENT_BADGES } from './sprites/achievementIcons';
 import { FLOOR_PATTERNS, WALL_PATTERNS } from './sprites/tilesets';
 import { validateSpriteDef } from './sprites/validate';
 
@@ -79,7 +80,12 @@ export function validateContent(): string[] {
     need(hasHook(c.mechanic), `${at}: unregistered mechanic hook "${c.mechanic}"`);
     if (c.unlock) need(ACHIEVEMENTS.has(c.unlock), `${at}: unknown achievement "${c.unlock}"`);
     need(c.hearts.redMax % 2 === 0, `${at}: redMax must be whole hearts (even)`);
+    need(c.hearts.redMax + (c.hearts.tin ?? 0) + (c.hearts.ember ?? 0) > 0, `${at}: starts with no hearts at all`);
     sprite(c.sprite, at);
+    // Wren's frame layout (WREN_FRAME): the renderer, character select, pause menu and endings index into it.
+    need(c.sprite.w === 14 && c.sprite.h === 16 && c.sprite.frames.length >= 12, `${at}: sprites are 14×16 with Wren's 12 frames`);
+    if (c.innate) effects(c.innate, `${at} innate`);
+    for (const [k, v] of Object.entries(c.mechanicParams ?? {})) need(Number.isFinite(v), `${at}: mechanicParams.${k} must be a number`);
   }
 
   for (const e of ENEMIES.values()) {
@@ -148,9 +154,25 @@ export function validateContent(): string[] {
       if (c.event === 'characterWin' && c.id) need(CHARACTERS.has(c.id), `${at}: unknown character "${c.id}"`);
       if (c.event === 'itemCollected' && c.id) need(ITEMS.has(c.id), `${at}: unknown item "${c.id}"`);
       if (c.event === 'transformation' && c.id) need(SETS.has(c.id), `${at}: unknown set "${c.id}"`);
+      if (c.event === 'chapterBossKilled' && c.id) need(CHAPTERS.has(c.id), `${at}: unknown chapter "${c.id}"`);
     } else {
       need(typeof c.counter === 'string' && c.counter.length > 0, `${at}: counter condition without a counter`);
       need(Number.isFinite(c.atLeast) && c.atLeast > 0, `${at}: atLeast must be > 0`);
+    }
+    need(a.desc.length <= 52, `${at}: desc longer than 52 characters`);
+    if (a.icon !== undefined) {
+      const colon = a.icon.indexOf(':');
+      const kind = colon > 0 ? a.icon.slice(0, colon) : 'badge';
+      const id = a.icon.slice(colon + 1);
+      const ok =
+        kind === 'badge'
+          ? !!ACHIEVEMENT_BADGES[a.icon]
+          : kind === 'item'
+            ? typeof ITEMS.get(id)?.sprite === 'object'
+            : kind === 'char' || kind === 'win'
+              ? CHARACTERS.has(id)
+              : false;
+      need(ok, `${at}: unknown icon "${a.icon}" (a badge name, 'item:<id>', 'char:<id>' or 'win:<id>')`);
     }
     for (const u of a.unlocks) {
       if (u.kind === 'item') need(ITEMS.has(u.id), `${at}: unlocks unknown item "${u.id}"`);

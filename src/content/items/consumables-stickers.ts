@@ -40,6 +40,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'keepsake-sticker',
+    unlock: 'weather-watcher',
     name: 'Keepsake Sticker',
     desc: 'WHISKS YOU OFF TO THE KEEPSAKE ROOM',
     kind: 'consumable',
@@ -69,6 +70,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'gold-rain-sticker',
+    unlock: 'magpies-envy',
     name: 'Gold Rain Sticker',
     desc: 'COINS RAIN DOWN ALL OVER THE ROOM',
     kind: 'consumable',

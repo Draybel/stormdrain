@@ -125,6 +125,8 @@ export const COUNTER_IDS = [
   'shopsDestroyed',
   'consumablesUsed',
   'trades',
+  /** Scored daily runs started (one per UTC day). */
+  'dailyRuns',
 ] as const;
 export type CounterId = (typeof COUNTER_IDS)[number];
 

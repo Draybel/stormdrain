@@ -50,6 +50,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'candelabra',
+    unlock: 'bare-bones',
     name: 'Candelabra',
     desc: 'THREE FLAMES, THREE SHOTS · EACH A BIT WEAKER',
     kind: 'passive',

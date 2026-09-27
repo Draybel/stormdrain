@@ -284,6 +284,17 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
     case 'donate':
       audio.play('donation', pan, e.b === 1 ? 1 : 0.7);
       break;
+    case 'robbed':
+      if (e.id === 'jar') audio.play('crate_break', pan);
+      break;
+    case 'mechanic':
+      // Character mechanics (sim/mechanics.ts ME_*): firefly joins / flees, Bolt's key, Sable's coin, Mosswick's soak.
+      if (e.a === 0) audio.play('familiar_poof', pan, 0.8);
+      else if (e.a === 1) audio.play('foe_blink', pan, 0.6);
+      else if (e.a === 2) audio.play('charge_tick', pan, 0.8);
+      else if (e.a === 3) audio.play(e.b >= 5 ? 'coin_silver' : 'coin', pan, 0.8);
+      else if (e.a === 4) audio.play('tin_heart', pan, 0.6);
+      break;
     case 'slots':
       audio.play(e.a === 0 ? 'slot_spin' : e.a === 2 ? 'crate_break' : e.b === 1 ? 'slot_win' : 'slot_lose', pan);
       break;

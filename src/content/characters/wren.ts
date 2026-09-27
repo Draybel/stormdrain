@@ -27,6 +27,7 @@ export const WREN: CharacterDef = {
   sprite: WREN_SPRITE,
   mechanic: 'wren.luckyMarble',
   mechanicDesc: 'LUCKY MARBLE: the first shot in every uncleared room is a big keeper marble that pierces and hits three times as hard.',
+  order: 0,
 };
 
 const characters: CharacterDef[] = [WREN];

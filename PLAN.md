@@ -189,9 +189,13 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [x] 8+ item sets (transformations)
       (content merge: the nine DESIGN.md sets, need 3 of 5-6 members each — Stormcaller, Mothkin, Clockwork, Sporeling, Waxen
       (pack A), Toybox, Ossuary, Tidewalker, Glimmer (pack B) — each with its costume, style and bonus, through the 4A engine)
-- [ ] Characters → 7 with unique mechanics; achievements & unlock chain
-      (4A: the achievement framework and 15 first achievements; only Wren so far — characters and the big achievement list
-      to do)
+- [x] Characters → 7 with unique mechanics; achievements & unlock chain
+      (4A: the achievement framework and 15 first achievements; characters pass: Pip (burrow dash + DASH button / Shift),
+      Marrow (Tin only + boomerang), Juniper (firefly jar), Bolt (charge rider + wind-up actives), Sable (melee, pickpocket,
+      haggler), Mosswick (puddles + soak) and the secret Drizzle (floats, cloudburst when hit) — original 14×16 sprites in
+      Wren's frame layout, `sim/mechanics.ts`, `innate` effects; 54 achievements (core / heroes / milestones) with badge
+      icons and reward lines, 45 gated items, character / route unlocks, robbing Magpie's jar; docs/characters.md;
+      tests/characters.test.ts, tests/achievements-content.test.ts, e2e/characters.spec.ts)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md
       (4A: the synergy engine is verified and tested; the content to do)
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
@@ -207,7 +211,7 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 ## Phase 7 — Integration, balance & performance
 - [ ] Merge all content; full test suite green; bot clears every floor/track
       (content merge 1: items A / B / C, enemies A / B and room templates merged into main — 46 unit-test files (2 179 tests), e2e green,
-      the explorer clean over 200 seeds × floors 1-4 + 10 whole runs; bosses, characters, synergies and achievements to come)
+      the explorer clean over 200 seeds × floors 1-4 + 10 whole runs; characters pass: characters + achievements done on main; bosses and synergies to come)
 - [ ] Perf pass on absurd builds (projectile/particle caps, no hot-loop allocations); 60 fps target
 - [ ] Balance pass (drop rates, prices, boss HP, item pools, unlock pacing)
 

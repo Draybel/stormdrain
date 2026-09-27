@@ -8,6 +8,7 @@ import { allChampions } from '../../content/registry';
 import { bossDamage, bossLethal } from '../bosses/damage';
 import { fireTrigger } from '../effects';
 import { SRC_STATUS, creditsPlayer } from '../hittable';
+import { mechanicEnemyHit } from '../mechanics';
 import { PK } from '../pickupKinds';
 import { spawnDrops, spawnLoot } from '../pickups';
 import { ENEMY_TUNING, STATUS_TUNING } from '../tuning';
@@ -65,6 +66,8 @@ export function damageEnemy(w: World, e: Enemy, dmg: number, source: number, kx:
   if (source !== SRC_STATUS) e.flash = ENEMY_TUNING.hitFlash;
   w.counters.hits++;
   w.events.emit('enemyHit', e.x, e.y - e.r, dmg, source, e.def.id);
+  // Character mechanics that react to your hits (Sable's pickpocket, sim/mechanics.ts).
+  if (w.player.mech.kind !== 0) mechanicEnemyHit(w, e, source);
   if (e.hp <= 0) {
     // The last part of a boss plays its death sequence first (sim/bosses/brain.ts kills it after).
     if (e.boss !== null && bossLethal(w, e)) return true;

@@ -135,6 +135,10 @@ export type GameEventType =
   | 'chargeRelease'
   /** Wren's keeper marble fired: x,y = muzzle; a,b = direction */
   | 'keeper'
+  /** a character mechanic moment (sim/mechanics.ts ME_*): x,y; a = code (0 a firefly joins the jar, 1 one flees,
+   *  2 Bolt's key wound up a charge, 3 Sable knocked a coin loose, 4 Mosswick soaked up Tin); b = detail (flies
+   *  now / coin value); id = character id. Pip's burrow uses 'burrow' (id 'pip') */
+  | 'mechanic'
   /** a familiar appeared: x,y; id = familiar id */
   | 'familiar'
   // ── Phase 2D ──
@@ -191,6 +195,8 @@ export type GameEventType =
   | 'donate'
   /** the Gumball Gambler: x,y; a = 0 spin, 1 result, 2 broken by a blast; b = outcome (1 win, 0 nothing) */
   | 'slots'
+  /** a shop prop was robbed / wrecked by a blast (Sable's SMASH AND GRAB): x,y; a = coins spilled; id = 'jar' | 'slots' */
+  | 'robbed'
   /** Old Pell traded: x,y; id = item id */
   | 'trade'
   /** an NPC line for the top band (no burst): x,y; id = the text */

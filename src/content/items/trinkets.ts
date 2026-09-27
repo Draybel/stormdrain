@@ -188,6 +188,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'earplugs',
+    unlock: 'demolition',
     name: 'Earplugs',
     desc: "YOUR OWN BOMBS CAN'T HURT YOU",
     kind: 'trinket',
@@ -334,6 +335,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'hot-coal',
+    unlock: 'forgotten-pocket',
     name: 'Hot Coal',
     desc: 'FOES YOU FELL MAY BURST INTO FLAME',
     kind: 'trinket',
@@ -403,6 +405,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'knucklebone',
+    unlock: 'finders-keepers',
     name: 'Knucklebone',
     desc: 'A LITTLE SATCHEL AT THE START OF EACH FLOOR',
     kind: 'trinket',
@@ -436,6 +439,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'spare-battery',
+    unlock: 'window-shopping',
     name: 'Spare Battery',
     desc: 'USING YOUR ACTIVE MAY GIVE A CHARGE BACK',
     kind: 'trinket',
@@ -449,6 +453,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'wind-up-key',
+    unlock: 'rain-check',
     name: 'Wind-Up Key',
     desc: 'CLEARED ROOMS MAY CHARGE YOU TWICE',
     kind: 'trinket',

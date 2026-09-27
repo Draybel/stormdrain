@@ -765,13 +765,27 @@ export interface CharacterDef {
   hearts: HeartSpec;
   startItems: readonly ItemId[];
   startPickups: StartPickups;
+  /** 14×16, in Wren's 12-frame layout (WREN_FRAME, content/sprites/wren.ts; builder: content/sprites/characters.ts). */
   sprite: SpriteDef;
   /** Base shot colour (ShotStyle, ARCHITECTURE §4.6); default candle-gold. */
   shotColor?: string;
-  /** Hook id of the character's unique mechanic (registered in src/content/hooks). */
+  /**
+   * Hook id of the character's unique mechanic (registered in src/content/hooks). The sim implements the
+   * mechanics it knows by id (sim/mechanics.ts MECH_*; Wren's keeper marble lives in the attack pipeline).
+   */
   mechanic: HookId;
   /** The mechanic in one or two short lines for the character select (Phase 4B), e.g. 'LUCKY MARBLE: ...'. */
   mechanicDesc?: string;
+  /** Tuning of the mechanic (overrides MECHANIC_TUNING defaults, sim/tuning.ts), e.g. `{ cooldown: 1.4 }`. */
+  mechanicParams?: Readonly<Record<string, number>>;
+  /**
+   * PERSISTENT effects the character always has, like a held item that can't be lost and doesn't show in the
+   * inventory (a carrier, a modifier, flags, familiars, triggers): recomputePlayer adds them (source = the
+   * character id). Instant effect types are ignored here (use hearts / startPickups / startItems).
+   */
+  innate?: readonly Effect[];
+  /** Position in the character select (ascending; default 99, then id). Wren is 0. */
+  order?: number;
   unlock?: AchievementId;
 }
 
@@ -928,6 +942,8 @@ export const ACHIEVEMENT_EVENTS = [
   'enemyKilled',
   /** A boss fight was won: id = boss id; value = 0 boss, 1 miniboss, 2 final boss. */
   'bossKilled',
+  /** A chapter's boss (kind 'boss', not a miniboss / final) was beaten: id = chapter id; value = chapter number (1-6). */
+  'chapterBossKilled',
   /** An item was picked up fresh: id = item id; value = items held afterwards. */
   'itemCollected',
   /** Items held at once (passives incl. duplicates + the active + trinkets): value. */
@@ -1004,4 +1020,11 @@ export interface AchievementDef {
   hidden?: boolean;
   condition: AchievementCondition;
   unlocks: readonly UnlockRef[];
+  /**
+   * The badge on the achievements page (content/sprites/achievementIcons.ts): a badge name ('boss', 'map'…),
+   * 'item:<item id>' (that item's icon) or 'char:<character id>' (that character's face). Default: a trophy.
+   */
+  icon?: string;
+  /** A reward line shown besides (or instead of) what `unlocks` gives, e.g. 'A GOLD STAR ON YOUR MAP'. */
+  reward?: string;
 }

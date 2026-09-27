@@ -49,7 +49,7 @@ import { cellCenterX, cellCenterY, type RoomGrid, type RoomMarker } from '../roo
 import type { RoomSpawn } from '../roomSpawns';
 import type { FloorThing } from '../roomProps';
 import { NPC_BROKER, NPC_MAGPIE } from '../roomProps';
-import { PROP_JAR, PROP_SLOTS, PROP_TRADER, breakSlots } from '../shopProps';
+import { PROP_JAR, PROP_SLOTS, PROP_TRADER, breakJar, breakSlots } from '../shopProps';
 import { Tile } from '../tiles';
 import { FLOOR_LINKS, initTonics } from '../tonics';
 import type { MapReveal, TeleportTarget } from '../../content/hooks/itemsC';
@@ -1084,17 +1084,19 @@ export class Run {
     w.events.emit('sfx', DOOR_X[side]!, DOOR_Y[side]!, 0, 0, 'secret_found');
   }
 
-  /** World.onExplosion: blasts break Gumball Gamblers open and crack the hidden-route grate. */
+  /** World.onExplosion: blasts break Gumball Gamblers and Magpie's jar open and crack the hidden-route grate. */
   private onExplosion(x: number, y: number, radius: number): void {
     const w = this.host.world;
     const reach = radius + SHOP_TUNING.blastReach;
     const peds = w.pedestals;
     for (let i = 0; i < peds.count; i++) {
       const ped = peds.items[i]!;
-      if (ped.prop !== PROP_SLOTS || ped.broken) continue;
+      if ((ped.prop !== PROP_SLOTS && ped.prop !== PROP_JAR) || ped.broken) continue;
       const dx = ped.x - x;
       const dy = ped.y - y;
-      if (dx * dx + dy * dy < reach * reach) breakSlots(w, ped);
+      if (dx * dx + dy * dy >= reach * reach) continue;
+      if (ped.prop === PROP_SLOTS) breakSlots(w, ped);
+      else breakJar(w, ped);
     }
     const g = w.props.grate;
     if (g.active && g.state === 0) {
@@ -1113,10 +1115,11 @@ export class Run {
 
   // ── Per tick ──────────────────────────────────────────────────────────────
 
-  /** Stepping onto a floor exit (armed once the player has been off it). */
+  /** Stepping onto a floor exit (armed once the player has been off it; a burrowed Pip tunnels under it). */
   private steppedOn(t: FloorThing, reach: number): boolean {
     if (!t.active) return false;
     const p = this.host.world.player;
+    if (p.underground) return false;
     const d2 = (p.x - t.x) * (p.x - t.x) + (p.y - t.y) * (p.y - t.y);
     if (!t.armed) {
       if (d2 > (reach + 6) * (reach + 6)) t.armed = true;
@@ -1167,7 +1170,8 @@ export class Run {
       const d2 = (p.x - t.x) * (p.x - t.x) + (p.y - t.y) * (p.y - t.y);
       if (!t.armed) {
         if (d2 > (R + 6) * (R + 6)) t.armed = true;
-      } else if (t.t >= TRAPDOOR_OPEN_TIME && d2 < R * R) {
+      } else if (t.t >= TRAPDOOR_OPEN_TIME && d2 < R * R && !p.underground) {
+        // (A burrowed Pip tunnels under it.)
         this.descendTrapdoor();
         return;
       }

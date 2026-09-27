@@ -62,6 +62,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'warming-pan',
+    unlock: 'moth-deal',
     name: 'Warming Pan',
     desc: "+2 EMBER HEARTS · FIRE CAN'T HURT YOU",
     kind: 'passive',
@@ -78,6 +79,7 @@ const items: ItemDef[] = [
   // ── Luck ──
   {
     id: 'clover-in-amber',
+    unlock: 'curious',
     name: 'Clover in Amber',
     desc: 'LUCK UP · A LUCKY COIN EVERY FLOOR',
     kind: 'passive',
@@ -108,6 +110,7 @@ const items: ItemDef[] = [
   // ── Triggers ──
   {
     id: 'grudge-pebble',
+    unlock: 'small-fry',
     name: 'Grudge Pebble',
     desc: 'WHEN HURT, HIT MUCH HARDER FOR A WHILE',
     kind: 'passive',
@@ -209,6 +212,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'leather-apron',
+    unlock: 'barrel-roll',
     name: 'Leather Apron',
     desc: "+3 BOMBS · YOUR OWN BLASTS CAN'T HURT",
     kind: 'passive',
@@ -244,6 +248,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'hand-me-down-pockets',
+    unlock: 'pack-rat',
     name: 'Hand-Me-Down Pockets',
     desc: 'HOLD 2 TRINKETS AND 2 CONSUMABLES',
     kind: 'passive',
@@ -268,6 +273,7 @@ const items: ItemDef[] = [
   // ── Flight, spectral ──
   {
     id: 'bundle-of-balloons',
+    unlock: 'collector',
     name: 'Bundle of Balloons',
     desc: "FLIGHT · DON'T LET GO OF THE STRINGS",
     kind: 'passive',
@@ -283,6 +289,7 @@ const items: ItemDef[] = [
   },
   {
     id: 'bedsheet-ghost',
+    unlock: 'hidey-ho',
     name: 'Bedsheet Ghost',
     desc: 'SHOTS FLOAT THROUGH ROCKS · BOOO!',
     kind: 'passive',
@@ -301,6 +308,7 @@ const items: ItemDef[] = [
   // ── Stat multipliers ──
   {
     id: 'cast-iron-kettle',
+    unlock: 'boss-hunter',
     name: 'Cast-Iron Kettle',
     desc: 'DAMAGE +30% · HEAVY TO LUG AROUND',
     kind: 'passive',
@@ -332,6 +340,7 @@ const items: ItemDef[] = [
   // ── Combo enabler, familiar ──
   {
     id: 'kaleidoscope',
+    unlock: 'metamorphosis',
     name: 'Kaleidoscope',
     desc: 'SHOTS BURST OUT EVERY WHICH WAY',
     kind: 'passive',

@@ -13,6 +13,7 @@ import { useActive, useConsumable } from './effects';
 import { Health, initHealth } from './health';
 import { Inventory } from './inventory';
 import { Loadout, makeFlags, makeTriggerLists, type TempEffect, type TriggerLists } from './loadout';
+import { MechanicState, updateMechanic } from './mechanics';
 import { PlayerAttack, updatePlayerAttack } from './attack/charge';
 import type { AttackProfile } from './attack/profile';
 import { ENEMY_TUNING, ITEM_TUNING, PLAYER_TUNING } from './tuning';
@@ -52,6 +53,8 @@ export class Player {
   attack!: AttackProfile;
   /** Trigger-finger state: charge meter, bursts, Wren's keeper marble (attack/charge.ts). */
   readonly atk = new PlayerAttack();
+  /** The character's mechanic (sim/mechanics.ts): Pip's burrow, Juniper's fireflies, Bolt's wind-up… */
+  readonly mech: MechanicState;
   /** Anchor for shots / beams / swipes (the player object is never pooled). */
   readonly alive = true;
   /** Item currently held overhead after a pickup (render pose + banner). */
@@ -95,6 +98,7 @@ export class Player {
 
   constructor(character: CharacterDef) {
     this.character = character;
+    this.mech = new MechanicState(character);
     this.stats = { ...character.stats };
     const h = character.hearts;
     initHealth(this.health, h.redMax, h.red ?? h.redMax, h.tin ?? 0, h.ember ?? 0);
@@ -111,6 +115,11 @@ export class Player {
 
   get redMax(): number {
     return this.health.redMax;
+  }
+
+  /** Pip is burrowed: nothing can touch her (damage, shots, contact, creep, hazards) and she doesn't fire. */
+  get underground(): boolean {
+    return this.mech.dashT > 0;
   }
 
   placeAt(x: number, y: number): void {
@@ -145,18 +154,35 @@ export function updatePlayer(w: World, input: InputState, dt: number): void {
     return;
   }
 
-  movePlayer(w, input, dt);
-  updatePlayerAttack(w, input, dt);
-  if (p.firing) setFacing(p, p.atk.dirX, p.atk.dirY);
+  const burrowed = updateMechanic(w, input, dt);
+  movePlayer(w, input, dt, burrowed);
+  if (burrowed) {
+    // Underground: no firing (the charge meter and cooldowns wait for Pip to surface).
+    p.firing = false;
+  } else {
+    updatePlayerAttack(w, input, dt);
+    if (p.firing) setFacing(p, p.atk.dirX, p.atk.dirY);
+  }
   // Action buttons (edge-triggered): bomb (E), active (Space), consumable (Q).
   if (input.bomb) placeBomb(w);
   if (input.active) useActive(w);
   if (input.consumable) useConsumable(w);
 }
 
-function movePlayer(w: World, input: InputState, dt: number): void {
+function movePlayer(w: World, input: InputState, dt: number, burrowed: boolean): void {
   const p = w.player;
   const T = PLAYER_TUNING;
+  if (burrowed) {
+    // Pip's burrow: a straight, fast tunnel (sim/mechanics.ts) — the same collision as walking.
+    const m = p.mech;
+    const v = p.stats.moveSpeed * m.dashSpeed;
+    p.vx = m.dashX * v;
+    p.vy = m.dashY * v;
+    p.pushX = p.pushY = 0;
+    moveAndCollide(w, p, dt);
+    setFacing(p, m.dashX, m.dashY);
+    return;
+  }
 
   // Target velocity from analog input (magnitude clamped to 1).
   let ix = input.moveX;
@@ -195,9 +221,17 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   }
   p.vx += dvx;
   p.vy += dvy;
+  moveAndCollide(w, p, dt);
 
-  // Integrate, then resolve against tiles, dummies and pedestals. Remove the velocity component
-  // pushing into whatever we hit so the player slides along instead of sticking.
+  // Facing follows movement input when not shooting.
+  if (!p.firing && im > 0.2) setFacing(p, ix, iy);
+}
+
+/**
+ * Integrates the velocity (+ the contact shove), then resolves against tiles, dummies and pedestals. Removes the
+ * velocity component pushing into whatever was hit so the player slides along instead of sticking.
+ */
+function moveAndCollide(w: World, p: Player, dt: number): void {
   const mode = p.flags.flying ? FLY_MODE : WALK_MODE;
   scratchPos.x = p.x + (p.vx + p.pushX) * dt;
   scratchPos.y = p.y + (p.vy + p.pushY) * dt;
@@ -241,9 +275,6 @@ function movePlayer(w: World, input: InputState, dt: number): void {
   p.x = scratchPos.x;
   p.y = scratchPos.y;
   p.walkDist += Math.sqrt(mdx * mdx + mdy * mdy);
-
-  // Facing follows movement input when not shooting.
-  if (!p.firing && im > 0.2) setFacing(p, ix, iy);
 }
 
 function cancelInto(p: Player, nx: number, ny: number): void {

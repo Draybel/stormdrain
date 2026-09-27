@@ -40,6 +40,8 @@ export interface ExploreOptions {
   fightFor?: number;
   /** Tick budget for the whole exploration. */
   maxTicks?: number;
+  /** While fighting for real: press the dash (Pip's burrow) every this many ticks (0 / unset = never). */
+  dashEvery?: number;
 }
 
 export interface FloorRecord {
@@ -350,6 +352,7 @@ export class Explorer {
       }
     }
     const tick = w.tick;
+    if (this.opts.dashEvery && tick % this.opts.dashEvery === 0) inp.dash = true;
     if (best) {
       const dx = best.x - p.x;
       const dy = best.y - p.y;
@@ -532,7 +535,16 @@ export class Explorer {
   }
 
   /** Next step: the nearest unvisited room, else the floor's exit. Returns false to stop. */
+  /** Pip's burrow: a dash still under way when the fight ended finishes before the explorer walks anywhere. */
+  private surface(): void {
+    const inp = this.input;
+    inp.moveX = inp.moveY = 0;
+    inp.fireHeld = false;
+    for (let i = 0; i < 60 && this.w.player.underground && !this.stopped; i++) this.step();
+  }
+
   private moveOn(): boolean {
+    this.surface();
     const run = this.run;
     const d = run.data;
     const unvisited = (i: number): boolean => !d.rooms[i]!.visited;
@@ -575,6 +587,7 @@ export class Explorer {
     const p = w.player;
     const before = `${d.floor}:${d.current}`;
     const walk = (): boolean => {
+      this.surface();
       p.placeAt(DOOR_FRONT_X[side]!, DOOR_FRONT_Y[side]!);
       this.input.moveX = PUSH_X[side]!;
       this.input.moveY = PUSH_Y[side]!;

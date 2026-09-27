@@ -136,6 +136,11 @@ export function registerCharacter(def: CharacterDef): void {
   CHARACTERS.set(def.id, def);
 }
 
+/** Every character in character-select order (`CharacterDef.order`, default 99, then id): Wren first. */
+export function allCharacters(): CharacterDef[] {
+  return [...CHARACTERS.values()].sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /**
  * Runtime registration of an enemy for tests and tools (game content belongs in
  * src/content/enemies/*.ts). Throws on a duplicate id.

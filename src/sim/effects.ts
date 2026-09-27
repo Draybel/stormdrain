@@ -31,6 +31,7 @@ import {
   type ActiveSlot,
 } from './inventory';
 import { clearFlags, makeTriggerLists } from './loadout';
+import { FIREFLY_ID, mechanicFamiliars, mechanicFloorStart, mechanicRoomClear } from './mechanics';
 import { spawnPedestal } from './pedestals';
 import { pickupKindOf } from './pickupKinds';
 import { spawnDrops, spawnItemPickup, spawnLoot } from './pickups';
@@ -182,6 +183,13 @@ export function recomputePlayer(w: World): void {
 
   forEachHeld(p, (d) => addItemEffects(p, d, triggers));
 
+  // The character's innate effects (a carrier, a modifier, flags, familiars…) and what its mechanic adds now
+  // (Juniper's temporary fireflies — sim/mechanics.ts).
+  const innate = p.character.innate;
+  if (innate) for (let i = 0; i < innate.length; i++) if (isPersistent(innate[i]!)) addPersistent(p, innate[i]!, p.character.id, triggers);
+  const extraFlies = mechanicFamiliars(p);
+  if (extraFlies > 0) p.loadout.addFamiliar(FIREFLY_ID, extraFlies);
+
   // Item sets (transformations): earned once, kept for the run.
   const sets = allSets();
   for (let s = 0; s < sets.length; s++) {
@@ -296,11 +304,14 @@ export function executeEffects(
   if (tempAdded) recomputePlayer(w);
 }
 
-/** Heals red health; emits a 'heal' event. Returns the half hearts restored. */
+/**
+ * Heals red health; emits a 'heal' event. Returns the half hearts restored. Without red hearts (Marrow's
+ * `noRedHearts`) a heal becomes Tin instead — at most a whole Tin heart per heal.
+ */
 export function healPlayer(w: World, halves: number): number {
   const p = w.player;
   if (p.dead) return 0;
-  const healed = heal(p.health, halves);
+  const healed = p.flags.noRedHearts ? addBonus(p.health, BONUS_TIN, Math.min(2, Math.floor(halves))) : heal(p.health, halves);
   if (healed > 0) {
     p.inv.version++;
     w.events.emit('heal', p.x, p.y - 12, healed, 0);
@@ -312,7 +323,10 @@ function applyHearts(w: World, e: HeartsEffect): void {
   const p = w.player;
   const h = p.health;
   let changed = false;
-  if (e.containers) changed = addContainers(h, e.containers) !== 0 || changed;
+  // No red hearts (Marrow): a new container becomes a whole Tin heart instead (losing one costs nothing).
+  if (e.containers && p.flags.noRedHearts) {
+    if (e.containers > 0) changed = addBonus(h, BONUS_TIN, e.containers * 2) > 0 || changed;
+  } else if (e.containers) changed = addContainers(h, e.containers) !== 0 || changed;
   if (e.red) {
     if (p.flags.noRedHearts) changed = addBonus(h, BONUS_TIN, e.red) > 0 || changed;
     else changed = heal(h, e.red) > 0 || changed;
@@ -487,12 +501,13 @@ export function useConsumable(w: World): boolean {
   return true;
 }
 
-/** Room cleared: +1 charge for room-charged actives, then the 'roomClear' trigger. */
+/** Room cleared: +1 charge for room-charged actives, the character mechanic's clear rule, then the 'roomClear' trigger. */
 export function roomCleared(w: World): void {
   const p = w.player;
   w.counters.roomsCleared++;
   const slot = p.inv.active;
   if (slot && !slot.timed) chargeActive(w, 1);
+  if (mechanicRoomClear(w)) recomputePlayer(w);
   fireTrigger(w, 'roomClear', p.x, p.y);
 }
 
@@ -510,6 +525,7 @@ export function leftRoom(w: World): void {
 }
 
 export function floorStarted(w: World): void {
+  if (mechanicFloorStart(w)) recomputePlayer(w);
   fireTrigger(w, 'floorStart', w.player.x, w.player.y);
 }
 

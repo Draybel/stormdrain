@@ -268,10 +268,10 @@ function boot(): void {
     const run = scenes.find('run');
     return run instanceof RunScene ? run.presentation : null;
   };
-  const restartRun = (opts: RunOptions, seed?: number | string): boolean => {
+  const restartRun = (opts: RunOptions, seed?: number | string, character?: string): boolean => {
     const run = scenes.find('run');
     if (!(run instanceof RunScene)) return false;
-    run.restartRun(opts, seed);
+    run.restartRun(opts, seed, character);
     return true;
   };
   installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions, getPresentation, restartRun });

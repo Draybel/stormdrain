@@ -266,6 +266,8 @@ export class Sim {
     }
     if (!placed) w.player.placeAt(cellCenterX(6), cellCenterY(3));
     resetAttackRoom(w);
+    // Pip surfaces on entering a room (sim/mechanics.ts).
+    w.player.mech.resetRoom();
     this.placeSpawns(spawns);
     this.allPopped = false;
     return markers;

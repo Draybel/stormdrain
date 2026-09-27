@@ -50,6 +50,8 @@ const DIRT = ['#5a4636', '#7e664e', '#a08466', '#3a2e24'] as const;
 const ICE = ['#ffffff', '#c8f4ff', '#8fd8f8', '#6fb3e0'] as const;
 const STARS = ['#fff27a', '#ffffff', '#ffcf57'] as const;
 const BLINK = ['#c9a0ff', '#ffffff', '#8a6ad8'] as const;
+const FIREFLY_BITS = ['#fff27a', '#ffcf57', '#fffbe8'] as const;
+const GLASS_BITS = ['#e6f6ff', '#9fc3e0', '#ffffff', '#f2c230'] as const;
 const RUBBLE = ['#5c6580', '#8691ad', '#3e455a', '#2a2e3c'] as const;
 const KEY_GOLD = ['#fff4a8', '#e0b040', '#ffffff'] as const;
 const RAIN = 'rgba(150,185,230,0.55)';
@@ -834,6 +836,33 @@ export class WorldFx {
         const r = P.spawn(x, y, 0, 0, 0.4, '#9fe0ff', 1, P_RING);
         if (r) r.endSize = 22;
         this.shake.add(0.3);
+        break;
+      }
+      case 'mechanic': {
+        // Character mechanics (sim/mechanics.ts ME_*).
+        if (e.a === 0) {
+          // A firefly leaves the jar.
+          P.burst(x, y, 10, 10, 45, 0.5, FIREFLY_BITS, 1, -30, 3);
+        } else if (e.a === 1) {
+          // One flees: a streak of sparks flying off upward.
+          P.burst(x, y, 8, 30, 90, 0.5, FIREFLY_BITS, 1, -120, 2);
+        } else if (e.a === 2) {
+          // Bolt's key clicks round: a charge wound up.
+          P.burst(x, y, 8, 20, 60, 0.3, SPARK, 1, 0, 4);
+        } else if (e.a === 3) {
+          // Sable knocks a coin loose.
+          P.burst(x, y, e.b >= 5 ? 10 : 6, 20, 60, 0.35, e.b >= 5 ? SILVER : GOLD, 1, 40, 3);
+        } else if (e.a === 4) {
+          // Mosswick soaks up Tin.
+          P.burst(x, y, 8, 10, 40, 0.5, TIN, 1, -40, 3);
+        }
+        break;
+      }
+      case 'robbed': {
+        if (e.id === 'jar') {
+          P.burst(x, y, 20, 30, 110, 0.6, GLASS_BITS, 1, 200, 1.5);
+          this.shake.add(0.2);
+        }
         break;
       }
       case 'donate': {

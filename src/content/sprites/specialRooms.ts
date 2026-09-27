@@ -129,12 +129,27 @@ function jar(fill: number): string[] {
   return p.outline('o').rows();
 }
 
+/** The jar after a blast (Sable's SMASH AND GRAB): a jagged glass stump, a couple of coins, shards around it. */
+function jarBroken(): string[] {
+  const p = new Pix(12, 14);
+  const tops = [9, 8, 10, 7, 9, 8, 10, 9];
+  p.rect(1, 10, 10, 2, 'g');
+  for (let x = 2; x <= 9; x++) p.rect(x, tops[x - 2]!, 1, 13 - tops[x - 2]!, 'g');
+  p.set(4, 11, 'c').set(5, 11, 'C').set(7, 12, 'c');
+  p.set(2, 9, 'G').set(2, 10, 'G');
+  p.outline('o');
+  // Loose shards on the floor (not outlined: they glint).
+  p.set(0, 13, 'G').set(11, 12, 'G').set(10, 13, 'G');
+  return p.rows();
+}
+
 export const DONATION_JAR_SPRITE: SpriteDef = {
   id: 'prop.jar',
   w: 12,
   h: 14,
   palette: { o, g: '#6f9fbf80', G: '#e6f6ff', L: '#8a6a3a', l: '#c8a060', k: '#1a120a', c: '#f2c230', C: '#c8773a', w: '#efe6c8', r: '#e0515a' },
-  frames: [jar(0), jar(1), jar(2)],
+  /** Frames 0-2: fuller with every luck threshold; 3: smashed. */
+  frames: [jar(0), jar(1), jar(2), jarBroken()],
 };
 
 // ── The Gumball Gambler ────────────────────────────────────────────────────

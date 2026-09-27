@@ -117,7 +117,7 @@ describe('conditions', () => {
     // Registry order: the core achievement first, then the fixture.
     const hive = engine.drain()!;
     expect(hive.id).toBe('the-quiet-hive');
-    expect(hive.rewards).toEqual(['THE WATER BEGINS TO TURN...']);
+    expect(hive.rewards).toEqual(['THE WATER BEGINS TO TURN...', 'NEW ITEM: STORMGLASS']);
     const e2 = engine.drain()!;
     expect(e2.id).toBe('t-ending-2');
     expect(e2.rewards).toEqual(['NEW ROUTE: T-ROUTE']);

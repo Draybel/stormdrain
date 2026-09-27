@@ -8,7 +8,7 @@
  * Keyboard: left / right pick, Enter starts, Esc goes back.
  */
 
-import { CHARACTERS, findAchievement, findItem } from '../content/registry';
+import { CHARACTERS, allCharacters, findAchievement, findItem } from '../content/registry';
 import { UI } from '../content/sprites/palette';
 import { ICON_LOCK } from '../content/sprites/menuIcons';
 import { EMBER_HEART_SPRITE, HUD_BOMB_ICON, HUD_COIN_ICON, HUD_KEY_ICON, TIN_HEART_SPRITE } from '../content/sprites/pickups';
@@ -64,7 +64,7 @@ export class CharacterSelectScene extends PageScene {
   constructor(app: App, seed: RunSeedInfo | null) {
     super(app, 'chars', 'CHARACTERS');
     this.seed = seed;
-    this.chars = [...CHARACTERS.values()];
+    this.chars = allCharacters();
     const i = this.chars.findIndex((c) => c.id === lastCharacter());
     this.sel = Math.max(0, i);
     this.slots = this.chars.map((c, k) =>
