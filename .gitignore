@@ -10,3 +10,4 @@ Thumbs.db
 .vite/
 .claude/worktrees/
 e2e/__screens__/
+.claude/scheduled_tasks.lock
