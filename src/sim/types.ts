@@ -462,8 +462,11 @@ export const MOVE_KINDS = [
   'wallCrawl',
   'float',
   'turret',
-  'bounce',
-  'lurk',
+  'bounce', // ext-a: sim/enemies/behaviors/ext-a.ts
+  'lurk', // ext-a
+  'intercept', // ext-b: sim/enemies/behaviors/ext-b.ts
+  'swoop', // ext-b
+  'ambush', // ext-b
 ] as const;
 export type MoveKind = (typeof MOVE_KINDS)[number];
 
@@ -478,7 +481,8 @@ export const ATTACK_KINDS = [
   'spawnMinion',
   'landShockwave',
   'leaveTrail',
-  'spiral',
+  'spiral', // ext-a: sim/enemies/behaviors/ext-a.ts
+  'stream', // ext-b: sim/enemies/behaviors/ext-b.ts
 ] as const;
 export type AttackKind = (typeof ATTACK_KINDS)[number];
 

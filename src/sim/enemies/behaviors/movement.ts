@@ -16,6 +16,7 @@ import type { Enemy } from '../enemy';
 import { lineClear } from '../pathfield';
 import { triggerAttacks } from '../attackRunner';
 import { bounce, lurk } from './ext-a';
+import { EXT_B_MOVES } from './ext-b';
 import {
   ON_APPEAR,
   ON_BONK,
@@ -738,4 +739,5 @@ export const MOVES: Readonly<Record<MoveKind, MoveBehavior>> = {
   turret,
   bounce,
   lurk,
+  ...EXT_B_MOVES,
 };
