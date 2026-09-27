@@ -19,6 +19,12 @@ clears the save on death / victory; the title's Continue calls `nav.continueRun(
 page, and the daily run (title → DAILY RUN: the date's seed code; the tracker claims the day's one scored attempt when it
 starts — `recordDaily(..., done: false)` — and finishes it with `updateDaily`; ARCHITECTURE §7a).
 
+**Phase 3-4 verification** (checked in real WebKit: background mid-room → reload → Continue, damaged / newer / v0 saves):
+a meta save that starts fresh after damage (`corrupt`) or loads from an older version is written back at the end of the
+first tick, so the "damaged" toast never repeats and the old text becomes the `.bak`; a run save whose every copy is
+damaged (`runs.hasRun()` false while `runs.slot.exists()`) is dropped at boot by `GameSave.dropDamagedRun()` — its text
+kept as `stormdrain.run.corrupt` — and main.ts toasts "SAVED RUN LOST" instead of silently losing Continue.
+
 | Module | What it gives you |
 |---|---|
 | `src/meta/storage.ts` | `createStorage()` (localStorage, or an in-memory fallback with `persistent = false`), `MemoryStorage` (tests), `SaveSlot` (envelope + checksum + migrations + `.bak`), `requestPersistentStorage()` |

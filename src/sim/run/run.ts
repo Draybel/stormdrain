@@ -24,7 +24,7 @@ import { beginWave, startWave, type FixedSpawn } from '../arena';
 import { respawnFamiliars } from '../attack/familiars';
 import { spawnBoss } from '../bosses/brain';
 import { DMG_SPIKES, damagePlayer } from '../combat';
-import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W } from '../constants';
+import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W, TILE } from '../constants';
 import { DK, DOOR_FRONT_X, DOOR_FRONT_Y, DOOR_X, DOOR_Y, DS, TRAPDOOR_OPEN_TIME, type DoorKind } from '../doors';
 import { floorStarted } from '../effects';
 import { UNDERTOW_FLOOR, generateFloor, neighborRoom, openNook, templateRng } from '../floor/generate';
@@ -56,7 +56,7 @@ import type { World } from '../world';
 import { chapterFor, chapterNumber } from './chapters';
 import { EMPTY_ROOM, emptyRoomState, rollFloorContents, templateById } from './contents';
 import { lockedItemIds } from './pools';
-import { capturePlayer, captureWorld } from './snapshot';
+import { capturePlayer, captureWorld, jsonClone } from './snapshot';
 import {
   CORNER_PREFS,
   GRATE_PREFS,
@@ -541,7 +541,13 @@ export class Run {
 
   private placeGrate(st: RoomState): void {
     const w = this.host.world;
-    const cell = floorCell(w, this.markers, GRATE_PREFS, [ROOM_COLS * 3 + 6]);
+    // Never under the trapdoor or a pedestal (the boss reward): the same cells on every visit.
+    const taken = [ROOM_COLS * 3 + 6];
+    for (let i = 0; i < w.pedestals.count; i++) {
+      const p = w.pedestals.items[i]!;
+      taken.push(Math.floor(p.y / TILE) * ROOM_COLS + Math.floor(p.x / TILE));
+    }
+    const cell = floorCell(w, this.markers, GRATE_PREFS, taken);
     if (cell < 0) return;
     w.props.grate.place(cellX(cell), cellY(cell), st.grate === 2 ? 1 : 0);
   }
@@ -779,15 +785,17 @@ export class Run {
     this.placeTrapdoor(0);
     w.events.emit('trapdoor', TRAPDOOR_X, TRAPDOOR_Y, 0, d.floor);
     w.events.emit('sfx', TRAPDOOR_X, TRAPDOOR_Y, 0, 0, 'stairs');
+    // The reward and the heart keep clear of the hatch: grabbing them never drops her through it.
+    const spot = this.rewardSpot(4, 1, -1);
     if (st.reward) {
-      const spot = this.rewardSpot();
       if (this.itemPedestal(spot.x, spot.y, st.reward, 0, 0)) {
         w.events.emit('pedestalRoll', spot.x, spot.y - 16, 1, 0, st.reward);
         this.markSeen(st.reward);
       }
       st.reward = '';
     }
-    spawnPickup(w, PK.Heart, TRAPDOOR_X + 18, TRAPDOOR_Y + 4, true);
+    const heart = this.rewardSpot(8, 1, spot.cell);
+    spawnPickup(w, PK.Heart, heart.x, heart.y, true);
     if (st.grate > 0) {
       this.placeGrate(st);
       w.events.emit('grate', w.props.grate.x, w.props.grate.y, 0);
@@ -798,7 +806,8 @@ export class Run {
     if (layout.nook.room < 0 && layout.nook.templateId && roll < this.nookChance()) {
       const n = openNook(layout);
       while (d.rooms.length < n) d.rooms.push(emptyRoomState());
-      d.rooms[n] = d.nook;
+      // A copy: sharing one object would make the checkpoint JSON (two copies) diverge from the live run.
+      d.rooms[n] = jsonClone(d.nook);
       discoverRoom(d.map, layout, n);
       const side = layout.nook.side;
       w.events.emit('secretFound', DOOR_X[side]!, DOOR_Y[side]!, side, 2);
@@ -824,25 +833,73 @@ export class Run {
     this.win(this.floorEnding());
   }
 
-  /** Free plain floor near the top of the centre (never the trapdoor tile), its upper cell free for the icon. */
-  private rewardSpot(): { x: number; y: number } {
-    const g = this.host.world.room;
+  /**
+   * A free plain-floor cell for a boss reward, nearest (col, row) but at least two cells from the trapdoor's
+   * cell (touching a pedestal from any side must never put her on the hatch) and off the straight lanes
+   * between the doors and the hatch (column 6, row 3: nothing in her way or in her face as she walks in), its
+   * upper cell free for the floating icon, never `avoid` (a cell index) or the grate. The lanes are given up
+   * only when nothing else is free.
+   */
+  private rewardSpot(col: number, row: number, avoid: number): { x: number; y: number; cell: number } {
+    const w = this.host.world;
+    const g = w.room;
+    const grate = w.props.grate;
     let best = Infinity;
-    let bx = cellCenterX(6);
-    let by = cellCenterY(1);
-    for (let row = 1; row < ROOM_ROWS; row++) {
-      for (let col = 0; col < ROOM_COLS; col++) {
-        if (col === 6 && row === 3) continue;
-        if (g.get(col, row) !== Tile.Floor || g.get(col, row - 1) === Tile.Rock) continue;
-        const dd = Math.abs(col - 6) * 1.1 + Math.abs(row - 2);
-        if (dd < best) {
-          best = dd;
-          bx = cellCenterX(col);
-          by = cellCenterY(row);
+    let bc = col;
+    let br = row;
+    for (let pass = 0; pass < 2 && best === Infinity; pass++) {
+      for (let r = 1; r < ROOM_ROWS; r++) {
+        for (let c = 0; c < ROOM_COLS; c++) {
+          if (Math.max(Math.abs(c - 6), Math.abs(r - 3)) < 2) continue;
+          if (pass === 0 && (c === 6 || r === 3)) continue;
+          if (r * ROOM_COLS + c === avoid) continue;
+          if (g.get(c, r) !== Tile.Floor || g.get(c, r - 1) === Tile.Rock) continue;
+          if (grate.active && Math.abs(cellCenterX(c) - grate.x) < 12 && Math.abs(cellCenterY(r) - grate.y) < 12) continue;
+          const dd = Math.abs(c - col) * 1.1 + Math.abs(r - row);
+          if (dd < best) {
+            best = dd;
+            bc = c;
+            br = r;
+          }
         }
       }
     }
-    return { x: bx, y: by };
+    return { x: cellCenterX(bc), y: cellCenterY(br), cell: br * ROOM_COLS + bc };
+  }
+
+  /**
+   * Loot never rests on a floor exit (the open trapdoor or grate, the whirlpool, the skylight): a pickup lying
+   * on one slides off, so going for it can't drop her through by accident.
+   */
+  private clearExits(): void {
+    const w = this.host.world;
+    const pr = w.props;
+    if (w.trapdoor.active) this.shoveLootOff(w.trapdoor.x, w.trapdoor.y, RUN_TUNING.trapdoorReach);
+    if (pr.grate.active && pr.grate.state === 1) this.shoveLootOff(pr.grate.x, pr.grate.y, RUN_TUNING.trapdoorReach);
+    if (pr.whirlpool.active) this.shoveLootOff(pr.whirlpool.x, pr.whirlpool.y, RUN_TUNING.trapdoorReach + 2);
+    if (pr.skylight.active) this.shoveLootOff(pr.skylight.x, pr.skylight.y, RUN_TUNING.trapdoorReach + 2);
+  }
+
+  /** Pickups on (or sliding onto) the spot get an outward push: resting ones slide off, incoming ones bounce. */
+  private shoveLootOff(x: number, y: number, reach: number): void {
+    const pool = this.host.world.pickups;
+    const push = RUN_TUNING.hatchShove;
+    for (let i = 0; i < pool.count; i++) {
+      const pk = pool.items[i]!;
+      if (pk.z > 0) continue;
+      const dx = pk.x - x;
+      const dy = pk.y - y;
+      const lim = reach + 4 + pk.r;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= lim * lim) continue;
+      const d = Math.sqrt(d2);
+      const nx = d > 0.01 ? dx / d : 1;
+      const ny = d > 0.01 ? dy / d : 0;
+      const out = pk.vx * nx + pk.vy * ny;
+      if (out >= push) continue;
+      pk.vx += (push - out) * nx;
+      pk.vy += (push - out) * ny;
+    }
   }
 
   // ── Doors ─────────────────────────────────────────────────────────────────
@@ -1079,6 +1136,7 @@ export class Run {
       if ((p.x - plate.x) * (p.x - plate.x) + (p.y - plate.y) * (p.y - plate.y) < R * R) this.pressPlate(st);
     }
     const t = w.trapdoor;
+    this.clearExits();
     if (t.active && !w.arena.active) {
       const R = RUN_TUNING.trapdoorReach;
       const d2 = (p.x - t.x) * (p.x - t.x) + (p.y - t.y) * (p.y - t.y);

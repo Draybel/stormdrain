@@ -122,6 +122,18 @@ export class GameSave {
     return this.meta.flush() && ok;
   }
 
+  /**
+   * At boot: a run save whose every copy is damaged can never load, and the title would silently drop
+   * Continue. Drops it (`load` keeps the damaged text as `.corrupt`) and returns true so the player is told.
+   */
+  dropDamagedRun(): boolean {
+    if (!this.runs.slot.exists() || this.runs.hasRun()) return false;
+    const r = this.runs.load();
+    if (r.ok || r.reason !== 'corrupt') return false;
+    this.runs.clear();
+    return true;
+  }
+
   /** The saved run for Continue (or why there is none / it can't be used). */
   loadRun(): ContinueResult {
     const r = this.runs.load<RunSnapshot>();

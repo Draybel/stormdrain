@@ -452,6 +452,13 @@ export class MetaStore {
     this.retryMs = opts.retryMs ?? 10000;
     this.loaded = this.slot.load();
     this.meta = this.loaded.data === null ? defaultMeta() : normalizeMeta(this.loaded.data);
+    // Write the repaired / upgraded state back at the end of the first tick: a damaged save starting fresh
+    // (its text is kept as `.corrupt`) must not greet the player again on every launch, and an older
+    // version is stored in the current format once (the old text becomes the `.bak`).
+    const st = this.loaded.status;
+    if (st === 'corrupt' || (st === 'ok' && this.loaded.migratedFrom !== null && this.loaded.migratedFrom < META_MIGRATIONS.current)) {
+      this.touch(true, true);
+    }
   }
 
   /** The live state. Prefer the mutators; after editing it directly call `markDirty()`. */

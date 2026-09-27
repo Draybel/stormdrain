@@ -113,6 +113,8 @@ export class RunScene implements Scene {
   private time = 0;
   private notice = '';
   private noticeTime = 0;
+  /** Sim tick the notice was set on (a room entry clears older ones). */
+  private noticeTick = -1;
   /** Set once the player has used each stick (hints fade out). */
   private usedSticks = false;
   /** Inventory version the button icons were last updated for. */
@@ -317,6 +319,7 @@ export class RunScene implements Scene {
   private say(text: string, time = 1.4): void {
     this.notice = text;
     this.noticeTime = time;
+    this.noticeTick = this.sim.world.tick;
   }
 
   /** Is a transition (slide / iris) holding the sim still — or slow motion stepping it unevenly? */
@@ -510,6 +513,9 @@ export class RunScene implements Scene {
   private onRoomEnter(side: number): void {
     this.app.particles.clear();
     this.labelFor = -1;
+    // The last room's notice (Magpie's line, "ROOM CLEARED!") doesn't follow her through the door; one
+    // raised by this very transition ("THE MAZE SHIFTS...") stays.
+    if (this.noticeTick !== this.sim.world.tick) this.noticeTime = 0;
     if (side >= 0 && this.irisPhase === 0) {
       // Came in through `side`: the camera moves the other way (entering from the north = going south).
       this.slideT = 0;
@@ -581,6 +587,10 @@ export class RunScene implements Scene {
   /** The active / consumable buttons show the held item's icon. */
   private syncButtonIcons(): void {
     const inv = this.sim.world.player.inv;
+    // Empty slots / no bombs: the placeholder glyph is drawn faint so it never reads as an item.
+    this.ui.bomb.dim = inv.bombs <= 0;
+    this.ui.active.dim = inv.active === null;
+    this.ui.consumable.dim = inv.consumables.length === 0;
     if (inv.version === this.iconsFor) return;
     this.iconsFor = inv.version;
     this.ui.active.icon = inv.active ? itemIcon(inv.active.id) : ICON_ACTIVE;

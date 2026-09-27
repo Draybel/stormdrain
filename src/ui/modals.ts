@@ -171,8 +171,9 @@ export function openImport(app: App, done: () => void): void {
     }
     const s = summarizeMeta(r.meta);
     const hours = s.playTimeSec >= 3600 ? `${(s.playTimeSec / 3600).toFixed(1)} H` : `${Math.round(s.playTimeSec / 60)} MIN`;
+    const n = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
     const lines = [
-      `This code holds: ${s.achievements} achievements, ${s.itemsDiscovered} items discovered, ${s.runs} runs, ${s.wins} wins, ${hours} played${r.run ? ', and a run in progress' : ''}.`,
+      `This code holds: ${n(s.achievements, 'achievement', 'achievements')}, ${n(s.itemsDiscovered, 'item', 'items')} discovered, ${n(s.runs, 'run', 'runs')}, ${n(s.wins, 'win', 'wins')}, ${hours} played${r.run ? ', and a run in progress' : ''}.`,
       'Replace everything on this device with it? This cannot be undone.',
       ...r.warnings,
     ];

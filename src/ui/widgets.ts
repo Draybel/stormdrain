@@ -38,6 +38,8 @@ export interface UiButton extends HitButton {
   nav: boolean;
   /** Sliders / steppers: the keyboard's left / right adjust instead of moving the focus. */
   adjust: ((dir: -1 | 1) => void) | null;
+  /** HUD buttons: nothing to use right now (an empty slot, no bombs) — the icon is drawn faint. */
+  dim: boolean;
 }
 
 export function uiButton(init: Partial<UiButton> & { id: string }): UiButton {
@@ -50,6 +52,7 @@ export function uiButton(init: Partial<UiButton> & { id: string }): UiButton {
     textScale: init.textScale ?? 2,
     nav: init.nav ?? true,
     adjust: init.adjust ?? null,
+    dim: init.dim ?? false,
   };
 }
 

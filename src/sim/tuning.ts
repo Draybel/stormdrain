@@ -44,6 +44,8 @@ export const RUN_TUNING = {
   deniedCooldown: 0.8,
   /** Feet within this distance of the trapdoor's centre fall in (px). */
   trapdoorReach: 7,
+  /** Loot resting on the open trapdoor slides off at this speed (px/s). */
+  hatchShove: 60,
   /** Curse of the Maze: chance that a door leads to a random visited room instead. */
   mazeChance: 0.2,
   /** Broker's Nook after the boss: base chance, plus this when no damage was taken on the floor. */

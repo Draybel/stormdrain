@@ -266,7 +266,7 @@ export class EndingScene implements Scene {
     if (d) {
       const ch = CHAPTERS.get(d.chapter);
       const seed = d.seedInfo ? formatSeed(d.seedInfo.code) : numericSeedLabel(d.seed);
-      this.summary = `${name} · FLOOR ${d.floor} ${ch ? `(${ch.name.toUpperCase()})` : ''} · ${formatTime(d.time)} · ${items} ITEMS · SEED ${seed}`;
+      this.summary = `${name} · FLOOR ${d.floor} ${ch ? `(${ch.name.toUpperCase()})` : ''} · ${formatTime(d.time)} · ${items} ${items === 1 ? 'ITEM' : 'ITEMS'} · SEED ${seed}`;
     } else {
       this.summary = '';
     }

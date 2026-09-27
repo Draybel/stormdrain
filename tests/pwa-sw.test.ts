@@ -346,6 +346,23 @@ describe('registerServiceWorker', () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
+  it('first install whose claim lands before the late "installed" event (WebKit) is still not an update', async () => {
+    const w = new FakeWorker('installing');
+    const { reg, container } = fakeContainer({ installing: w });
+    const onOfflineReady = vi.fn();
+    const onUpdate = vi.fn();
+    await registerServiceWorker({ force: true, container, onOfflineReady, onUpdate });
+    // The worker has already activated and claimed the page when the queued statechange events arrive.
+    reg.active = w;
+    (container as { controller: unknown }).controller = w;
+    w.set('installed');
+    w.set('activating');
+    w.set('activated');
+    expect(w.messages).toEqual([]);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onOfflineReady).toHaveBeenCalledTimes(1);
+  });
+
   it('update: tells the new worker to take over quietly and reports it', async () => {
     const old = new FakeWorker('activated');
     const { reg, container, fireUpdateFound } = fakeContainer({ controller: old, active: old });

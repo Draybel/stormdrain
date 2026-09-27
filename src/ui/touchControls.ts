@@ -79,7 +79,7 @@ export function drawHudButton(ctx: CanvasRenderingContext2D, b: UiButton): void 
   const pressed = b.held > 0;
   ctx.globalAlpha = pressed ? 0.85 : 0.55;
   drawPanel(ctx, b.x, b.y, b.w, b.h, pressed ? '#2a3350' : '#10141f', pressed ? '#c9d3f0' : '#56648a');
-  ctx.globalAlpha = pressed ? 1 : 0.8;
+  ctx.globalAlpha = pressed ? 1 : b.dim ? 0.3 : 0.8;
   if (b.icon) {
     const img = getFrame(b.icon, 0);
     drawSprite(ctx, b.icon, 0, b.x + (b.w - img.width) / 2, b.y + (b.h - img.height) / 2 + (pressed ? 1 : 0));

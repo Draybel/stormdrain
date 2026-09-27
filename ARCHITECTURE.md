@@ -741,9 +741,14 @@ The Sim steps it at the end of every tick (`run.update(input)`).
 - **Clears**: the wave dying out (`arena.active` false) → the next challenge wave (after `challengeGap` = 1 s, doors
   still locked), or the room is cleared (the arena already dropped the 'roomClear' reward, charged actives, fired
   triggers): challenge rewards appear; minibosses leave the 'minibossReward' table + a heart; boss rooms get the
-  trapdoor (centre, 'trapdoor' a = 0, 'stairs'), the reward pedestal nearby, a heart, the grate if the route is
-  here, and maybe the Broker's Nook (`floorRng(...).fork('nook')` < `nookChance()` = 25 %, + 35 % after a floor without
-  damage → `openNook`, 'secretFound' b = 2); a final boss gives its ending (§6d).
+  trapdoor (centre, 'trapdoor' a = 0, 'stairs'), the reward pedestal and a heart (`rewardSpot`: preferred at (4, 1) /
+  (8, 1), always ≥ 2 cells from the hatch and off the door-to-hatch lanes — column 6, row 3 — so touching the pedestal
+  from any side never puts her on the hatch), the grate if the route is here (never on a pedestal's cell), and maybe the
+  Broker's Nook (`floorRng(...).fork('nook')` < `nookChance()` = 25 %, + 35 % after a floor without damage → `openNook`,
+  'secretFound' b = 2; `rooms[n]` is a COPY of `data.nook` — a shared object would make the checkpoint JSON diverge from the
+  live run); a final boss gives its ending (§6d).
+- **Loot never rests on a floor exit** (`clearExits`, every tick): pickups on or sliding onto the open trapdoor, an open
+  grate, the whirlpool or the skylight get an outward push (`RUN_TUNING.hatchShove`), so going for loot never drops her.
 - **Trapdoor**: usable 0.8 s after it appears and only once the player has stepped off it; stepping on → 'trapdoor'
   a = 1 (id 'trapdoor' / 'grate' / 'whirlpool' / 'debug', x,y = where she fell), the next floor on `trackAfter(floor,
   track)` (the same track, except the alt track rejoins the main one at chapter 6 without Ending 1).
@@ -881,7 +886,11 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   a damaged / unknown-version one is dropped with a toast, a newer version's is left alone (toast). Restore errors are caught.
 - **Notices**: `save.notice` from the meta load status — restored from the backup, damaged, a newer version's save (the slot
   is read-only), no persistent storage: the passing ones (restored, damaged) as a toast at boot, the lasting ones (newer
-  version, no storage) as a line on the title.
+  version, no storage) as a line on the title. A meta save that started fresh (damaged beyond repair; its text stays in
+  `.corrupt`) or was migrated from an older version is written back at the end of the first tick (`MetaStore` marks itself
+  dirty), so the warning never repeats and the old text becomes the `.bak`. A run save whose every copy is damaged would
+  silently drop Continue: `save.dropDamagedRun()` at boot drops it (text kept in `.corrupt`) and main.ts toasts "SAVED RUN
+  LOST".
 - `localStorage` keys: `stormdrain.meta`, `stormdrain.run`. Envelope `{ v: number, data, sum }` (`saveCodec.ts`):
   `sum` = FNV-1a 32 over `'<v>:' + JSON.stringify(data)`, checked by re-serialising the parsed data.
 - `storage.ts`: `createStorage()` (localStorage, in-memory fallback; nothing throws) and one `SaveSlot` per key. A write
@@ -911,7 +920,9 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   The worker precaches with `cache: 'reload'`, serves navigations from the cached `index.html`, is cache-first
   otherwise, and ignores `Vary` on lookups. `src/pwa/register.ts` `registerServiceWorker()` (production + secure
   origins only; main.ts calls it after boot, plus `requestPersistentStorage()`) applies updates quietly on the next
-  launch, never reloads the page (a toast says "GAME UPDATED · RESTART TO PLAY THE NEW VERSION"). It assumes a single JS
+  launch, never reloads the page (a toast says "GAME UPDATED · RESTART TO PLAY THE NEW VERSION" — only when an OLDER worker
+  runs the page: a first install that has already claimed it, which WebKit may report before its late 'installed' event,
+  is not an update). It assumes a single JS
   bundle (code splitting would need old chunks kept). e2e/pwa.spec.ts checks the links, the manifest's icons,
   `dist/sw.js` and the registration.
 
@@ -956,7 +967,8 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   startRun(start), daily, seedEntry, collection, bestiary, stats, achievements, settings, pause, resume, back, map, yard,
   gameOver(info), victory(info), debug`). Optional scene hooks: `describe()` (what it shows, for `__SD.screen()`),
   `toastsAtTop` (toasts slide in from the top while it is on top — screens with buttons along the bottom).
-- **Menu kit** (Phase 4B, `ui/widgets.ts`): canvas-drawn `UiButton`s (`kind` primary / secondary / hud / tile; `icon`;
+- **Menu kit** (Phase 4B, `ui/widgets.ts`): canvas-drawn `UiButton`s (`kind` primary / secondary / hud / tile; `icon`; `dim`
+  (HUD buttons with nothing to use — an empty active / consumable slot, no bombs — draw their placeholder icon faint);
   `nav` false for big invisible areas; `adjust(dir)` for sliders) >= `BTN_H` = 27 game px tall — >= 44 pt even in Safari's
   short landscape view (≈ 1.67 CSS px per game px). Every UI button activates on pointer-up inside itself (touch, mouse)
   or by keyboard. `MenuNav`: keyboard focus per scene — arrows move to the nearest focusable button in that direction,
@@ -1026,11 +1038,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   shows them all — `ending.skip`), what the win unlocked for the first time ('ending1' / 'ending2' / 'ending3' route lines,
   the whirlpool hint, or "PRACTICE RUN · … NOT RECORDED"), the run in one line, NEW RUN / TITLE (`ending.newRun` /
   `ending.title`). `presentation().ending` stays 'death' / 'win'. Bosses (Phase 3B): the intro card ('bossIntro': portrait, CHAPTER /
-  MINIBOSS / FINAL BOSS, the name, the flavour line) over the room, the HP bar in the top band in place of the room
+  MINIBOSS / FINAL BOSS, the name, the flavour line; it fades out at once if the fight ends while it is up) over the room, the HP bar in the top band in place of the room
   label, 1.5 s of half-speed slow motion when a boss starts dying ('bossDying'; presentation only: every other tick is
   skipped and drawn at alpha 1), the boss's own theme (`BossDef.music`, finals' tracks, the miniboss theme). Special
   rooms name themselves in the room label ("MAGPIE'S STALL · FLOOR 2", "RAIN BARREL ARENA · STEP ON THE PLATE"), NPC
-  lines ('npcSay') and jar / gambler / trader / grate notices show in the top band, and the iris closes on wherever she
+  lines ('npcSay') and jar / gambler / trader / grate notices show in the top band (a room entry clears the last room's notice
+  unless the transition itself raised it — "THE MAZE SHIFTS..."), and the iris closes on wherever she
   fell (the 'trapdoor' event's x,y: trapdoor, grate, whirlpool). Music: chapter loop, floor sting, boss intro + boss theme,
   miniboss / shop / secret themes, quality-4 item fanfare, game over / victory jingles; the pause overlay muffles.
   Phase 4A (`render/featBanner.ts`): a 'transform' shows the big TRANSFORMATION! banner (set name, its line, sparkles) over
@@ -1188,3 +1201,11 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `e2e/menus.spec.ts` (Phase 4B) every title item by real touch taps + back, typed seed entry → a seeded run, settings
   across a reload, the pause menu's stats / items, the daily attempt, export → import, retry-seed and keyboard navigation.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.
+- The god-mode explorer (Phase 3-4 verification, `tests/helpers/explorer.ts` `Explorer`): walks every room of a floor through the
+  real doors (pushing into the doorway), bombs secret walls, uses keys, presses the arena plate, kills through the real damage
+  path (bosses go through their phases and death sequence; `fightFor` s of real aiming / firing first), takes / buys what it
+  finds, and takes the trapdoor, the grate (`takeGrate`) or the whirlpool; it never throws — problems (exceptions, soft-locks,
+  doors that don't work, a boss that never spawns / dies, a missing trapdoor, an unexpected drop) land in its report. Its
+  decisions depend only on the Sim's state, so an explorer on `Sim.fromSnapshot(sim.snapshot())` retraces the original exactly.
+  `tests/explorer.test.ts`: `EXPLORE_SEEDS` (default 12; the verification ran 200) seeds × floors 1-4 with a snapshot fork per
+  seed, plus whole runs to all three endings (`EXPLORE_FULL`, default 2). `tests/verify-3-4.test.ts`: the pass's regressions.

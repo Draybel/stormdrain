@@ -174,6 +174,7 @@ function boot(): void {
   // no storage) stay on the title instead.
   const notice = save.notice;
   if (notice && !notice.lasting) toasts.push(TOAST_NOTICE, notice.title, notice.line);
+  if (save.dropDamagedRun()) toasts.push(TOAST_NOTICE, 'SAVED RUN LOST', "IT WAS DAMAGED AND COULDN'T BE RESTORED");
   input.onDebugToggle = () => nav.debug();
   input.onPerfToggle = () => perf.toggle();
 

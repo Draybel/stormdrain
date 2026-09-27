@@ -62,8 +62,10 @@ export async function registerServiceWorker(opts: RegisterOptions = {}): Promise
     const watch = (w: WorkerLike | null): void => {
       if (!w || watched.has(w)) return;
       watched.add(w);
-      // An update = a new worker arriving while another version already runs this app.
-      const olderVersion = (): boolean => !!container.controller || (!!reg.active && reg.active !== w);
+      // An update = a new worker arriving while another version already runs this app. A first install claims the
+      // page itself (WebKit may deliver the 'installed' statechange after that claim): its own control is no update.
+      const olderVersion = (): boolean =>
+        (!!container.controller && container.controller !== w) || (!!reg.active && reg.active !== w);
       let isUpdate = olderVersion();
       const check = (): void => {
         if (w.state === 'installed') {

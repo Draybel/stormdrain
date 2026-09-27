@@ -135,3 +135,77 @@ test('a finished run leaves no Continue; progress and settings persist across re
   expect(aim).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('backgrounding mid-room saves the room entry; damaged saves are reported at boot, never crash', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto('./');
+  await waitScene(page, 'title');
+  await tap(page, 'title.newRun');
+  await waitScene(page, 'chars');
+  await tap(page, 'chars.start');
+  await waitScene(page, 'run');
+  await page.evaluate(() => window.__SD.debug.god(true));
+  // Into the next room, then progress inside it (coins), then the app goes to the background.
+  const to = await page.evaluate(() => {
+    const run = window.__SD.sim!.run!;
+    for (let side = 0; side < 4; side++) if (run.goThroughDoor(side)) return run.data.current;
+    return -1;
+  });
+  expect(to).toBeGreaterThanOrEqual(0);
+  const coins = (await page.evaluate(() => window.__SD.run()))!.inv.coins;
+  await page.evaluate(() => window.__SD.debug.add(7, 0, 0));
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await waitScene(page, 'pause');
+  expect((await page.evaluate(() => window.__SD.meta())).hasRun).toBe(true);
+
+  // Relaunch: Continue walks back into that room as she entered it (the room-entry checkpoint).
+  await page.reload();
+  await waitScene(page, 'title');
+  await tap(page, 'title.continue');
+  await waitScene(page, 'run');
+  const back = (await page.evaluate(() => window.__SD.run()))!;
+  expect(back.run!.room).toBe(to);
+  expect(back.inv.coins).toBe(coins);
+
+  // The latest run save damaged: Continue uses the copy before it and says so.
+  await tap(page, 'run.pause');
+  await waitScene(page, 'pause');
+  await tap(page, 'pause.quit');
+  await waitScene(page, 'title');
+  await page.evaluate(() => localStorage.setItem('stormdrain.run', localStorage.getItem('stormdrain.run')!.slice(0, 120)));
+  await page.reload();
+  await waitScene(page, 'title');
+  await tap(page, 'title.continue');
+  await waitScene(page, 'run');
+  expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('RUN RESTORED');
+  await tap(page, 'run.pause');
+  await waitScene(page, 'pause');
+  await tap(page, 'pause.quit');
+  await waitScene(page, 'title');
+
+  // Every copy of the run save damaged: no Continue, one notice, the damaged text kept aside.
+  await page.evaluate(() => {
+    localStorage.setItem('stormdrain.run', '{"v":2,"sum":"00000000","data":{}}');
+    localStorage.setItem('stormdrain.run.bak', 'garbage');
+  });
+  await page.reload();
+  await waitScene(page, 'title');
+  expect(await visible(page, 'title.continue')).toBe(false);
+  expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('SAVED RUN LOST');
+  expect(await page.evaluate(() => localStorage.getItem('stormdrain.run.corrupt'))).not.toBeNull();
+
+  // Meta progress damaged beyond repair: a fresh start that is written back (no warning on the next launch).
+  await page.evaluate(() => {
+    localStorage.setItem('stormdrain.meta', 'nope');
+    localStorage.setItem('stormdrain.meta.bak', 'nope');
+  });
+  await page.reload();
+  await waitScene(page, 'title');
+  expect((await page.evaluate(() => window.__SD.toast()))?.title).toBe('SAVE DAMAGED');
+  await page.waitForFunction(() => localStorage.getItem('stormdrain.meta')?.startsWith('{"v":') ?? false);
+  await page.reload();
+  await waitScene(page, 'title');
+  expect(await page.evaluate(() => window.__SD.meta().loaded)).toBe('ok');
+  expect(await page.evaluate(() => window.__SD.toast())).toBeNull();
+  expect(errors).toEqual([]);
+});

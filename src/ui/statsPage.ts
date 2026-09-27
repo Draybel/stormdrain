@@ -114,7 +114,7 @@ export class StatsScene extends PageScene {
     for (const ch of CHARACTERS.values()) {
       const runs = s.charRuns[ch.id] ?? 0;
       const wins = s.charWins[ch.id] ?? 0;
-      right.push({ label: ch.name.toUpperCase(), value: `${runs} RUNS · ${wins} WINS`, good: wins > 0 });
+      right.push({ label: ch.name.toUpperCase(), value: `${runs} ${runs === 1 ? 'RUN' : 'RUNS'} · ${wins} ${wins === 1 ? 'WIN' : 'WINS'}`, good: wins > 0 });
     }
     this.cols = [left, right];
     const h = Math.max(height(left), height(right));

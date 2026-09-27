@@ -79,6 +79,8 @@ export class BossHud {
 
   update(dt: number, f: BossFight): void {
     if (this.cardT < BOSS_CARD_TIME) this.cardT += dt;
+    // The fight ended (or never ran) while the card was up: it fades out now instead of lingering.
+    if ((!f.active || f.done || f.dying) && this.cardT < BOSS_CARD_TIME - 0.45) this.cardT = BOSS_CARD_TIME - 0.45;
     if (this.hitT < 1) this.hitT += dt;
     if (!f.active) {
       this.shownHp = this.trailHp = 0;

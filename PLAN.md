@@ -144,6 +144,15 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [x] Unit tests: save round-trip + migrations + export/import
       (tests/save-*.test.ts, tests/pwa-*.test.ts; 4A: tests/save-continue.test.ts (snapshot → RunSaveStore → reload →
       restore), tests/meta-progress.test.ts, tests/achievements.test.ts, tests/sets-synergies.test.ts)
+- [x] Independent verification pass (Phases 3-4): a god-mode explorer (tests/helpers/explorer.ts) over 200 seeds × floors
+      1-4 + whole runs to all three endings + 1 221 snapshot forks that must retrace the original; a real-WebKit touch
+      playthrough (title → character → run → rooms, fights, items, shop, secret wall, boss, trapdoor, pause, stats, quit,
+      Continue) with screenshots; save robustness (background mid-room, reload, damaged / newer / v0 saves, export /
+      import); HUD vs playfield / safe area / left-handed / 150 % buttons. Fixed: the nook's shared room object (restores
+      diverged), the boss reward next to the hatch (grabbing it dropped you through), loot resting on floor exits, a fully
+      damaged run save silently dropping Continue, damaged / old meta not written back, a false "GAME UPDATED" toast on
+      first visits (WebKit service-worker event order), stale room notices, the lingering boss card, bright empty-slot icons,
+      "1 RUNS" wording (tests/explorer.test.ts, tests/verify-3-4.test.ts, tests/pwa-sw.test.ts, e2e/save.spec.ts)
 - [x] Item-set transformations engine + special synergy engine (4A, sim/effects.ts): 'need' distinct set items →
       'transform' (fanfare, big banner, costume layers swap, style, persistent effects as a loadout source, one-time
       instants + hook), kept for the run and saved; synergies switch on / off with the inventory, style overrides,
@@ -151,7 +160,9 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 
 ## Phase 5 — Test infrastructure & tools
 - [ ] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
-- [ ] Headless god-mode bot plays every floor (all tracks & finals)
+- [x] Headless god-mode bot plays every floor (all tracks & finals)
+      (Phase 3-4 verification: tests/helpers/explorer.ts — every floor 1-13, both tracks via grates, all three finals and
+      endings; tests/explorer.test.ts, `EXPLORE_SEEDS` / `EXPLORE_FULL` for longer soaks)
 - [x] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
       (boot / touch / floors specs; 4A: e2e/save.spec.ts — a run save survives a reload and Continue resumes it)
 - [x] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
