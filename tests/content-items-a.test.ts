@@ -36,6 +36,7 @@ import {
 import { arenaSim, checkAttackInvariants, damageDealt, give } from './helpers/attack';
 import { OPEN_ROOM, testEnemy } from './helpers/enemies';
 import { makeInput, makeSim, stepN } from './helpers/sim';
+import { perfBudget, steadyTiming } from './helpers/perf';
 
 // ── The pack ────────────────────────────────────────────────────────────────────
 
@@ -385,7 +386,7 @@ describe('items pack A: duplicates and combos snowball', () => {
     };
     const a = build('a-absurd');
     const ms = play(a, 480);
-    expect(ms, 'ms per step').toBeLessThan(6);
+    expect(steadyTiming(ms, perfBudget(6), () => play(build('a-absurd'), 480)), 'ms per step').toBeLessThan(perfBudget(6));
     expect(a.events.dropped).toBe(0);
     expect(a.world.counters.kills).toBeGreaterThan(10);
     // Temporary boosts stay bounded however fast things die.

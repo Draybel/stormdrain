@@ -43,6 +43,11 @@ export interface RunOptions {
   unlocked?: readonly string[];
   /** The seed as players see it (Phase 4B): stored in RunData.seedInfo. */
   seedInfo?: RunSeedInfo;
+  /**
+   * Debug / tests (Phase 5 play-bot): the chance of a hidden-route grate on every floor that may have one
+   * (default 0.4, `HIDDEN_ROUTE_CHANCE`); 1 forces the hidden routes. Stored in `RunData.routeChance`.
+   */
+  hiddenRouteChance?: number;
 }
 
 /** A pickup left lying in a room (kind = sim/pickupKinds PK). */
@@ -185,6 +190,8 @@ export interface RunData {
   ending: number;
   /** The seed code / kind (Phase 4B; absent on debug runs and older saves). */
   seedInfo?: RunSeedInfo;
+  /** RunOptions.hiddenRouteChance (Phase 5; absent = the default chance). */
+  routeChance?: number;
 }
 
 /** The player at a room entry (JSON). Derived state (stats, flags, loadout, profile) is recomputed. */

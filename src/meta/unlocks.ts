@@ -8,9 +8,9 @@
  * `runUnlocks()` is the snapshot a new run takes (`RunOptions.unlocked`): it never changes mid-run.
  */
 
-import { allCharacters, allItems } from '../content/registry';
+import { allAchievements, allCharacters, allItems } from '../content/registry';
 import type { CharacterDef, ItemDef } from '../sim/types';
-import type { MetaState } from './metaState';
+import type { MetaState, MetaStore } from './metaState';
 
 /** The meta unlock-set name for each achievement reward kind (UnlockRef.kind). */
 export const UNLOCK_SET: Readonly<Record<string, string>> = {
@@ -59,4 +59,20 @@ export function runUnlocks(m: MetaState): string[] {
   for (const id of m.unlocks.endings) out.add(id);
   for (const id of m.unlocks.routes) out.add(id);
   return [...out].sort();
+}
+
+/**
+ * Debug (the debug menu's UNLOCK ALL, Phase 5): every `unlock`-flagged item and character, and every reward an
+ * achievement's `unlocks` names (the endings — so the hidden route and the whirlpool open —, routes,
+ * challenges…) go into the meta unlock sets. No achievement is earned by it. Returns how many were new.
+ * Runs already under way keep their snapshot; the next new run has everything.
+ */
+export function unlockEverything(meta: MetaStore): number {
+  let n = 0;
+  for (const d of allItems()) if (d.unlock !== undefined && meta.unlock('items', d.id)) n++;
+  for (const c of allCharacters()) if (c.unlock !== undefined && meta.unlock('characters', c.id)) n++;
+  for (const a of allAchievements()) {
+    for (const u of a.unlocks) if (meta.unlock(UNLOCK_SET[u.kind] ?? `${u.kind}s`, u.id)) n++;
+  }
+  return n;
 }

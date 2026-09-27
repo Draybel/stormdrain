@@ -23,6 +23,28 @@ function insetFor(t: number, mode: CollideMode): number {
   return mode === WALK_MODE || mode === FLY_MODE ? walkInset(t) : 0;
 }
 
+/** Scratch box of the last `tileBox` call (no allocation in the hot loops). */
+const box = { left: 0, right: 0, top: 0, bottom: 0 };
+
+/**
+ * The blocking box of the tile at (col, row) in this mode. Walking shrinks it by the tile's inset (a pit's
+ * lip, a rock's rounded edge) — but only on sides that face something that doesn't block: two pits side by
+ * side are one pit, with no seam between their lips (Phase 5 bot: coins slid into the 7 px gap between two
+ * pit cells and sat in the middle of the pit, forever out of reach).
+ */
+function tileBox(room: RoomGrid, col: number, row: number, t: number, mode: CollideMode, mask: number): void {
+  const inset = insetFor(t, mode);
+  box.left = col * TILE;
+  box.right = box.left + TILE;
+  box.top = row * TILE;
+  box.bottom = box.top + TILE;
+  if (inset === 0) return;
+  if (!blocksMask(room.get(col - 1, row), mask)) box.left += inset;
+  if (!blocksMask(room.get(col + 1, row), mask)) box.right -= inset;
+  if (!blocksMask(room.get(col, row - 1), mask)) box.top += inset;
+  if (!blocksMask(room.get(col, row + 1), mask)) box.bottom -= inset;
+}
+
 /**
  * Pushes a circle out of every blocking tile (and the room walls). Mutates `pos`.
  * Returns true on contact; `normal` receives the unit push direction (zero if none).
@@ -49,11 +71,11 @@ export function resolveCircleVsGrid(
       for (let col = c0; col <= c1; col++) {
         const t = room.get(col, row);
         if (!blocksMask(t, mask)) continue;
-        const inset = insetFor(t, mode);
-        const left = col * TILE + inset;
-        const right = (col + 1) * TILE - inset;
-        const top = row * TILE + inset;
-        const bottom = (row + 1) * TILE - inset;
+        tileBox(room, col, row, t, mode, mask);
+        const left = box.left;
+        const right = box.right;
+        const top = box.top;
+        const bottom = box.bottom;
         const cx = pos.x < left ? left : pos.x > right ? right : pos.x;
         const cy = pos.y < top ? top : pos.y > bottom ? bottom : pos.y;
         let dx = pos.x - cx;
@@ -126,11 +148,11 @@ export function firstBlockingCell(room: RoomGrid, x: number, y: number, r: numbe
     for (let col = c0; col <= c1; col++) {
       const t = room.get(col, row);
       if (!blocksMask(t, mask)) continue;
-      const inset = insetFor(t, mode);
-      const left = col * TILE + inset;
-      const right = (col + 1) * TILE - inset;
-      const top = row * TILE + inset;
-      const bottom = (row + 1) * TILE - inset;
+      tileBox(room, col, row, t, mode, mask);
+      const left = box.left;
+      const right = box.right;
+      const top = box.top;
+      const bottom = box.bottom;
       const cx = x < left ? left : x > right ? right : x;
       const cy = y < top ? top : y > bottom ? bottom : y;
       const dx = x - cx;

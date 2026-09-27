@@ -13,14 +13,15 @@
 import { TAU, vec2 } from '../engine/math';
 import type { Poolable } from '../engine/pool';
 import { findDropTable, findItem } from '../content/registry';
-import { WALK_MODE, resolveCircleVsGrid } from './collision';
-import { ROOM_H, ROOM_W } from './constants';
+import { WALK_MODE, circleOverlapsGrid, resolveCircleVsGrid } from './collision';
+import { ROOM_COLS, ROOM_H, ROOM_ROWS, ROOM_W, TILE } from './constants';
 import { rollDrops } from './drops';
 import { chargeActive, collectItem, fireTrigger, recomputePlayer, smallSparkAmount } from './effects';
 import { BONUS_EMBER, BONUS_TIN, addBonus, canAddBonus, canHeal, heal } from './health';
 import { COUNTER_CAP, addCounter, isCharged } from './inventory';
 import { pickItem } from './itemPools';
 import { PICKUP_PUSH, PICKUP_RADIUS, PK, isChest, isItemPickup, type PickupKind } from './pickupKinds';
+import { Tile } from './tiles';
 import { ITEM_TUNING, PICKUP_TUNING } from './tuning';
 import type { ItemId, PoolId } from './types';
 import type { World } from './world';
@@ -82,6 +83,12 @@ export function spawnPickup(
   const T = PICKUP_TUNING;
   pk.kind = kind;
   pk.r = PICKUP_RADIUS[kind]!;
+  // Never inside a block or a pit (a flyer shot down over a crate pile or a pit): the nearest open floor.
+  if (circleOverlapsGrid(w.room, x, y, 0.5, WALK_MODE)) {
+    openSpotNear(w, x, y, spawnSpot);
+    x = spawnSpot.x;
+    y = spawnSpot.y;
+  }
   pk.x = pk.prevX = x;
   pk.y = pk.prevY = y;
   pk.z = pk.prevZ = 0;
@@ -106,6 +113,40 @@ export function spawnPickup(
     pk.collectDelay = T.collectDelay;
   }
   return pk;
+}
+
+const spawnSpot = { x: 0, y: 0 };
+
+/**
+ * The centre of the open floor cell (walkable, not a pit) nearest (x, y), written to `out` — (x, y) itself
+ * when the room has none. Rings of cells outward, row-major within a ring (deterministic).
+ */
+export function openSpotNear(w: World, x: number, y: number, out: { x: number; y: number }): void {
+  const room = w.room;
+  const c0 = Math.max(0, Math.min(ROOM_COLS - 1, Math.floor(x / TILE)));
+  const r0 = Math.max(0, Math.min(ROOM_ROWS - 1, Math.floor(y / TILE)));
+  out.x = x;
+  out.y = y;
+  for (let ring = 0; ring < Math.max(ROOM_COLS, ROOM_ROWS); ring++) {
+    let best = Infinity;
+    for (let r = r0 - ring; r <= r0 + ring; r++) {
+      for (let c = c0 - ring; c <= c0 + ring; c++) {
+        if (Math.max(Math.abs(r - r0), Math.abs(c - c0)) !== ring) continue;
+        if (c < 0 || r < 0 || c >= ROOM_COLS || r >= ROOM_ROWS) continue;
+        const t = room.get(c, r);
+        if (t !== Tile.Floor && t !== Tile.Spikes) continue;
+        const cx = c * TILE + TILE / 2;
+        const cy = r * TILE + TILE / 2;
+        const d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
+        if (d < best) {
+          best = d;
+          out.x = cx;
+          out.y = cy;
+        }
+      }
+    }
+    if (best < Infinity) return;
+  }
 }
 
 /** Spawns loot of a kind; trinket/consumable kinds draw an item from `pool` (default 'chest'). */
@@ -451,6 +492,11 @@ export function clampToRoom(b: { x: number; y: number }, r: number): void {
 /**
  * Moves a sliding body (pickup, bomb) by its velocity: speed-capped, sub-stepped so it can't tunnel
  * through walls or props, bouncing with restitution `e`, and finally clamped inside the room.
+ *
+ * Props (pedestals, dummies) are resolved first and the grid last, so walls and blocks always win: a prop
+ * can never shove loot into a rock. A body squeezed into a pocket too small for it (a prop beside a wall or
+ * two blocks) slides round the prop to the nearest spot where it fits (Phase 5 bot: coins sat wedged
+ * between the Gumball Gambler and two diagonal blocks, half inside the rocks, forever out of reach).
  */
 export function moveBody(w: World, b: { x: number; y: number; vx: number; vy: number }, r: number, dt: number, e: number): void {
   const sp2 = b.vx * b.vx + b.vy * b.vy;
@@ -466,13 +512,58 @@ export function moveBody(w: World, b: { x: number; y: number; vx: number; vy: nu
   for (let s = 0; s < steps; s++) {
     scratch.x = b.x + b.vx * h;
     scratch.y = b.y + b.vy * h;
-    if (resolveCircleVsGrid(w.room, scratch, r, WALK_MODE, scratchN)) bounceOff(b, scratchN.x, scratchN.y, e);
     resolveVsProps(w, scratch, r, b, e);
+    if (resolveCircleVsGrid(w.room, scratch, r, WALK_MODE, scratchN)) bounceOff(b, scratchN.x, scratchN.y, e);
     clampToRoom(scratch, r);
+    unsqueeze(w, scratch, r);
     b.x = scratch.x;
     b.y = scratch.y;
   }
 }
+
+/** Angles tried (both ways round, nearest first) when a squeezed body slides round a prop. */
+const SQUEEZE_STEPS = 12;
+
+/**
+ * A body still overlapping a prop after the grid pushed it back (the pocket between the prop and the wall
+ * is smaller than the body): moves it round that prop, nearest angle first, to where it clears both.
+ */
+function unsqueeze(w: World, pos: { x: number; y: number }, r: number): void {
+  const peds = w.pedestals;
+  for (let i = 0; i < peds.count; i++) {
+    const ped = peds.items[i]!;
+    if (slideRound(w, pos, r, ped.x, ped.y, ITEM_TUNING.pedestalRadius)) return;
+  }
+  const dummies = w.dummies;
+  for (let i = 0; i < dummies.count; i++) {
+    const d = dummies.items[i]!;
+    if (!d.popped && slideRound(w, pos, r, d.x, d.y, d.r)) return;
+  }
+}
+
+function slideRound(w: World, pos: { x: number; y: number }, r: number, bx: number, by: number, br: number): boolean {
+  const dx = pos.x - bx;
+  const dy = pos.y - by;
+  const rr = r + br;
+  // A little slack: resting against a prop is fine, overlapping it isn't.
+  if (dx * dx + dy * dy >= (rr - 0.5) * (rr - 0.5)) return false;
+  const a0 = Math.atan2(dy, dx);
+  for (let k = 1; k <= SQUEEZE_STEPS; k++) {
+    for (const sgn of SIGNS) {
+      const a = a0 + (sgn * k * Math.PI) / SQUEEZE_STEPS;
+      const x = bx + Math.cos(a) * (rr + 0.25);
+      const y = by + Math.sin(a) * (rr + 0.25);
+      if (x < r || y < r || x > ROOM_W - r || y > ROOM_H - r) continue;
+      if (circleOverlapsGrid(w.room, x, y, r, WALK_MODE)) continue;
+      pos.x = x;
+      pos.y = y;
+      return true;
+    }
+  }
+  return false;
+}
+
+const SIGNS = [1, -1] as const;
 
 /** Soft separation so loot doesn't stack into one pixel (O(n²), n ≤ 64, grounded pickups only). */
 function separate(w: World, _dt: number): void {

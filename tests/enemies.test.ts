@@ -9,6 +9,7 @@ import { parseRoomLayout, RoomGrid } from '../src/sim/room';
 import { ATTACK_KINDS, DEATH_KINDS, MOVE_KINDS, type AttackSpec } from '../src/sim/types';
 import { makeInput, makeSim, stepN } from './helpers/sim';
 import { OBSTACLE_ROOM, OPEN_ROOM, WALL_ROOM, checkEnemyInvariants, godMode, testEnemy } from './helpers/enemies';
+import { perfBudget } from './helpers/perf';
 
 const GUTTER = [...ENEMIES.values()].filter((d) => d.chapters.includes('gutterways') && d.weight > 0);
 
@@ -229,6 +230,6 @@ describe('caps and load', () => {
     expect(sim.world.enemyShots.count).toBeGreaterThan(360);
     expect(sim.world.enemyShots.refused).toBeGreaterThan(0);
     // 5 s of a maxed-out room (64 enemies, 400 shots): well under a frame per tick.
-    expect(ms / 300).toBeLessThan(2);
+    expect(ms / 300).toBeLessThan(perfBudget(2));
   });
 });

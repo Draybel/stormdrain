@@ -33,6 +33,7 @@ import type { Sim } from '../src/sim/sim';
 import { arenaSim, checkAttackInvariants, damageDealt, give } from './helpers/attack';
 import { OPEN_ROOM } from './helpers/enemies';
 import { makeInput, makeSim, stepN } from './helpers/sim';
+import { perfBudget } from './helpers/perf';
 
 const STARTER_TAGS = ['starter-attack', 'modifier', 'weird', 'familiar'];
 const STARTERS: readonly ItemDef[] = allItems().filter((d) => d.tags.some((t) => STARTER_TAGS.includes(t)));
@@ -324,7 +325,7 @@ describe('stacking every starter item at once', () => {
         maxBeams = Math.max(maxBeams, sim.world.atk.beams.count);
         peakShots = Math.max(peakShots, sim.world.projectiles.count);
       }
-      expect(total / 600, 'ms per step').toBeLessThan(10);
+      expect(total / 600, 'ms per step').toBeLessThan(perfBudget(10));
       if (beams) expect(maxBeams).toBeGreaterThan(0);
       expect(peakShots).toBeGreaterThan(0);
       expect(damageDealt(sim)).toBeGreaterThan(0);

@@ -5,6 +5,7 @@
  */
 
 import { allChampions, allItems, BOSSES, ENEMIES } from '../content/registry';
+import type { BossDef } from '../sim/types';
 import type { Sim } from '../sim/sim';
 import { FLOOR_CURSES, type FloorCurse } from '../sim/floor/types';
 import type { EnemyDef, ItemDef } from '../sim/types';
@@ -19,6 +20,9 @@ export interface DebugHost {
   /** Go to the training yard / start a fresh real run (scene navigation). */
   yard?(): void;
   newRun?(): void;
+  /** Meta progress (Phase 5): unlock everything (returns how many were new) / back to a brand-new player. */
+  unlockAll?(): number;
+  resetUnlocks?(): void;
 }
 
 /** List order in the menu: attack types, modifiers, weird items, familiars, other passives, actives, trinkets, consumables. */
@@ -218,9 +222,29 @@ export class DebugActions {
     return [...BOSSES.keys()];
   }
 
+  private bossList: BossDef[] | null = null;
+
+  /** Every boss def for the menu's BOSSES tab: bosses, then minibosses, then finals (registry order within). */
+  bossDefs(): readonly BossDef[] {
+    const rank = { boss: 0, miniboss: 1, final: 2 } as const;
+    return (this.bossList ??= [...BOSSES.values()].map((d, i) => ({ d, i })).sort((a, b) => rank[a.d.kind] - rank[b.d.kind] || a.i - b.i).map((e) => e.d));
+  }
+
+  /** Meta progress: unlocks every item, character, ending and route. Returns how many were new (-1: no save). */
+  unlockAll(): number {
+    return this.host.unlockAll?.() ?? -1;
+  }
+
+  /** Meta progress: back to a brand-new player (settings and the saved run stay). False without a save. */
+  resetUnlocks(): boolean {
+    if (!this.host.resetUnlocks) return false;
+    this.host.resetUnlocks();
+    return true;
+  }
+
   private bossIndex = 0;
 
-  /** The boss the menu's FIGHT BOSS button starts. */
+  /** The selected boss: what `bossFight()` without an id (`__SD.debug.boss()`) starts. */
   bossName(): string {
     const ids = this.bosses();
     const def = ids.length ? BOSSES.get(ids[this.bossIndex % ids.length]!) : undefined;

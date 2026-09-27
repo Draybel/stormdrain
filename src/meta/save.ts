@@ -24,7 +24,7 @@ import type { Migration } from './migrations';
 import { RunSaveStore } from './runSave';
 import { createStorage, type SaveStorage } from './storage';
 import { MetaTracker } from './tracker';
-import { runUnlocks } from './unlocks';
+import { runUnlocks, unlockEverything } from './unlocks';
 
 /**
  * Run snapshot migrations: `steps[v]` upgrades a snapshot from version v to v + 1 (sim/run/types
@@ -203,6 +203,28 @@ export class GameSave {
     }
     this.achievements.rebuild();
     this.achievements.syncRewards();
+    this.achievements.earned.length = 0;
+    this.meta.flush();
+  }
+
+  /**
+   * Debug (UNLOCK ALL, Phase 5): every unlockable item, character, ending and route (`unlockEverything`),
+   * saved at once. Returns how many were new.
+   */
+  debugUnlockAll(): number {
+    const n = unlockEverything(this.meta);
+    this.meta.flush();
+    return n;
+  }
+
+  /**
+   * Debug (RESET UNLOCKS, Phase 5): back to a brand-new player — unlocks, achievements and the lifetime
+   * stats / collection / bestiary that earn them (`MetaStore.resetProgress`; keeping the counters would just
+   * earn the achievements again). Settings and the saved run stay. Saved at once.
+   */
+  debugResetUnlocks(): void {
+    this.meta.resetProgress();
+    this.achievements.rebuild();
     this.achievements.earned.length = 0;
     this.meta.flush();
   }

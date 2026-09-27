@@ -159,16 +159,33 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       'SYNERGY: NAME' pill the first time; the set / synergy CONTENT is Phase 6 (content agents)
 
 ## Phase 5 — Test infrastructure & tools
-- [ ] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
+Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e coverage, CI).
+- [x] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
+      (Phase 5: tests/stress-synergy.test.ts + tests/helpers/stress.ts — every carrier × every modifier and every carrier pair
+      vs waves of real enemies (+ bosses), 120 seeded random stacks from ALL items through the pickup flow for every character
+      (`STRESS=full`: the matrix at 1 and 3 stacks + 1000 stacks); per-tick NaN / caps (incl. the presentation particles) /
+      bounds, pools back to rest after the clear, avg / p99 / max step time with a sustained-p99 budget. Clean: ≈ 1 M ticks,
+      p99 ≈ 0.3 ms, no leaks)
 - [x] Headless god-mode bot plays every floor (all tracks & finals)
       (Phase 3-4 verification: tests/helpers/explorer.ts — every floor 1-13, both tracks via grates, all three finals and
-      endings; tests/explorer.test.ts, `EXPLORE_SEEDS` / `EXPLORE_FULL` for longer soaks)
+      endings; tests/explorer.test.ts, `EXPLORE_SEEDS` / `EXPLORE_FULL` for longer soaks. Phase 5: the play-bot
+      tests/helpers/bot.ts + tests/bot.test.ts — walks rooms through doors on grid paths (teleport only when stuck, logged),
+      fights with the real pipeline and random items, bombs, keys, chests, shops, bosses, trapdoor / grate / whirlpool;
+      every character over main 1-12 + 13, alt 1-12 and the forced hidden routes (`RunOptions.hiddenRouteChance`), a grate
+      on each main floor 1-11; `BOT_FULL` = 8 characters × 3 kinds × 3 seeds. Found and fixed: Dizzy Tonic doors, loot
+      shoved into block seams by props, loot spawned inside crates / pits, coins lodged between pit lips — tests/verify-5.test.ts)
 - [x] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
-      (boot / touch / floors specs; 4A: e2e/save.spec.ts — a run save survives a reload and Continue resumes it)
+      (boot / touch / floors specs; 4A: e2e/save.spec.ts — a run save survives a reload and Continue resumes it; Phase 5:
+      e2e/hud.spec.ts — the full HUD (two heart rows, counters, active + charge, consumable + trinkets, minimap, pause, bomb,
+      Pip's DASH) inside the image / viewport / safe area and off the room in four layouts and with the iPhone insets)
 - [x] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
       (2D: menu + items / foes / cheats; 3A: skip floor, reveal map, go to boss, next curse, training yard, new run;
-      `__SD.debug.runAt(floor, track, curse, seed)`)
-- [ ] GitHub Actions: test + deploy to GitHub Pages on push
+      `__SD.debug.runAt(floor, track, curse, seed)`; Phase 5: a BOSSES tab (fight any boss here), UNLOCK ALL / RESET UNLOCKS
+      (second tap confirms), keys 1-4; e2e/debug.spec.ts drives it all by touch and keyboard in a floor run)
+- [x] GitHub Actions: test + deploy to GitHub Pages on push
+      (Phase 5: .github/workflows/deploy.yml — npm ci, typecheck, test, build, upload-pages-artifact + deploy-pages
+      (pages / id-token permissions, one `pages` concurrency group), plus a non-blocking WebKit e2e job; timing budgets get
+      3× slack on CI (tests/helpers/perf.ts))
 
 ## Phase 6 — Content expansion (parallel)
 - [x] Passive items → 100+

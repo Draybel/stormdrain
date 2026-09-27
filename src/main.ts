@@ -191,6 +191,8 @@ function boot(): void {
       return perf.visible;
     },
     perfVisible: () => perf.visible,
+    unlockAll: () => save.debugUnlockAll(),
+    resetUnlocks: () => save.debugResetUnlocks(),
   });
   const getHudRects = () => {
     const run = scenes.find('run');

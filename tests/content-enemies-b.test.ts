@@ -16,6 +16,7 @@ import type { Sim } from '../src/sim/sim';
 import { ATTACK_KINDS, MOVE_KINDS, type AttackSpec, type EnemyDef, type SpriteDef } from '../src/sim/types';
 import { makeInput, makeSim, stepN } from './helpers/sim';
 import { OBSTACLE_ROOM, OPEN_ROOM, WALL_ROOM, checkEnemyInvariants, godMode, testEnemy } from './helpers/enemies';
+import { perfBudget } from './helpers/perf';
 
 /** Rolled enemies per chapter (weight > 0), and the minions that only appear through another enemy. */
 const ROSTER: Record<string, string[]> = {
@@ -252,7 +253,7 @@ describe('chapters 4-6: each enemy in a room with obstacles', () => {
     const ms = performance.now() - t0;
     checkEnemyInvariants(sim);
     expect(sim.world.counters.enemyShots).toBeGreaterThan(200);
-    expect(ms / 600).toBeLessThan(2);
+    expect(ms / 600).toBeLessThan(perfBudget(2));
   });
 });
 

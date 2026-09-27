@@ -6,10 +6,12 @@
  * - ITEMS  — every item as a scrollable two-column list (drag / flick / wheel / arrows). Tap one to
  *            put it on a pedestal next to Wren, or (mode toggle) to give it straight away.
  * - FOES   — every enemy; tap to spawn one across the room (toggle: force a champion).
+ * - BOSSES — every boss, miniboss and final boss (Phase 5); tap to fight it right here (intro, HP bar, phases).
  * - CHEATS — god mode, full heal, +10 coins / bombs / keys, clear room, start a wave, endless waves,
  *            perf overlay, +5 random items, drop all items, charge the active; floor runs: skip floor,
- *            reveal map, go to the boss, next curse; the training yard; a new run.
- * Keyboard: 1/2/3 or Tab switch tabs, arrows move the cursor, Enter picks, Esc / ` close.
+ *            reveal map, go to the boss, next curse; the training yard; a new run; meta progress (Phase 5):
+ *            UNLOCK ALL and RESET UNLOCKS (each asks for a second tap).
+ * Keyboard: 1-4 or Tab switch tabs, arrows move the cursor, Enter picks, Esc / ` close.
  * Everything it does goes through DebugActions (also exposed as window.__SD.debug).
  */
 
@@ -19,7 +21,7 @@ import { UI } from '../content/sprites/palette';
 import { drawText, drawTextCentered, measureText, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
 import { getFrame } from '../render/sprites';
-import type { EnemyDef, ItemDef, SpriteDef } from '../sim/types';
+import type { BossDef, EnemyDef, ItemDef, SpriteDef } from '../sim/types';
 import type { App } from '../ui/app';
 import type { Scene } from '../ui/scene';
 import { drawMenuButtons, tickButtons, uiButton, type UiButton } from '../ui/widgets';
@@ -31,8 +33,13 @@ const SUB: TextStyle = { color: UI.textDim };
 const TOAST: TextStyle = { color: '#fff3c4', shadow: UI.shadow };
 const HINT: TextStyle = { color: '#5c6788' };
 
-type Tab = 'items' | 'foes' | 'cheats';
-const TABS: readonly Tab[] = ['items', 'foes', 'cheats'];
+type Tab = 'items' | 'foes' | 'bosses' | 'cheats';
+type ListTab = Exclude<Tab, 'cheats'>;
+const TABS: readonly Tab[] = ['items', 'foes', 'bosses', 'cheats'];
+const TAB_W = 58;
+const TAB_STEP = 62;
+/** Seconds a meta cheat (UNLOCK ALL / RESET UNLOCKS) waits for its confirming second tap. */
+const CONFIRM_TIME = 2.5;
 
 // Layout (game px).
 const PX = 6;
@@ -91,6 +98,25 @@ function enemyRow(d: EnemyDef): Row {
   };
 }
 
+const BOSS_KIND: Record<BossDef['kind'], [string, string]> = {
+  boss: ['BOSS', '#e0515a'],
+  miniboss: ['MINIBOSS', '#f0a050'],
+  final: ['FINAL BOSS', '#b58cff'],
+};
+
+function bossRow(d: BossDef): Row {
+  const sprite = typeof d.sprite === 'string' ? null : d.sprite;
+  const [kind, color] = BOSS_KIND[d.kind];
+  return {
+    id: d.id,
+    name: d.name.toUpperCase(),
+    sub: `${kind} · HP ${d.hp}`,
+    icon: sprite,
+    frame: sprite?.anims?.idle?.frames[0] ?? 0,
+    color,
+  };
+}
+
 interface Cheat {
   label: () => string;
   run: () => string;
@@ -110,8 +136,12 @@ export class DebugMenu implements Scene {
   private champion = false;
   private readonly itemRows: Row[];
   private readonly foeRows: Row[];
-  private readonly scroll: Record<'items' | 'foes', number> = { items: 0, foes: 0 };
-  private readonly sel: Record<Tab, number> = { items: 0, foes: 0, cheats: 0 };
+  private readonly bossRows: Row[];
+  private readonly scroll: Record<ListTab, number> = { items: 0, foes: 0, bosses: 0 };
+  private readonly sel: Record<Tab, number> = { items: 0, foes: 0, bosses: 0, cheats: 0 };
+  /** A meta cheat waiting for its confirming tap: its index and the seconds left (-1 none). */
+  private confirmI = -1;
+  private confirmT = 0;
   private vel = 0;
   private pressing = false;
   private pressScroll = 0;
@@ -131,21 +161,23 @@ export class DebugMenu implements Scene {
     this.act = act;
     this.itemRows = act.items().map(itemRow);
     this.foeRows = act.enemies().map(enemyRow);
+    this.bossRows = act.bossDefs().map(bossRow);
 
     this.list = uiButton({ id: 'debug.list', x: LIST_X, y: LIST_Y, w: LIST_W, h: LIST_H, pad: 0, draggable: true });
     this.list.onActivate = () => this.tapList(this.list.curX, this.list.curY);
     this.tabButtons = TABS.map((t, i) =>
       uiButton({
         id: `debug.tab.${t}`,
-        label: t === 'foes' ? 'FOES' : t.toUpperCase(),
-        x: PX + 6 + i * 74,
+        label: t.toUpperCase(),
+        x: PX + 6 + i * TAB_STEP,
         y: PY + 5,
-        w: 70,
+        w: TAB_W,
         h: 24,
         onActivate: () => this.setTab(t),
       }),
     );
-    this.mode = uiButton({ id: 'debug.mode', x: PX + 6 + 3 * 74, y: PY + 5, w: 104, h: 24, textScale: 1, onActivate: () => this.toggleMode() });
+    const modeX = PX + 6 + TABS.length * TAB_STEP;
+    this.mode = uiButton({ id: 'debug.mode', x: modeX, y: PY + 5, w: PX + PW - 36 - modeX, h: 24, textScale: 1, onActivate: () => this.toggleMode() });
     this.close = uiButton({ id: 'debug.close', label: 'X', x: PX + PW - 30, y: PY + 5, w: 24, h: 24, onActivate: () => this.closeMenu() });
 
     const a = act;
@@ -179,9 +211,19 @@ export class DebugMenu implements Scene {
       },
       { label: () => 'TRAINING YARD', run: () => (a.yard(), 'TO THE YARD') },
       { label: () => 'NEW RUN', run: () => (a.newRun(), 'NEW RUN') },
-      // Bosses (Phase 3B): pick one, then fight it right here.
-      { label: () => `BOSS: ${a.bossName()}`, run: () => `BOSS: ${a.nextBoss()}` },
-      { label: () => 'FIGHT BOSS', run: () => (a.bossFight() ? `${a.bossName()}!` : 'FINISH THIS FIGHT FIRST') },
+      // Meta progress (Phase 5; the bosses have their own tab now): a second tap confirms.
+      {
+        label: () => (this.confirmI === 18 ? 'SURE? TAP AGAIN' : 'UNLOCK ALL'),
+        run: () =>
+          this.confirmed(18, 'TAP AGAIN: UNLOCK EVERYTHING', () => {
+            const n = a.unlockAll();
+            return n < 0 ? 'NO SAVE TO UNLOCK IN' : `UNLOCKED ${n} · NEXT RUN HAS IT ALL`;
+          }),
+      },
+      {
+        label: () => (this.confirmI === 19 ? 'SURE? TAP AGAIN' : 'RESET UNLOCKS'),
+        run: () => this.confirmed(19, 'TAP AGAIN: RESET ALL PROGRESS', () => (a.resetUnlocks() ? 'PROGRESS RESET · SETTINGS KEPT' : 'NO SAVE TO RESET')),
+      },
     ];
     // 4 columns × 5 rows of 24 px buttons fit the list area.
     const cw = Math.floor((LIST_W - 6 * (CHEAT_COLS - 1) - 6) / CHEAT_COLS);
@@ -207,13 +249,24 @@ export class DebugMenu implements Scene {
     this.app.audio.play('ui_click');
   }
 
+  /** A cheat that needs a second tap within CONFIRM_TIME: the first arms it, the second runs `act`. */
+  private confirmed(i: number, ask: string, act: () => string): string {
+    if (this.confirmI !== i) {
+      this.confirmI = i;
+      this.confirmT = CONFIRM_TIME;
+      return ask;
+    }
+    this.confirmI = -1;
+    return act();
+  }
+
   private closeMenu(): void {
     this.app.audio.play('ui_back');
     this.app.nav.debug();
   }
 
   private rows(): Row[] {
-    return this.tab === 'foes' ? this.foeRows : this.itemRows;
+    return this.tab === 'foes' ? this.foeRows : this.tab === 'bosses' ? this.bossRows : this.itemRows;
   }
 
   private setTab(t: Tab): void {
@@ -223,7 +276,7 @@ export class DebugMenu implements Scene {
     this.list.visible = listTab;
     for (const b of this.cheatButtons) b.visible = !listTab;
     for (let i = 0; i < TABS.length; i++) this.tabButtons[i]!.kind = TABS[i] === t ? 'primary' : 'secondary';
-    this.mode.visible = listTab;
+    this.mode.visible = t === 'items' || t === 'foes';
     this.refreshLabels();
   }
 
@@ -279,6 +332,9 @@ export class DebugMenu implements Scene {
     if (this.tab === 'items') {
       ok = this.give ? this.act.giveItem(row.id) : this.act.spawnItem(row.id);
       this.say(ok ? `${this.give ? 'GAVE' : 'SPAWNED'} ${row.name}` : 'NO RUN TO PUT IT IN');
+    } else if (this.tab === 'bosses') {
+      ok = this.act.bossFight(row.id);
+      this.say(ok ? `FIGHT: ${row.name}!` : this.act.sim ? 'FINISH THIS FIGHT FIRST' : 'NO RUN TO FIGHT IN');
     } else {
       ok = this.act.spawnEnemy(row.id, this.champion);
       this.say(ok ? `${this.champion ? 'CHAMPION ' : ''}${row.name} SPAWNED` : 'TOO MANY ENEMIES');
@@ -304,6 +360,7 @@ export class DebugMenu implements Scene {
       case 'Digit1':
       case 'Digit2':
       case 'Digit3':
+      case 'Digit4':
         this.setTab(TABS[Number(code.slice(5)) - 1]!);
         return true;
       case 'Tab':
@@ -353,6 +410,13 @@ export class DebugMenu implements Scene {
     this.time += dt;
     tickButtons(this.buttons, dt);
     if (this.toastT > 0) this.toastT -= dt;
+    if (this.confirmI >= 0) {
+      this.confirmT -= dt;
+      if (this.confirmT <= 0) {
+        this.confirmI = -1;
+        this.refreshLabels();
+      }
+    }
     if (this.tab === 'cheats') return;
     const l = this.list;
     const tab = this.tab;
@@ -420,7 +484,14 @@ export class DebugMenu implements Scene {
       ctx.globalAlpha = 1;
     } else {
       drawText(ctx, 'DEBUG', PX + 8, fy, TITLE);
-      const hint = this.tab === 'cheats' ? 'TAP A CHEAT' : this.tab === 'items' ? 'DRAG TO SCROLL · TAP AN ITEM' : 'DRAG TO SCROLL · TAP A FOE';
+      const hint =
+        this.tab === 'cheats'
+          ? 'TAP A CHEAT'
+          : this.tab === 'items'
+            ? 'DRAG TO SCROLL · TAP AN ITEM'
+            : this.tab === 'bosses'
+              ? 'TAP A BOSS TO FIGHT IT HERE'
+              : 'DRAG TO SCROLL · TAP A FOE';
       drawText(ctx, hint, PX + PW - 8 - measureText(hint), fy, HINT);
     }
   }
@@ -434,7 +505,7 @@ export class DebugMenu implements Scene {
 
   private drawList(ctx: CanvasRenderingContext2D): void {
     const rows = this.rows();
-    const tab = this.tab as 'items' | 'foes';
+    const tab = this.tab as ListTab;
     const s = this.scroll[tab];
     ctx.fillStyle = '#0b0f18';
     ctx.fillRect(LIST_X, LIST_Y, LIST_W, LIST_H);
@@ -455,10 +526,12 @@ export class DebugMenu implements Scene {
       ctx.fillStyle = r.color;
       ctx.fillRect(cx + 1, cy + 2, 1, ROW_H - 6);
       if (r.icon) {
+        // Big sprites (bosses, large foes) are shrunk to fit the 20 px icon box.
         const img = getFrame(r.icon, r.frame);
-        const iw = Math.min(img.width, 20);
-        const ih = Math.min(img.height, 20);
-        ctx.drawImage(img, 0, 0, iw, ih, cx + 4 + ((20 - iw) >> 1), cy + ((ROW_H - 2 - ih) >> 1), iw, ih);
+        const k = Math.min(1, 20 / Math.max(img.width, img.height));
+        const iw = Math.max(1, Math.round(img.width * k));
+        const ih = Math.max(1, Math.round(img.height * k));
+        ctx.drawImage(img, 0, 0, img.width, img.height, cx + 4 + ((20 - iw) >> 1), cy + ((ROW_H - 2 - ih) >> 1), iw, ih);
       }
       drawText(ctx, r.name, cx + 27, cy + 4, NAME);
       drawText(ctx, r.sub, cx + 27, cy + 13, SUB);

@@ -1,0 +1,102 @@
+# STORMDRAIN — test, build and deploy to GitHub Pages (Phase 5).
+#
+# On every push to main (and on demand): typecheck, the unit / simulation tests (incl. the synergy stress
+# test and the play-bot), the production build, then the build goes live on GitHub Pages. The Playwright
+# WebKit end-to-end tests run in a separate job that reports but never blocks a deploy.
+#
+# One-time setup in the repository: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# The build uses base './', so it works from any Pages sub-path (https://<user>.github.io/<repo>/).
+
+name: Test & deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer push waits for the running one instead of cancelling it mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install (exactly the lockfile)
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit & simulation tests
+        # CI=true (set by Actions) gives the timing budgets 3× slack (tests/helpers/perf.ts).
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  e2e:
+    name: End-to-end (WebKit, iPhone 15 profiles)
+    # Informational: a red e2e run is visible on the commit but never holds back the deploy.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install (exactly the lockfile)
+        run: npm ci
+
+      - name: Install WebKit and its system libraries
+        run: npx playwright install --with-deps webkit
+
+      - name: Playwright (builds, serves on :4173, runs both iPhone projects)
+        run: npm run test:e2e
+
+      - name: Keep the failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7

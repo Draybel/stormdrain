@@ -230,7 +230,8 @@ export class Run {
     // What she starts with is already "seen" (never offered again).
     const inv = host.world.player.inv;
     const seen = [...new Set([...inv.passives, ...(inv.active ? [inv.active.id] : []), ...inv.trinkets, ...inv.consumables])];
-    const f = makeFloor(seed, floor, track, curseMode, new Set(locked), new Set(seen), new Set(unlocked));
+    const routeChance = opts.hiddenRouteChance;
+    const f = makeFloor(seed, floor, track, curseMode, new Set(locked), new Set(seen), new Set(unlocked), routeChance);
     const data: RunData = {
       v: RUN_SNAPSHOT_VERSION,
       seed,
@@ -257,6 +258,7 @@ export class Run {
       ending: 0,
     };
     if (opts.seedInfo) data.seedInfo = { ...opts.seedInfo };
+    if (routeChance !== undefined) data.routeChance = routeChance;
     // The Mystery Tonics' colours are dealt from the run seed alone (saved with every checkpoint).
     initTonics(host.world, seed);
     const run = new Run(host, data);
@@ -326,7 +328,7 @@ export class Run {
 
   private startFloor(floor: number, track: FloorTrack): void {
     const d = this.data;
-    const f = makeFloor(d.seed, floor, track, d.curseMode, this.lockedSet, this.seenSet, this.unlockedSet);
+    const f = makeFloor(d.seed, floor, track, d.curseMode, this.lockedSet, this.seenSet, this.unlockedSet, d.routeChance);
     d.floor = floor;
     d.track = track;
     d.chapter = f.chapter;
@@ -963,20 +965,27 @@ export class Run {
     if (nb >= 0 && d.rooms[nb]) d.rooms[nb]!.opened |= DIR_BITS[DIR_OPPOSITE[side]!]!;
   }
 
-  /** Is the player walking into the doorway of `side`? */
+  /**
+   * Is the player walking into the doorway of `side`? The direction she WALKS counts, not the raw stick:
+   * while the Dizzy Tonic mirrors her movement (`confused`), pushing the stick away from a door walks her
+   * into it (Phase 5 bot: the raw stick used to keep every door shut for the tonic's 6 s).
+   */
   private pushing(side: number, input: InputState): boolean {
     const p = this.host.world.player;
     const R = RUN_TUNING;
     const edge = p.r + 1.5;
+    const flip = p.flags.confused ? -1 : 1;
+    const mx = input.moveX * flip;
+    const my = input.moveY * flip;
     switch (side) {
       case 0:
-        return input.moveY < -R.doorPush && p.y <= edge && Math.abs(p.x - DOOR_X[0]!) <= R.doorReach;
+        return my < -R.doorPush && p.y <= edge && Math.abs(p.x - DOOR_X[0]!) <= R.doorReach;
       case 1:
-        return input.moveX > R.doorPush && p.x >= ROOM_W - edge && Math.abs(p.y - DOOR_Y[1]!) <= R.doorReach;
+        return mx > R.doorPush && p.x >= ROOM_W - edge && Math.abs(p.y - DOOR_Y[1]!) <= R.doorReach;
       case 2:
-        return input.moveY > R.doorPush && p.y >= ROOM_H - edge && Math.abs(p.x - DOOR_X[2]!) <= R.doorReach;
+        return my > R.doorPush && p.y >= ROOM_H - edge && Math.abs(p.x - DOOR_X[2]!) <= R.doorReach;
       default:
-        return input.moveX < -R.doorPush && p.x <= edge && Math.abs(p.y - DOOR_Y[3]!) <= R.doorReach;
+        return mx < -R.doorPush && p.x <= edge && Math.abs(p.y - DOOR_Y[3]!) <= R.doorReach;
     }
   }
 
@@ -1389,9 +1398,11 @@ function makeFloor(
   locked: ReadonlySet<string>,
   seen: ReadonlySet<string>,
   unlocked: ReadonlySet<string>,
+  routeChance?: number,
 ) {
   const chapter = chapterFor(floor, track);
   const opts: FloorGenOptions = { allowAltNext: altRouteAllowed(floor, track, unlocked) };
+  if (routeChance !== undefined) opts.hiddenRouteChance = routeChance;
   if (curseMode === 'roll') {
     opts.curses = true;
     if (chapter.curses && chapter.curses.length > 0) opts.cursePool = chapter.curses;

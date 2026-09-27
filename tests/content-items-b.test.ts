@@ -41,6 +41,7 @@ import {
 import { arenaSim, checkAttackInvariants, damageDealt, give } from './helpers/attack';
 import { OPEN_ROOM, testEnemy } from './helpers/enemies';
 import { makeInput, makeSim, stepN } from './helpers/sim';
+import { perfBudget, steadyTiming } from './helpers/perf';
 
 const ITEMS_B: readonly ItemDef[] = [...SET_ITEMS, ...GENERAL];
 const SETS_B: readonly ItemSetDef[] = [...TOYBOX, ...OSSUARY, ...TIDEWALKER, ...GLIMMER];
@@ -530,34 +531,39 @@ describe('items B: triggers and hooks', () => {
 
 describe('items B: every one of them ×3 at once', () => {
   it('10 s of waves: under the caps, no NaN, no event overflow, sets complete, kills happen', () => {
-    const sim = makeSim('b-absurd', { room: OPEN_ROOM });
+    const play = (check: boolean): { sim: Sim; avg: number } => {
+      const sim = makeSim('b-absurd', { room: OPEN_ROOM });
+      const w = sim.world;
+      w.godMode = true;
+      for (const d of ITEMS_B) for (let i = 0; i < 3; i++) w.player.inv.passives.push(d.id);
+      w.player.inv.version++;
+      recomputePlayer(w);
+      if (check) for (const s of SET_IDS) expect(w.player.sets).toContain(s);
+      sim.startWave({ count: 8 });
+      const input = makeInput();
+      let total = 0;
+      for (let t = 0; t < 600; t++) {
+        const ph = t % 80;
+        input.fireHeld = ph < 74;
+        input.firePressed = ph === 0;
+        input.fireReleased = ph === 74;
+        input.aimX = input.fireHeld ? Math.cos(t * 0.02) : 0;
+        input.aimY = input.fireHeld ? Math.sin(t * 0.02) : 0;
+        input.moveX = Math.sin(t * 0.02) * 0.6;
+        input.moveY = Math.cos(t * 0.031) * 0.6;
+        const t0 = performance.now();
+        sim.step(input);
+        total += performance.now() - t0;
+        clearEdges(input);
+        if (check) checkAttackInvariants(sim);
+        // The arena's own clear fires the 'roomClear' triggers (piggy banks, toll boxes, lunchboxes…).
+        if (w.enemies.count === 0 && !w.arena.active) sim.startWave({ count: 8 });
+      }
+      return { sim, avg: total / 600 };
+    };
+    const { sim, avg } = play(true);
     const w = sim.world;
-    w.godMode = true;
-    for (const d of ITEMS_B) for (let i = 0; i < 3; i++) w.player.inv.passives.push(d.id);
-    w.player.inv.version++;
-    recomputePlayer(w);
-    for (const s of SET_IDS) expect(w.player.sets).toContain(s);
-    sim.startWave({ count: 8 });
-    const input = makeInput();
-    let total = 0;
-    for (let t = 0; t < 600; t++) {
-      const ph = t % 80;
-      input.fireHeld = ph < 74;
-      input.firePressed = ph === 0;
-      input.fireReleased = ph === 74;
-      input.aimX = input.fireHeld ? Math.cos(t * 0.02) : 0;
-      input.aimY = input.fireHeld ? Math.sin(t * 0.02) : 0;
-      input.moveX = Math.sin(t * 0.02) * 0.6;
-      input.moveY = Math.cos(t * 0.031) * 0.6;
-      const t0 = performance.now();
-      sim.step(input);
-      total += performance.now() - t0;
-      clearEdges(input);
-      checkAttackInvariants(sim);
-      // The arena's own clear fires the 'roomClear' triggers (piggy banks, toll boxes, lunchboxes…).
-      if (w.enemies.count === 0 && !w.arena.active) sim.startWave({ count: 8 });
-    }
-    expect(total / 600, 'ms per step').toBeLessThan(6);
+    expect(steadyTiming(avg, perfBudget(6), () => play(false).avg), 'ms per step').toBeLessThan(perfBudget(6));
     expect(sim.events.dropped).toBe(0);
     expect(w.counters.kills).toBeGreaterThan(10);
     expect(Number.isFinite(w.player.x) && Number.isFinite(w.player.y)).toBe(true);

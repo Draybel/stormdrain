@@ -11,6 +11,7 @@ import { Deco, Tile } from '../src/sim/tiles';
 import { BOMB_TUNING } from '../src/sim/tuning';
 import type { World } from '../src/sim/world';
 import { makeInput, makeSim, stepN } from './helpers/sim';
+import { perfBudget } from './helpers/perf';
 
 const EMPTY = ['.............', '.............', '.............', '......@......', '.............', '.............', '.............'];
 
@@ -431,6 +432,6 @@ describe('stress', () => {
     expect(w.counters.explosions).toBe(16);
     expect(w.bombs.count).toBe(0);
     // 10 simulated seconds of this should take a small fraction of real time, even in a test runner.
-    expect(performance.now() - t0).toBeLessThan(5000);
+    expect(performance.now() - t0).toBeLessThan(perfBudget(5000));
   });
 });

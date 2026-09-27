@@ -15,6 +15,7 @@ import type { PickupName } from '../sim/types';
 import type { DebugActions } from './actions';
 import type { FloorCurse } from '../sim/floor/types';
 import type { RunOptions } from '../sim/run/types';
+import type { Settings } from '../meta/settings';
 import { findAchievement } from '../content/registry';
 import { demoProgress, registerDemoCharacters } from './demo';
 
@@ -128,6 +129,8 @@ export interface SDHooks {
     /** God mode: the player takes no damage. */
     god(on: boolean): void;
     aim360(on: boolean): void;
+    /** Phase 5: changes runtime settings (button size, left-handed…) like the Settings page; returns them all. */
+    settings(patch?: Partial<Settings>): Settings;
     newRun(): void;
     title(): void;
     pause(): void;
@@ -159,6 +162,11 @@ export interface SDHooks {
     // ── Menus (Phase 4B) ──
     /** Registers placeholder characters (recoloured, locked) so the character select shows N cards. */
     demoCharacters(): number;
+    // ── Meta progress (Phase 5; the debug menu's UNLOCK ALL / RESET UNLOCKS) ──
+    /** Unlocks every item, character, ending and route; returns how many were new (-1 without a save). */
+    unlockAll(): number;
+    /** Back to a brand-new player's progress (settings and the saved run stay); false without a save. */
+    resetUnlocks(): boolean;
   };
   /** Phase 4B: the top scene's name and what it shows (Scene.describe: stats, items, selection…). */
   screen(): { name: string; info: Record<string, unknown> | null };
@@ -337,6 +345,10 @@ export function installSdHooks(d: SdDeps): SDHooks {
       aim360(on: boolean) {
         app.settings.update({ aim360: on });
       },
+      settings(patch?: Partial<Settings>) {
+        if (patch) app.settings.update(patch);
+        return { ...app.settings.value };
+      },
       newRun() {
         app.nav.newRun();
       },
@@ -378,6 +390,12 @@ export function installSdHooks(d: SdDeps): SDHooks {
       },
       demoCharacters() {
         return registerDemoCharacters();
+      },
+      unlockAll() {
+        return d.actions.unlockAll();
+      },
+      resetUnlocks() {
+        return d.actions.resetUnlocks();
       },
     },
     screen() {

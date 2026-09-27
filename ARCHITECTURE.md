@@ -33,13 +33,15 @@ src/
                      save service, meta tracker, achievements engine, unlocks (§7, §7a)
   pwa/               service-worker registration + pure precache / worker-source builders (§7)
   debug/             hidden debug menu, perf overlay
-tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, bot)
+tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, play-bot; guide docs/testing.md)
 e2e/                 playwright webkit tests
+.github/workflows/   deploy.yml: typecheck + tests + build → GitHub Pages on every push to main (+ a non-blocking e2e job)
 scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plugin.mjs → dist/sw.js)
 public/              static files copied verbatim (manifest, icons)
 docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8); content packs (Phase 6):
                      content-itemsA.md, content-itemsB.md, content-items-c.md, content-enemies-a.md,
-                     content-enemies-b.md, content-rooms.md; characters.md (characters, mechanics, achievements)
+                     content-enemies-b.md, content-rooms.md; characters.md (characters, mechanics, achievements);
+                     testing.md (Phase 5: test layers, the stress test, the play-bot, e2e, CI, env switches)
 ```
 
 ### Content registries (IMPORTANT for parallel work)
@@ -153,7 +155,9 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   `RoomGrid` also keeps `hp` (hits left: crate 2, urn 1, fire 4 — shots count hits, not damage) and `deco` (cosmetic
   rubble/planks/shards/ash left where something broke). Collision modes (`sim/collision.ts`): WALK (pits block),
   SHOT (flies over pits), FLY (flying players cross pits; props block) and PHASE (only walls block; the future 'phase'
-  modifier / 'spectral' flag). Fire and every prop block walking and shots; spikes block nothing but hurt ½ heart
+  modifier / 'spectral' flag). Walking boxes are inset (a pit's 3.5 px lip, rocks' rounded 1 px) only on sides that face
+  a cell that doesn't block too (Phase 5): neighbouring pits / rocks form one solid area with no seam between their
+  lips for small loot to lodge in. Fire and every prop block walking and shots; spikes block nothing but hurt ½ heart
   underfoot unless flying; touching a fire hurts ½ heart. Explosions destroy rocks, tinted rocks (loot), crates, urns,
   put out fires and call `World.onSecretWallBombed(x, y)` for secretWall tiles and for the four wall door slots in
   reach — the floor code decides what is there.
@@ -275,7 +279,10 @@ object (its identity never changes).
 ### Pickups, chests, bombs (`sim/pickups.ts`, `sim/bombs.ts`, `sim/tileFx.ts`)
 - Kinds are numeric (`sim/pickupKinds.ts` `PK`, same order as `PICKUP_NAMES`). Loot pops out with an arc (can't be
   taken for 0.3 s), slides with friction, bounces off walls/props, separates softly, is shoved when the player
-  walks into something they can't take, and is blown around by explosions. Red hearts are only taken when they
+  walks into something they can't take, and is blown around by explosions. Phase 5 (bot findings): loot never spawns
+  inside a block or a pit (`spawnPickup` moves it to the nearest open floor cell, `openSpotNear`); `moveBody` resolves
+  props before the grid so walls win, and a body squeezed between a prop and a wall slides round the prop to the nearest
+  spot that fits (`unsqueeze`) — loot can't end up wedged half inside a rock out of reach. Red hearts are only taken when they
   heal, bonus hearts when there's room, spark cells with a chargeable active, counters below 99. Satchels open on
   touch, lockboxes need (and use) a key; both roll a drop table.
 - Drop tables (`DropTableDef`, `sim/drops.ts`) roll on the run's `lootRng` with luck shrinking the "nothing" weight;
@@ -765,7 +772,9 @@ The Sim steps it at the end of every tick (`run.update(input)`).
 - **Run options** (`RunOptions`): `floor` (1-13), `track`, `curse`, `lockedItems`, and `unlocked` — the meta
   snapshot M3 feeds: item ids (items flagged `unlock` only roll when listed) and route flags (`'ending1'` opens the
   alt route into chapter 6; `'ending1'` + `'ending2'` open the whirlpool to floor 13). `locked` = every
-  `unlock`-flagged item not unlocked ∪ `lockedItems` (`lockedItemIds`, `run/pools.ts`).
+  `unlock`-flagged item not unlocked ∪ `lockedItems` (`lockedItemIds`, `run/pools.ts`). Debug / tests (Phase 5):
+  `hiddenRouteChance` (1 forces a grate on every floor that may have one; stored as the optional `RunData.routeChance`,
+  so a restore regenerates the same floors).
 - **Floor start** (`startFloor`): `chapterFor(floor, track)` (floors 1-12 → chapters by `ChapterDef.floors` + `track`;
   13 borrows the Eye of the Storm) → `generateFloor(seed, floor, track, { curses, cursePool: chapter.curses, forceCurse,
   allowAltNext: altRouteAllowed(floor, track, unlocked) })` → `pickTemplates` (chapter id, `templateRng`) →
@@ -800,8 +809,9 @@ The Sim steps it at the end of every tick (`run.update(input)`).
   neighbour's special type else this room's (boss / treasure / shop / challenge / cursed / miniboss / nook / normal;
   `Secret` = a blasted hole); state HIDDEN (secret wall not opened — `hint` from `FloorRoom.hints` or the
   `seeSecrets` flag), LOCKED (`lockedDoors`, treasure from floor 3; the shop is never locked), OPEN (barred while
-  `arena.active` or `arena.locked`). Walking into an open doorway (stick > 0.3 toward the wall, feet within 10 px of
-  the door centre, touching the wall) = `goThroughDoor(side)`: a locked door takes a key and opens for good on both
+  `arena.active` or `arena.locked`). Walking into an open doorway (stick > 0.3 toward the wall — the direction she WALKS,
+  so mirrored while the Dizzy Tonic's `confused` lasts —, feet within 10 px of the door centre, touching the wall) =
+  `goThroughDoor(side)`: a locked door takes a key and opens for good on both
   sides (`RoomState.opened` bits, 'doorUnlock'); an open one transitions. An explosion reaching a wall slot
   (`World.onSecretWallBombed`) opens a hidden wall on both sides ('secretFound', `discoverRoom`). Thorn Room doors
   (kind cursed) cost ½ heart per pass (i-frames reset, god mode exempt).
@@ -1156,12 +1166,19 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Hidden debug menu (`debug/debugMenu.ts`, scene 'debug', an overlay pushed by `App.nav.debug()`): Backquote on
   desktop, or tap the PAUSED title 5 times (each within 1.5 s; an invisible press button `pause.title`) on touch.
   Tabs ITEMS (every item, a scrollable two-column list: drag / flick / wheel / arrows; tap = pedestal next to Wren,
-  or give directly with the mode toggle), FOES (spawn any enemy, optional forced champion) and CHEATS (god mode, full
-  heal, +10 coins / bombs / keys, clear room, start wave, endless waves, perf overlay, +5 random items, drop all
-  items, charge active). Keyboard: 1/2/3 or Tab tabs, arrows + Enter, M mode, Esc / ` close. Every action lives in
-  the DOM-free `debug/actions.ts` (`DebugActions`), shared with `window.__SD.debug` and the headless tests. The
-  CHEATS grid is 4 × 5 (24 px buttons); Phase 3A added skip floor, reveal map, go to boss, next curse, training yard
-  and new run (`debug.cheat.12`-`17`); Phase 3B added BOSS: <name> and FIGHT BOSS (`debug.cheat.18`-`19`).
+  or give directly with the mode toggle), FOES (spawn any enemy, optional forced champion), BOSSES (Phase 5: every
+  boss, miniboss and final — bosses first —, sprites shrunk into the row; tap = fight it in this room: intro card, HP
+  bar, phases) and CHEATS (god mode, full heal, +10 coins / bombs / keys, clear room, start wave, endless waves, perf
+  overlay, +5 random items, drop all items, charge active). Keyboard: 1-4 or Tab tabs, arrows + Enter, M mode, Esc / `
+  close. Every action lives in the DOM-free `debug/actions.ts` (`DebugActions`), shared with `window.__SD.debug` and
+  the headless tests. The CHEATS grid is 4 × 5 (24 px buttons); Phase 3A added skip floor, reveal map, go to boss, next
+  curse, training yard and new run (`debug.cheat.12`-`17`); Phase 5 replaced 3B's BOSS: <name> / FIGHT BOSS (now the
+  BOSSES tab) with the meta cheats UNLOCK ALL (`debug.cheat.18`: every `unlock`-flagged item and character and every
+  achievement reward — endings, routes — into the meta unlock sets, `unlockEverything`, meta/unlocks.ts) and RESET
+  UNLOCKS (`debug.cheat.19`: `GameSave.debugResetUnlocks` = `MetaStore.resetProgress` — unlocks, achievements and the
+  stats / collection / bestiary that would earn them straight back; settings and the saved run stay); each needs a
+  second tap within 2.5 s ("SURE? TAP AGAIN"). They reach the save through `DebugHost.unlockAll / resetUnlocks`
+  (main.ts); a run under way keeps its unlock snapshot.
 
 ## 8. Rendering & audio
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
@@ -1286,7 +1303,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   (tap = the big map, whose full-screen `map.close` closes it); a finished run shows `over.retry` / `over.newRun` /
   `over.title` (game over) or `ending.skip` / `ending.newRun` / `ending.title` (the endings); the
   pause overlay has the invisible `pause.title` (5 taps = debug menu); the debug menu's buttons are `debug.list`,
-  `debug.tab.<items|foes|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-19>` (18 picks a boss, 19 fights it here).
+  `debug.tab.<items|foes|bosses|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-19>` (Phase 5: 18 UNLOCK ALL, 19 RESET UNLOCKS).
 - Phase 4A: `__SD.meta()` (achievements, unlock sets, stats, counters, collection / bestiary sizes, `hasRun`, `runSaves`,
   `lastRunError`, the meta load status, `runUnlocks`), `__SD.toast()` (the toast on screen + how many wait),
   `__SD.save.now()` / `__SD.save.achievement(id)`; the title's buttons are `title.continue` (only with a saved run),
@@ -1307,6 +1324,28 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `e2e/menus.spec.ts` (Phase 4B) every title item by real touch taps + back, typed seed entry → a seeded run, settings
   across a reload, the pause menu's stats / items, the daily attempt, export → import, retry-seed and keyboard navigation.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.
+- Phase 5 (guide: docs/testing.md): `__SD.debug.settings(patch?)` (runtime settings — button size, left-handed… — like the
+  Settings page; returns them), `__SD.debug.unlockAll()` / `resetUnlocks()`; the debug menu's `debug.tab.bosses`.
+  - **Synergy stress** (`tests/stress-synergy.test.ts`, harness `tests/helpers/stress.ts`): (a) every carrier as the primary
+    × every modifier and every carrier pair, (b) seeded random stacks of 10-30 items from the whole pool through the real
+    pickup flow, every character in turn — each fought for seconds against waves of real chapter enemies (and bosses) in a
+    room with obstacles. Every tick `checkWorld`: no exceptions / NaN / Infinity, every pool within its cap (incl. the
+    presentation `ParticleSystem` fed by a headless `WorldFx`), nothing outside the room + 16 px; after the clear every
+    transient pool must fall back to its at-rest level. Step times reported (avg / p50 / p99 / max); a p99 over 8 ms ×
+    `PERF_SLACK` on three deterministic replays fails. `STRESS=full`, `STRESS_STACKS`, `STRESS_VERBOSE`.
+  - **Play-bot** (`tests/bot.test.ts`, `tests/helpers/bot.ts` `Bot` / `playRun`): god mode, sim only; walks every room
+    through the doors on an 8-way grid path smoothed by line of sight (a teleport only after 4 s without progress,
+    logged); fights with the real pipeline and a build that grows by 2 random items a floor; plate, real bombs on secret
+    walls and the grate, keys, chests, loot, shops / nook / Old Pell, jar, gambler, actives, consumables, the trapdoor /
+    grate / whirlpool; per tick `checkWorld` + the run's invariants (no death, no floor change without an exit, no arena
+    shut with nothing in it, doors open after a clear); a fight past its limit (45 s, bosses 150 s) is finished through
+    the damage path and logged, one that still won't end is a soft-lock. Runs: main 1-12 + the whirlpool to 13, alt 1-12,
+    and the hidden routes forced (`hiddenRouteChance` 1) — every character; plus a grate on each main floor 1-11.
+    `BOT_FULL`, `BOT_SEEDS`, `BOT_VERBOSE`, `BOT_DEBUG`.
+  - `tests/helpers/perf.ts`: `perfBudget(ms)` (× `PERF_SLACK`, default 3 on CI) and `steadyTiming` (re-measures a deterministic
+    run before failing) for every timing assertion; `tests/verify-5.test.ts` pins the bot's findings; `tests/debug-tools.test.ts`
+    the debug actions; `e2e/hud.spec.ts` the full HUD vs the viewport / safe area in four layouts (+ Pip, + insets);
+    `e2e/debug.spec.ts` the debug menu by touch and keyboard in a floor run.
 - Characters pass: `tests/characters.test.ts` (the roster validates and follows the sprite contract; every mechanic's core
   rule; every character clears a god-mode floor with the explorer while using its mechanic — `ExploreOptions.dashEvery`
   presses Pip's dash in fights; the explorer lets a dash finish before walking to a door), `tests/achievements-content.test.ts`

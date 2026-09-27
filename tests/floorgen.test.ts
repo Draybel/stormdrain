@@ -42,6 +42,7 @@ import {
 } from '../src/sim/floor';
 import generic from '../src/content/rooms/generic';
 import { hashString } from '../src/engine/rng';
+import { perfBudget } from './helpers/perf';
 
 const SEEDS = 5000;
 const TRACKS: readonly FloorTrack[] = ['main', 'alt'];
@@ -455,7 +456,7 @@ describe('determinism', () => {
       }
     }
     const avg = (performance.now() - t0) / n;
-    expect(avg).toBeLessThan(2);
+    expect(avg).toBeLessThan(perfBudget(2));
   });
 });
 

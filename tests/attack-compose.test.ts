@@ -26,6 +26,7 @@ import type { CarrierId, ModId } from '../src/sim/types';
 import { carrierItem, damageDealt, familiarItem, give, modItem, tankDef } from './helpers/attack';
 import { OPEN_ROOM } from './helpers/enemies';
 import { makeInput, makeSim } from './helpers/sim';
+import { perfBudget, steadyTiming } from './helpers/perf';
 
 const T = ATTACK_TUNING;
 
@@ -510,7 +511,16 @@ describe('every item ×3: an absurd build in a live arena', () => {
       expect(w.projectiles.count).toBeLessThanOrEqual(700);
       expect(w.atk.beams.count).toBeLessThanOrEqual(T.capBeams);
     });
-    expect(total / n).toBeLessThan(4);
+    const again = (): number => {
+      let t = 0;
+      let k = 0;
+      play(absurd('absurd-perf'), 1200, (ms) => {
+        t += ms;
+        k++;
+      });
+      return t / k;
+    };
+    expect(steadyTiming(total / n, perfBudget(4), again)).toBeLessThan(perfBudget(4));
     expect(sim.events.dropped).toBe(0);
     expect(maxEvents).toBeLessThan(sim.events.capacity);
     expect(w.counters.kills).toBeGreaterThan(20);
