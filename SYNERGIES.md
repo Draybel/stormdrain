@@ -32,10 +32,10 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 
 | Synergy | Requires | What it does |
 |---|---|---|
-| **Mirror Ball** | Neon Tube + Kaleidoscope | Lasers spin a full turn before settling (+1 circle-first) out of a star of side and back beams; about once a second the ball throws off a ring of 8 glitter shots (friendly pink). Pink star sparks. |
+| **Mirror Ball** | Neon Tube + Kaleidoscope | Lasers spin a full turn before settling (+1 circle-first) out of a star of side and back beams; about once a second the ball throws off a ring of 8 glitter shots (friendly pink, 0.3 × damage each). Pink star sparks. |
 | **Lasso Laser** | Neon Tube + Rusty Boomerang | +1 boomerang: the bent lasers loop back like a lasso, and foes caught near your aim line (120 px) are yanked toward you — never closer than a standoff 36 px from you (the pull fades to nothing there) — nicked and slowed. Hot pink wisps. |
 | **Neon Sign** | Neon Tube + Glowworm Vial | +1 pierce, +1 luck, and a big neon-green glow. Foes pop in a neon flash that hurts their neighbours (0.5 × damage). |
-| **Refraction** | Neon Tube + 3 Glimmer items | +1 split, +1 spread: lasers fork into a prism. Every fallen foe bursts into 5 crystal shards (ice shots). Violet shards. |
+| **Refraction** | Neon Tube + 3 Glimmer items | +1 split, +1 spread: lasers fork into a prism. Every fallen foe bursts into 5 crystal shards (ice shots, 0.4 × damage each). Violet shards. |
 | **Kite Line** | Rusty Boomerang + Kite String | +25 range. Every blade in flight stays tied to its thrower by a crackling kite string (drawn as a tether line); each throw, the strings zap whatever crosses them (0.6 × damage). Coral kite-coloured blades. |
 | **Walk the Dog** | Rusty Boomerang + Yo-Yo String | +1 spiral, +0.5 damage: blades corkscrew out and loop home like a yo-yo trick. Toffee-gold blades trailing dust. |
 | **Funny Bone** | Rusty Boomerang + 2 Ossuary items | +1 knockback, +1 fear: BONK. Now and then (30 %) a fallen foe sends everyone within 44 px running. Bone-white blades. |
@@ -44,19 +44,19 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | **Rowing Stroke** | Broken Oar + 2 Water items | +1 puddle, +8 speed. Each stroke sends a knee-high wave out around you (a 52 px ring, 0.5 × damage) with a splash. Water-blue crescents. |
 | **Full Steam Ahead** | Coiled Spring + Shrieking Kettle (active) | +15 shot speed. Every charged release vents a cone of scalding steam ahead of you (64 px, 0.9 × damage, burn, a hard shove along your aim) — the longer the wind-up, the bigger the blast; a tap only lets out a wisp. Steam-white bubbles trailing wisps. |
 | **Orrery** | Tin Pinwheel + Tiny Moon | One more orbiting blade (an extra orbit carrier), +1 tiny-planet, +20 range: shots and blades share one little sky. Periwinkle glow. |
-| **Bell Tower** | Grave Bell (active) + Bone Jacks | +0.5 damage. DONG: using the bell also flings a ring of 12 bone shards and sends every foe within 90 px running. Bronze spikes. |
+| **Bell Tower** | Grave Bell (active) + Bone Jacks | +0.5 damage. DONG: using the bell also flings a ring of 12 bone shards (0.8 × damage each) and sends every foe within 90 px running. Bronze spikes. |
 
 ## Lightning, frost, fire, blasts and helpers
 
 | Synergy | Requires | What it does |
 |---|---|---|
+| **Frost Nova** | Ice Cube Tray + Party Popper | +1 freeze. A frozen foe that falls bursts in a frost nova: a ring of 10 ice shards (0.7 × damage each) and everything within 34 px frozen for a moment — the shards can set off the next frozen foe (one nova every 0.1 s at most). Ice shards. |
 | **Fork in the Road** | Lantern Moth + Brass Kite Key | +1 homing (reaching further). Lightning that seeks and forks: about twice a second a bolt leaps from you to the nearest foe (150 px), then forks to the two nearest foes it hasn't struck, and forks again — up to 7 strikes (0.6 × damage, a little less each fork). Acid-lime spiky sparks. |
-| **Frost Nova** | Ice Cube Tray + Party Popper | +1 freeze. A frozen foe that falls bursts in a frost nova: a ring of 10 ice shards and everything within 34 px frozen for a moment — the shards can set off the next frozen foe (one nova every 0.1 s at most). Ice shards. |
 | **Swamp Gas** | Toadstool Cap + Trick Candle | A poisoned foe that falls goes up like swamp gas: three little blasts (0.6 × damage each) and everything within 32 px catches fire, in a sulphur-yellow flash. Sulphur bubbles trailing embers. |
 | **Oil Slick** | Leaky Bucket + Drippy Candle | +1 puddle. As you keep firing, your puddles turn into burning oil slicks (orange with a friendly pink rim, smouldering) that grow a little and set every foe standing in them alight. Burnt-orange bubbles. |
 | **Cluster Crackers** | Firecracker Pouch + Geode | +1 split. Every fallen foe pops a ring of four little crackers (0.5 × damage each). Red bombs with sparks. |
 | **Surprise Party** | Party Popper + Jack-in-the-Box (active) | +1 luck. SURPRISE: using the Jack also pops a party blast on every foe in the room (1.2 × damage). Pink stars. |
-| **Fireworks Night** | Leather Apron + Sparkler Stub | Every bomb you place spits a ring of 10 sparks that fly off and pop on foes. Magenta spiky sparks. |
+| **Fireworks Night** | Leather Apron + Sparkler Stub | Every bomb you place spits a ring of 10 sparks that fly off and pop on foes (1.5 × damage each). Magenta spiky sparks. |
 | **Butterfingers** | Greasy Gloves + Earplugs | +1 explode, ×1.25 range (they slip out a bit later). Getting hit makes you fumble six blasts all around you (never hurt you, 1 × damage). Amber bombs. |
 | **Moth to a Flame** | 2 Mothkin items + 2 Waxen items | +1 homing, +1 burn. A burning foe that falls carries the flame on to the two nearest foes, moth-like, along ember arcs (every 0.1 s at most). Salmon wisps. |
 | **Lantern Parade** | Lamplet + Tallow Tot + Wick Wisp | +1 burn. The three candle buddies drip wax as they march: burning puddles under every familiar that ignite foes nearby. Warm lantern gold. |
@@ -77,8 +77,8 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 |---|---|---|
 | **Static Shock** | Static Sock + Wool Mitten | +1 chain. Static builds up as you scoop things up: every pickup zaps the nearest foe with a bolt (2 × damage). Electric-lime spikes. |
 | **Make a Wish** | Birthday Candles (active) + Matchbook | +1 burn. Blowing out the candles also sends a burning ring out 100 px (1 × damage, burn) and leaves you a Lucky Coin. Peach stars trailing embers. |
-| **Frozen Moment** | Frozen Pocketwatch (active) + Frost Bead | Using the watch — and getting hit — makes every frozen foe shed four ice shards at its neighbours. Periwinkle gears. |
-| **Ember Harvest** | Hot Coal + Candle Snuffer | +1 burn. A burning foe that falls may leave half an Ember heart (5 % + luck). Ember orange. |
+| **Frozen Moment** | Frozen Pocketwatch (active) + Frost Bead | Using the watch — and getting hit — makes every frozen foe shed four ice shards at its neighbours (0.6 × damage each). Periwinkle gears. |
+| **Ember Harvest** | Hot Coal + Candle Snuffer | +1 burn. A burning foe that falls may leave an Ember heart (5 % + luck, at most 15 %). Ember orange. |
 | **Bath Time** | Rubber Duck + Rain Stick (active) | Squeak: using the Rain Stick also rains 8 stinging puddles all over the room. Rubber-duck yellow bubbles. |
 | **True North** | Cracked Compass + Feathery Antennae | Homing turns much sharper and reaches farther; every new floor shows its layout on the map. Compass-red needles. |
 | **Crow Call** | Crow Feather + Crow's Jawbone | +20 shot speed. Getting hit bursts four crows out of your coat that dive at the nearest foes (1 × damage each). Dusky violet spikes. |
@@ -103,13 +103,13 @@ synergy switches on, adds its own effects and gives your shots a look of their o
 | Synergy | Requires | What it does |
 |---|---|---|
 | **Continental Drift** | Snail Mail Stamp + Paperweight | +2 pierce, +1 grow, ×1.1 damage: shots so slow and heavy they grind through a whole row of foes. Earth-brown dust. |
-| **Heart Mail** | Paper Valentine + Snail Mail Stamp | +1 charm. About once a second, every charmed friend mails four pink hearts at the foes around it. Rose stars. |
+| **Heart Mail** | Paper Valentine + Snail Mail Stamp | +1 charm. While you fire (every 1.2 s at most), every charmed friend mails four pink hearts at the foes around it (0.6 × damage each). Rose stars. |
 | **Moonwalk** | Backwards Cap + Rearview Mirror | +1 homing, +1 back shot, +0.5 damage: the shots you fire backwards turn around and find their way to foes. Moon-blue wisps. |
 | **Biscuit Dunk** | Crumbly Biscuit + Thermos of Soup | +1 puddle, +1 split: crumbs fall into the soup. Cleared rooms may heal half a heart (30 %). Biscuit-brown shards. |
 | **Tea Party** | Teacup Tempest + Shrieking Kettle (active) | Now and then (5 % + luck, every 6 s at most) the kettle sings: 4 s of two extra shots, burn, homing and +1 fire rate ("THE KETTLE SINGS!"). Mint-steam wisps. |
 | **Paper Snowflake** | Tracing Paper + Kaleidoscope | ×1.1 damage (making up for the Kaleidoscope's). Now and then (12 % + luck, at most every 0.8 s) a volley unfolds into a paper snowflake: six shards burst out all around you (0.5 × damage each). Paper-white stars trailing dust. |
 | **Under the Weather** | Grudge Pebble + Falling Barometer | +0.3 damage. Hurting you makes the weather turn ("THE WEATHER TURNS!"): bolts from the sky onto the three nearest foes (1.5 × damage, a moment's slow) and a burst of stinging rain puddles all over the room. Slate-grey spikes trailing raindrops. |
-| **Loaded Dice** | Weighted Die + Bent Horseshoe | +2 luck. Rarely (2 % + luck) a JACKPOT: 3 s of two extra shots, homing and pierce. Lucky-green stars. |
+| **Loaded Dice** | Weighted Die + Bent Horseshoe | +2 luck. Rarely (2 % + luck, every 5 s at most) a JACKPOT: 3 s of two extra shots, homing and pierce. Lucky-green stars. |
 | **Haunted House** | Bedsheet Ghost + Wisp in a Bottle | +1 fear. Every fallen foe comes back as a little ghost that flies at the nearest foe (1.2 × damage). Ghost-white bubbles. |
 | **Tin Can Knight** | Sardine Tin + Tin Ribcage + Pot Lid (active) | A Tin heart at the start of every floor; getting hit rattles eight tin shards out of your armour (0.8 × damage each). Tin-grey gears. |
 | **Hearthside** | Hot Water Bottle + Warming Pan | +1 burn; half an Ember heart at the start of every floor. Hearth-red embers. |

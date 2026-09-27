@@ -1,10 +1,50 @@
 # STORMDRAIN — Build Plan
 
-**How to resume:** find the first unchecked box below; that phase is in progress. Read ARCHITECTURE.md (code contract),
-DESIGN.md (game bible) and DECISIONS.md (choices made) first. Run `npm test` and `npm run build` to see the state.
-Every phase ends with: tests green → PLAN.md updated → commit. The game must stay playable after every phase.
+## Status (27 September 2026): read this first
 
-Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobile controls + saving, (3) content volume.
+**Every phase below (0-9) is done and merged on `main`; every box is checked.** The game is complete and playable
+from the title to all three endings, on an iPhone (home-screen app, landscape, touch) and in a desktop browser
+(keyboard).
+
+- **Content:** 8 characters (7 + the secret Drizzle), 12 chapters of 2 floors each (6 main + 6 hidden alt) + floor 13,
+  214 items (129 passives, 28 actives, 34 trinkets, 23 consumables incl. 10 Mystery Tonics), 9 item sets, 63 special
+  synergies (SYNERGIES.md), 56 enemies + 7 champion variants, 22 bosses, 8 minibosses, 3 final bosses and 3 endings,
+  97 room templates, 6 floor curses, 53 achievements, 27 music tracks.
+- **Saving:** meta progress saved as it happens; the run checkpointed at every room entry and room clear (Continue);
+  export / import save codes; works offline as a PWA; updates in one tap from the title, never mid-run.
+- **Tests:** 80 unit-test files / 2 829 tests (`npm test`, incl. the synergy stress test and the play-bot over every
+  floor, track, route, ending and character), 15 WebKit e2e specs on two iPhone 15 profiles (`npm run test:e2e`), the
+  opt-in balance harness (`npm run balance`), and CI that tests, builds and deploys to GitHub Pages on every push to
+  `main` (.github/workflows/deploy.yml).
+- **Docs:** README.md (a beginner's guide: GitHub → Pages → iPhone home screen, saves, updates, troubleshooting,
+  running locally, adding content, the debug menu), DESIGN.md, ARCHITECTURE.md, SYNERGIES.md (checked against the
+  data by a test), DECISIONS.md (organised by phase, with a topic index) and docs/*.md.
+
+**Left unfinished.** Nothing here blocks play. These are the open ends, most important first:
+
+1. **Try it on a real iPhone.** Everything was tested in Playwright's WebKit with iPhone 15 profiles, never on the
+   device itself: Add to Home Screen, airplane mode (offline), sound with the ring / silent switch, the Dynamic Island
+   and home-indicator insets, the frame rate with big builds. The GitHub Actions workflow has never run on GitHub
+   either (tests/ci-workflow.test.ts checks it as text); the owner's first push is its first run.
+2. **Listen to the music and sound effects.** Every track and sound was measured (no clipping, tracks within
+   ≈ 1.3 dB of each other) but nobody has listened to them; taste-level tuning is open (DECISIONS "Music & SFX
+   library").
+3. **Balance targets the play-bot missed** (DECISIONS "Polish batch 4", the "Not done" entry): the bot wins ~77 % of
+   runs (target 50-65 %) and dies after floor 4 in ~4 % (target ≥ 10 %), but it dodges almost perfectly, so tune
+   this after people have played. Coins reach 99 by the end of floor 12 in 44 % of runs, about 13.6 keys are banked
+   by floor 12, and the first win unlocks 24 achievements and 4 characters at once. Slowing that down needs a rule
+   such as "one new character per run", which is the owner's call.
+4. **Never built:** the rare Mimic crate from DESIGN.md (a chest that fights back); shop restocks (DECISIONS "Floor
+   runs (Phase 3A)"); the optional dark outline around Wren over live beams (DECISIONS "Polish batch 2").
+5. **Known small issues:** a debug-menu kill during Old Thunderhead's blackout leaves the room dark until the next
+   room; toasts briefly cover the bottom door (by design: never the room's interior).
+
+**How to resume:** read this Status section, then DESIGN.md (the game), ARCHITECTURE.md (the code contract) and
+DECISIONS.md (why things are the way they are). Run `npm test` and `npm run build` (both green at the end of
+Phase 9); `npm run test:e2e` runs the WebKit tests. For new work, add a phase with boxes at the bottom of this file.
+Every step ends with: tests green → PLAN.md updated → commit. The game must stay playable after every step.
+
+Priorities (the owner's): (1) feel of movement/shooting/synergies, (2) mobile controls + saving, (3) content volume.
 
 ## Phase 0 — Scaffold
 - [x] git repo, package.json, Vite 8 / TypeScript 7 / Vitest 5 / Playwright 1.63 (WebKit installed)
@@ -73,7 +113,7 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       switching; see the status table in docs/floorgen.md); `Sim.snapshot()` / `Sim.fromSnapshot()` store the whole
       layout; all the music cues above)
 - [x] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
-      (module done, integration pending) — `src/sim/floor`: tree maps on an 11×11 grid, boss at the farthest dead
+      (side-track module, wired into runs in 3A) — `src/sim/floor`: tree maps on an 11×11 grid, boss at the farthest dead
       end, treasure / shop / miniboss / challenge / cursed, secret + deep secret, Broker's Nook cell, hint walls,
       hidden-route grate, final-boss flags, seeded curses; deterministic, ≈0.03 ms per floor
 - [x] Room templates schema + ~12 templates; chapter data for chapter 1; tile rendering per chapter palette
@@ -213,7 +253,8 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       docs/content-bosses-a.md), B (Grinding Works, Rust Foundry, Mushroom Hollow, Glimmer Grotto + 2,
       docs/content-bosses-b.md), C (Bone Orchard, Frostbitten Vault, Eye of the Storm, Hollow Nest + 3,
       docs/content-bosses-c.md): every chapter has a boss and a miniboss of its own, 2-3 phases each with a new look
-      per phase (`BossHook.looks`), HP rising with depth, 9 new pattern kinds; the full finals (docs/content-finals.md):
+      per phase (`BossHook.looks`), HP rising with depth, 9 new pattern kinds (polish batch 4 added Hammerjaw and
+      Facetta: 22 bosses, so no two-floor chapter repeats its boss); the full finals (docs/content-finals.md):
       Old Thunderhead 3 phases (walking lightning, rain curtains, wind, a blackout), The Nestmother 3 (larvae, stinger
       dives, paper walls), The Undertow 4 (the pull, flung debris, spout tentacles), a sprite per phase, themed
       send-offs (`BossHook.dying`), 8 new pattern kinds; ids, keys and endings unchanged)
@@ -236,7 +277,7 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       tethers, lassos, puddles…), a look of their own each, SYNERGIES.md checked against the data; docs/content-synergies.md;
       content merge 2: requirements read a per-recompute index of what is held — O(1) per requirement)
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
-      (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
+      (side-track module) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
       top of the Phase 2 sounds; wired into the title / runs / pause in Phase 3A
 - [x] Hidden routes to alt chapters; endings 1–3 with ending screens
@@ -252,7 +293,7 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       content merge 2: boss packs A / B / C, the finals and the synergies merged — tests/content-integration-bosses.test.ts
       (own boss / miniboss per chapter in real runs, finals' endings, phase looks, UNDER THE ROOTS, a synergy in a run →
       IT CLICKS); totals: 129 passives, 28 actives, 34 trinkets, 23 consumables, 56 enemies, 20 bosses, 8 minibosses,
-      3 finals, 97 room templates, 9 sets, 63 synergies, 53 achievements, 8 characters; the play-bot over every floor /
+      3 finals (22 bosses after polish batch 4), 97 room templates, 9 sets, 63 synergies, 53 achievements, 8 characters; the play-bot over every floor /
       track with the new bosses (default + BOT_FULL: 83 runs, 3 of the boss fights needed the fallback), the synergy stress
       test (+ STRESS=full), 62 unit-test files (2 652 tests), build and e2e (98 passed, 12 skipped by design) green)
 - [x] Polish batch 1 — critical bugs and unmet hard requirements: the burrower soft-lock (nearest surfacing cell + a
@@ -312,4 +353,13 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       (polish batch 1: controls, account → empty repo → push to main (or GitHub Desktop) → Pages source GitHub Actions →
       the Test & deploy run → Add to Home Screen → separate saves + export / import → updates → troubleshooting → dev
       commands; tests/ci-workflow.test.ts checks it against deploy.yml and package.json)
-- [ ] SYNERGIES.md complete; DECISIONS.md complete; final summary
+      (final docs pass: rewritten step by step for someone who has never used GitHub — the game and its controls,
+      account → upload with GitHub Desktop (recommended) or the git command line → Pages source → the Actions run →
+      the site address → Safari → Add to Home Screen, a highlighted separate-saves warning with EXPORT SAVE / IMPORT
+      SAVE, how updates arrive, offline play, troubleshooting, running locally, the project's docs, adding items /
+      enemies / rooms, the hidden debug menu, seeds and the daily run)
+- [x] SYNERGIES.md complete; DECISIONS.md complete; final summary
+      (final docs pass: SYNERGIES.md checked row by row against `src/content/synergies/*.ts` — tests/content-synergies
+      passes; Ember Harvest now says it drops a whole Ember heart, damage added where rows left it out, rows in the data
+      files' order; DECISIONS.md regrouped into six parts that follow the phases (every entry kept) with a topic index;
+      the final summary is the Status section at the top of this file)
