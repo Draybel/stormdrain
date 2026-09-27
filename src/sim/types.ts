@@ -659,6 +659,7 @@ export const BOSS_PATTERN_KINDS = [
   'hook',
   'lineStrike', 'orbitDash', 'clusterLob', // boss pack A: sim/bosses/patterns-a.ts
   'podBurst', 'closingRing', 'gearSpokes', // boss pack B (sim/bosses/patterns-b.ts): bursting pods, a ring closing in, turning spokes
+  'dropLine', 'halo', 'ricochet', // boss pack C: sim/bosses/patterns-c.ts
 ] as const;
 export type BossPatternKind = (typeof BOSS_PATTERN_KINDS)[number];
 
