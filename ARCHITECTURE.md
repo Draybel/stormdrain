@@ -19,18 +19,21 @@ src/
   engine/            loop, display/scaling, input (touch+keyboard), rng, math, pools, events
   sim/               PURE game logic. No DOM, no canvas, no audio objects. Runs headless in node.
     attack/          THE attack pipeline (carriers, modifiers, shots, beams, style)
-    ...              world, player, enemies, bosses, floor gen, items, stats, pickups, run state
+    floor/           floor generator, room template schema / validation / picking, minimap model (§6)
+    ...              world, player, enemies, bosses, items, stats, pickups, run state
   content/           DATA ONLY (plus small named behaviour hooks): items, enemies, bosses, characters,
                      rooms, chapters, synergies, sets, achievements, familiars, music, sprites
   render/            renderer, sprite cache, pixel font, HUD, minimap, particles, lighting, effects
   ui/                canvas UI scenes & widgets (title, menus, pause, collection, settings...)
-  audio/             Web Audio engine, procedural SFX, sequencer + chapter music
-  meta/              save/load, migrations, settings, unlocks, achievements, lifetime stats
+  audio/             Web Audio engine, procedural SFX (built-in recipes + sfxLibrary), music/ sequencer (§8)
+  meta/              save slots, codec, migrations, MetaStore, RunSaveStore, export codes, settings (§7)
+  pwa/               service-worker registration + pure precache / worker-source builders (§7)
   debug/             hidden debug menu, perf overlay
 tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, bot)
 e2e/                 playwright webkit tests
-scripts/             node build helpers (icon generation, service worker manifest)
+scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plugin.mjs → dist/sw.js)
 public/              static files copied verbatim (manifest, icons)
+docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8)
 ```
 
 ### Content registries (IMPORTANT for parallel work)
@@ -42,13 +45,13 @@ src/content/items/*.ts        export default ItemDef[]        (passives, actives
 src/content/enemies/*.ts      export default EnemyDef[]
 src/content/bosses/*.ts       export default BossDef[]        (bosses, minibosses, final bosses)
 src/content/characters/*.ts   export default CharacterDef[]
-src/content/rooms/*.ts        export default RoomTemplate[]
+src/content/rooms/*.ts        export default RoomTemplate[]  (→ ROOM_TEMPLATES, src/sim/floor/library.ts)
 src/content/chapters/*.ts     export default ChapterDef[]
 src/content/synergies/*.ts    export default SynergyDef[]
 src/content/sets/*.ts         export default ItemSetDef[]
 src/content/achievements/*.ts export default AchievementDef[]
 src/content/familiars/*.ts    export default FamiliarDef[]
-src/content/music/*.ts        export default MusicTrack[]
+src/content/music/*.ts        export default MusicTrack[]    (→ src/audio/music/registry.ts)
 src/content/drops/*.ts        export default DropTableDef[]  (seeded loot tables: urn, crate, satchel, lockbox…)
 src/content/champions/*.ts    export default ChampionDef[]   (champion variants; ORDER MATTERS for seeded rolls)
 src/content/hooks/*.ts        side-effect modules that call registerHook(name, fn) for unusual behaviour
@@ -56,8 +59,10 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
 `src/content/registry.ts` builds the lookup maps and **throws on duplicate ids** (a unit test enforces this).
 It exports one `Map` per type (`ITEMS`, `ENEMIES`, `BOSSES`, `CHARACTERS`, `CHAPTERS`, `SYNERGIES`, `SETS`,
 `ACHIEVEMENTS`, `FAMILIARS`, `DROP_TABLES`, `CHAMPIONS`) plus typed helpers (`getItem` throws on unknown ids, `findItem`
-returns undefined, `itemsWithTag`, `itemsInPool`, `findEnemy`, `enemiesInChapter`, `allChampions`…). ROOMS and MUSIC are
-TODO slots for the floor and music owners. `registerItem(def)` / `registerEnemy(def)` exist only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
+returns undefined, `itemsWithTag`, `itemsInPool`, `findEnemy`, `enemiesInChapter`, `allChampions`…). Rooms and music
+are collected by their own modules instead: `ROOM_TEMPLATES` (`sim/floor/library.ts`, checked by `validateTemplates`
+in tests/floorgen.test.ts) and `audio/music/registry.ts` (`getTrack`, throws on duplicate ids) — music stays out of
+the content registry so the sim, which imports it, never pulls in audio code. `registerItem(def)` / `registerEnemy(def)` exist only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
 cross-reference (start items, sets, achievements, familiars, drop tables, hooks, chapters…) and every sprite; the
 unit tests require it to return no problems. Hook modules get their sim services through `ctx.api` (a `HookApi`,
 see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the registry free of import cycles.
@@ -547,9 +552,17 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
 - `ChampionDef { id, name, color, weight, hpMul?, speedMul?, sizeMul?, cooldownMul?, split?, deathRing?, regen?,
   phantom?, coins?, drops? }`.
 - `BossDef { id, name, kind: 'boss'|'miniboss'|'final', chapters, hp, phases: PhaseSpec[] (≥2), sprite, size, music? }`.
-- `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7] }` (13 chars/row).
+- `RoomTemplate { id, chapters: ChapterId[] | ['*'], type: RoomType, difficulty: 1-3, grid: string[7], weight? }`
+  (13 chars/row). Owned by `src/sim/floor/types.ts`; `sim/types.ts` re-exports `RoomTemplate`, `RoomType` and
+  `ROOM_TYPES` (`start, normal, treasure, shop, boss, miniboss, secret, deepSecret, challenge, cursed, nook` — the
+  Broker's Nook ROOM type is `nook`, its item POOL is `broker`).
   Legend: `.` floor `#` rock `$` tinted rock `M` metal `O` pit `^` spikes `f` fire `x` crate `u` urn `e` enemy spawn
   `E` strong/elite spawn `c` chest spot `p` pickup spot `i` item pedestal `S` shop slot `B` boss spawn.
+  `validateTemplate` rules: the tile just inside each door — (6,0), (12,3), (6,6), (0,3) — is `.` (so any template fits
+  any door mask and any mirroring) with no `e`/`E` next to it; every walkable tile is reachable on foot (pits, rocks,
+  metal, crates, urns block); the four doors are joined by a path without spikes / fire; per-type marker rules
+  (normal ≥ 1 spawn, treasure an `i`, shop 2-6 `S`, …; the centre is walkable in start / boss / miniboss / challenge);
+  ≤ 10 enemy spawns. Each room gets a mirroring `flip` (bit 1 left/right, bit 2 top/bottom): `templateGrid(tpl, flip)`.
   Test-only markers (Phase 1 training room, `src/content/testRoom.ts`, deliberately outside `content/rooms/`):
   `@` player start, `D` training dummy.
 - `CharacterDef { id, name, desc, stats, hearts: { redMax, red?, tin?, ember? } (half hearts), startItems,
@@ -560,24 +573,76 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
 
 ---
 
-## 6. Floors
+## 6. Floors (`src/sim/floor`; API + integration checklist: docs/floorgen.md)
 
-- Grid map (up to 11×11 cells), start in the middle, grows by random walk with Isaac-like constraints.
-  Room count scales with floor depth. Single-size rooms (13×7).
-- Special rooms placed on dead ends: boss (farthest), treasure, shop, miniboss, challenge, cursed.
-- **Secret room**: cell adjacent to ≥ 2 (prefer 3+) existing rooms, never adjacent to boss; entered by bombing the wall.
-  **Deep secret room** (the harder one): adjacent to exactly one normal room, not adjacent to special rooms.
-  Occasional subtle hints (cracked-looking wall tile, drip particles) with seeded chance.
-- Broker's Nook (risk-reward room): may appear after a boss; items cost max health; higher chance with no damage taken
-  on the floor.
-- Every room must be reachable (unit test over thousands of seeds), special rooms present and correctly placed.
+Module done and tested (side track, merged after Phase 2); the run doesn't use it yet (Phase 3 wiring item).
+- `generateFloor(seed, floorIndex 1..13, track 'main'|'alt', opts?) → FloorLayout` — pure, deterministic, ≈ 0.03 ms.
+  Randomness only from `floorRng(seed, floor, track)` forks `plan, layout, curse, hints, route, templates`; every roll
+  is always made, so an option (`curses`, `cursePool`, `forceCurse`, `allowAltNext`) only changes its own field.
+  `FLOORGEN_VERSION` (1) is stored in the layout; a test pins a fingerprint of 650 layouts.
+- Map: 11×11 cells, start in the middle, breadth-first growth that only fills a cell touching exactly one room →
+  always a tree (no loops, no 2×2 blobs). Rooms = 8 + ⌊(floor − 1)·10/12⌋ + 0..1 (≥ special rooms + 6), single
+  size (13×7). Failed attempts retry; every 400 failures add a room, then drop optional rooms, so it always finishes.
+- Special rooms on dead ends (one regular door): boss at the farthest (≥ 3 rooms from the start, ≥ 4 with 13+ rooms),
+  treasure every floor (locked from floor 3), shop (not floors 12-13), miniboss 35 %, challenge 30 % from floor 2,
+  cursed 25 %.
+- **Secret room**: an empty cell touching ≥ 2 rooms (3+ whenever possible), never the boss room; a bombable wall to
+  EVERY neighbour (special rooms too). **Deep secret room**: touches exactly one normal room and nothing special.
+  Hint walls (cracked tile, drips) on 40 % of secret walls (25 % deep secret), per side.
+- **Broker's Nook**: a free cell next to the boss room is reserved (`layout.nook`, touching nothing else, template
+  pre-picked); `openNook(layout)` adds the room after the boss — the roll (items cost max health, likelier with no
+  damage taken) is the caller's.
+- Hidden-route grate (`hiddenRoute`): main track, floors < 12, only with `opts.allowAltNext` (chance 0.4) — secret room
+  55 %, boss room 45 %. Final-boss flags: floor 12 main `thunderhead`, 12 alt `nestmother`, 13 `undertow`. Curses:
+  chance min(0.5, 0.04 + 0.035·(floor − 1)), one per floor.
+- `FloorRoom`: cell, `type`, door masks (bits N 1, E 2, S 4, W 8; `doors` ⊇ `secretDoors` ⊇ `hints`; `lockedDoors`
+  marked on both sides), `locked`, `secret`, `dist` (regular doors from the start), `templateId` + `flip`,
+  `hiddenRoute`, `finalBoss`. The layout is plain JSON (≈ 3-5 KB): run saves store it WHOLE (template picks depend on
+  the whole template set, so regenerating after content changes could differ).
+- `pickTemplates(layout, templates, chapterId, rng)`: weight by closeness to a target difficulty (1.0 on floor 1 →
+  3.0 on floor 13, + up to 0.35 toward the boss), ×3 for chapter-specific templates, ×0.15 if already used on the
+  floor; candidates sorted by id; random mirroring.
+- Minimap model (`minimap.ts`): per room Unknown / Mapped (outline only, map items) / Seen / Visited; `enterRoom`,
+  `discoverRoom`, `revealMap('layout'|'icons'|'secrets'|'full')`, `setLostMap`; special icons once Seen; a secret
+  room is never revealed through its hidden wall; the Lost Map curse only hides the drawing.
+- Tests: tests/floorgen.test.ts (every rule over 5000 seeds × 13 floors × 2 tracks: reachability, secrets only by
+  bombing, boss on the farthest dead end, special rooms, symmetric doors, locks, flags; determinism; template
+  validation and picking; speed), tests/floorminimap.test.ts.
 
-## 7. Saving
-- `localStorage` keys: `stormdrain.meta`, `stormdrain.run`. Envelope `{ v: number, data, sum }`.
-- Migrations: `migrations[v] = (old) => new`; loader upgrades step by step; never throws away unknown fields.
-- Meta saves immediately on change (debounced to the end of the tick). Run saves on every room transition and on
-  background/pause. Title screen shows **Continue** when a run save exists.
-- Export/Import: `SD1:` + base64(JSON envelope) with checksum; import validates and migrates.
+## 7. Saving & PWA (`src/meta`, `src/pwa`; integration guide: docs/saving.md)
+
+Modules done and tested (side track, merged after Phase 2); main.ts, the scenes and `meta/save.ts` don't use them yet
+(Phase 4 wiring item).
+- `localStorage` keys: `stormdrain.meta`, `stormdrain.run`. Envelope `{ v: number, data, sum }` (`saveCodec.ts`):
+  `sum` = FNV-1a 32 over `'<v>:' + JSON.stringify(data)`, checked by re-serialising the parsed data.
+- `storage.ts`: `createStorage()` (localStorage, in-memory fallback; nothing throws) and one `SaveSlot` per key. A write
+  first copies the previous good save to `<key>.bak` (identical saves are skipped; out of space → drop `.corrupt` /
+  `.bak`, retry once). A damaged main save loads from `.bak` and is repaired, the damaged text kept as `<key>.corrupt`.
+  A save from a NEWER version makes the slot read-only (status `future`): an old cached build never overwrites newer
+  progress. `requestPersistentStorage()` asks the browser not to evict (best effort).
+- Migrations (`migrations.ts`): `MigrationSet`s `META_MIGRATIONS` (`META_VERSION` 1; v0 = the Phase 1 prototype layout)
+  and `RUN_MIGRATIONS` (`RUN_VERSION` 1); the loader upgrades step by step; unknown fields are never thrown away
+  (unknown top-level keys → `MetaState.extra`, unknown nested keys stay on their objects) and are written back.
+- `metaState.ts` `MetaStore`: settings, unlock sets (saved as sorted arrays), achievements + open-ended counters,
+  collection, bestiary, lifetime stats, daily results (one per UTC date, newest 400). Important changes (settings,
+  unlocks, achievements, run start/end, import) save at the end of the tick — call `meta.endTick()` once per loop
+  tick; frequent ones (kills, counts, play time) at most every 5 s; a failed write retries after 10 s. `flush()`,
+  `subscribe()`; `toRuntimeSettings` / `fromRuntimeSettings` adapt to `meta/settings.ts` structurally.
+- `runSave.ts` `RunSaveStore` (`stormdrain.run`): save / load / clear / hasRun of any plain-JSON snapshot ≤ 1 M chars
+  (NaN, Infinity, cycles, Map / Set / class instances are rejected with the offending path). The run saves on every
+  room transition and on background / pause (`saveRunNow()`); the title shows **Continue** when a run save exists.
+  The Sim snapshot / restore format is still to be written (it should include the whole `FloorLayout`, §6).
+- Export / Import (`exportCode.ts`): `SD1:` + base64url(UTF-8 of the same checksummed envelope) with body
+  `{ app, at, meta: { v, data }, run?: { v, data } }`; import checks prefix, encoding, checksum and version, migrates,
+  and returns a plain-language error (changing any character is rejected); a run that can't be upgraded is dropped.
+- PWA: `public/manifest.webmanifest` + icons (`npm run icons` → scripts/gen-icons.mjs; opaque; maskable safe zone and
+  art checked by tests/pwa-icons.test.ts); `index.html` links them with root paths that Vite rewrites to `./`.
+  `scripts/sw-plugin.mjs` (Vite plugin, `closeBundle`) writes `dist/sw.js` from the pure `src/pwa/precache.ts` +
+  `swSource.ts`: every dist file with relative URLs, version = content hash, cache `stormdrain:<scope>:<version>`.
+  The worker precaches with `cache: 'reload'`, serves navigations from the cached `index.html`, is cache-first
+  otherwise, and ignores `Vary` on lookups. `src/pwa/register.ts` `registerServiceWorker()` (production + secure
+  origins only; call it from main.ts) applies updates quietly on the next launch, never reloads the page. It assumes
+  a single JS bundle (code splitting would need old chunks kept).
 
 ## 7b. Scenes & UI
 - `ui/scene.ts` is a stack: the top scene gets updates and keys and owns the hit-testable buttons; `overlay` scenes
@@ -632,8 +697,22 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   sounds in `audio/sfxGameplay.ts` (incl. the yard's `yard_bell`, `pedestal_roll` and the trigger notice `surge`),
   attack sounds (lance_charge / lance_ready / lance_fire / crackle / laser_zap /
   swipe / blade_* / shot_boom / chain_zap …) in `audio/sfxAttack.ts`; `audio/eventSounds.ts` maps GameEvents to
-  sounds. `AudioOut.play(name, pan?, volume?, param?)`: `param` reaches the recipe as `voice.param` (the lance charge
-  hum rises with it).
+  sounds (a sim `'sfx'` event plays any `SoundName` by its `id`). `AudioOut.play(name, pan?, volume?, param?)`:
+  `param` reaches the recipe as `voice.param` (the lance charge hum rises with it).
+- SFX library + music (side track, merged after Phase 2; guide: docs/audio.md). `sfx.ts` has `registerSfx(recipes)`;
+  `audio/sfxLibrary.ts` (~60 recipes: coin variants, doors, enemy / boss, fanfares, trapdoor, shop / slots, menus,
+  player, curse…) self-registers when engine.ts imports it. Built-in names win a clash (`SHADOWED_SFX` must stay
+  empty; a test checks). `SoundName` = built-in `SfxName` + `LibrarySfxName`; `Recipe` / `Voice` live in
+  `audio/synth.ts` and a recipe may set `maxVoices` (per-sound voice limit under the global 20).
+- Music: `AudioOut.music` is a `MusicControl` (`audio/music/director.ts` `MusicDirector`, on WebAudio AND NullAudio —
+  before unlock it records the wanted track): `play(id, { fade })` crossfades, `stop`, `stinger(id, { then | stopMusic
+  })` (ducks the music, or hands off on the exact sample), `duck`, `pause` / `resume` (on a bar line), `muffle`. A
+  25 ms timer schedules 120 ms ahead from absolute step times (no drift); steps later than 50 ms are skipped; it stops
+  while the page is hidden. The `MusicTrack` data format lives in `audio/music/types.ts` (not sim/types.ts); tracks in
+  `content/music/*.ts` through `audio/music/registry.ts`; ids in `audio/music/ids.ts` — `CHAPTER_MUSIC[chapterId]`
+  (= `ch_<chapterId>`, all 12 chapters), `BOSS_MUSIC` / `bossMusicFor`, `FINAL_MUSIC`, `MUSIC` roles (title, shop,
+  secret, miniboss, jingles, stingers). `ChapterDef.music` / `BossDef.music` hold track ids (tests/music.test.ts
+  checks them). The game doesn't call the music yet (Phase 3 wiring item, docs/audio.md "Suggested wiring").
 
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,

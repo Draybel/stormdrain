@@ -5,6 +5,7 @@ import { allTracks, getCompiledTrack, getTrack } from '../src/audio/music/regist
 import { degreeToMidi, midiToFreq, noteToMidi, pitchClass } from '../src/audio/music/theory';
 import type { MusicTrack } from '../src/audio/music/types';
 import { LENGTH_BOUNDS, validateTrack } from '../src/audio/music/validate';
+import { BOSSES, CHAPTERS } from '../src/content/registry';
 
 const tracks = allTracks();
 
@@ -196,6 +197,17 @@ describe('music tracks', () => {
     expect(getTrack(MUSIC.victory)?.kind).toBe('jingle');
     expect(getTrack(MUSIC.gameOver)?.kind).toBe('jingle');
     for (const id of [MUSIC.floorSting, MUSIC.bossIntro, MUSIC.itemFanfare]) expect(getTrack(id)?.kind).toBe('sting');
+  });
+
+  it('content chapters and bosses name registered tracks', () => {
+    expect(CHAPTERS.size).toBeGreaterThan(0);
+    for (const ch of CHAPTERS.values()) {
+      expect(getTrack(ch.music), `chapter ${ch.id} → ${ch.music}`).toBeDefined();
+      if ((CHAPTER_IDS as readonly string[]).includes(ch.id)) {
+        expect(ch.music, ch.id).toBe(CHAPTER_MUSIC[ch.id as (typeof CHAPTER_IDS)[number]]);
+      }
+    }
+    for (const b of BOSSES.values()) if (b.music) expect(getTrack(b.music), `boss ${b.id} → ${b.music}`).toBeDefined();
   });
 
   it('loops never leave a note hanging past the loop point by more than a bar', () => {

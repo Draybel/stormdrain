@@ -15,8 +15,8 @@ AudioContext.destination
 | File | What |
 |---|---|
 | `src/audio/engine.ts` | `AudioOut` (`app.audio`): unlock, buses, `play(sfx)`, `music`, lifecycle |
-| `src/audio/sfx.ts` | `SfxPlayer`, voice cap + per-sound voice limits, `registerSfx()` hook, a few core recipes |
-| `src/audio/sfxLibrary.ts` | the ~80-recipe library, self-registers when engine.ts imports it |
+| `src/audio/sfx.ts` | `SfxPlayer`, voice cap + per-sound voice limits, `registerSfx()` hook, the built-in recipes (core here + `sfxGameplay.ts`, `sfxEnemies.ts`, `sfxAttack.ts`; shared helpers and `Recipe` / `Voice` in `synth.ts`) |
+| `src/audio/sfxLibrary.ts` | the ~60-recipe library (sounds the built-in files don't have), self-registers when engine.ts imports it |
 | `src/audio/music/director.ts` | `MusicDirector` = `app.audio.music`: lookahead scheduler, crossfades, stingers, duck, pause |
 | `src/audio/music/player.ts` | one playing track: channel strips (reused), step clock, note scheduling |
 | `src/audio/music/synth.ts` | note + drum voices (per-note nodes, whole envelope pre-scheduled, stopped after release) |
@@ -33,14 +33,22 @@ AudioContext.destination
 ## Sound effects
 
 ```ts
-app.audio.play('coin');                 // name, optional pan (-1..1), optional volume (0..1)
+app.audio.play('coin');                 // name, optional pan (-1..1), volume (0..1), param (recipe level)
 app.audio.play('explosion_big', 0.3);
 sim.events.emit('sfx', x, y, 0, 0, 'door_open'); // from the sim: eventSounds.ts pans by room x
 ```
 
-Names are typed (`SoundName` = core `SfxName` + `LibrarySfxName`). Every recipe has a minimum retrigger
-gap, a per-sound voice limit (`maxVoices`) and slight random pitch; the player also enforces a global cap of
-20 voices. Core recipes win on a name clash (`SHADOWED_SFX` lists clashes and a test keeps it empty).
+Names are typed (`SoundName` = built-in `SfxName` + `LibrarySfxName`). Every library recipe has a minimum
+retrigger gap, a per-sound voice limit (`maxVoices`, optional on built-in recipes) and slight random pitch; the
+player also enforces a global cap of 20 voices. Built-in recipes win on a name clash (`SHADOWED_SFX` lists
+clashes and a test keeps it empty).
+
+The table lists every name the design asks for. When the side tracks were merged, the main track's Phase 2
+files already had `coin`, `key`, `bomb_pickup`, `heart`, `chest_open`, `bomb_place`, `tin_break`,
+`rock_break`, `crate_break`, `urn_break`, `lance_charge`, `lance_ready`, `lance_fire`, `crackle`, `laser_zap`,
+`chain_zap` and `split_pop` (wired in `eventSounds.ts`), so the library's copies of those were removed: the names
+still play, using the built-in recipe. The built-in files also hold the Phase 2 names (`foe_*`, `eshot_pop`,
+`gate_*`, `room_clear`, `st_*`, `swipe`, `blade_*`, `charge_*`, `keeper_chime`, `coin_big`, `spark`, `nova`…).
 
 | Group | Names |
 |---|---|
@@ -48,7 +56,7 @@ gap, a per-sound voice limit (`maxVoices`) and slight random pitch; the player a
 | Chests & doors | `chest_open` `chest_unlock` `door_open` `door_close` `door_lock` `door_unlock` |
 | Bombs | `bomb_place` `bomb_fuse` `explosion_big` `explosion_small` |
 | Enemies & bosses | `enemy_hurt` `enemy_hurt_squish` `enemy_die_squish` `enemy_die_crunch` `enemy_die_pop` `enemy_shoot` `enemy_spawn` `boss_roar` `boss_hurt` `boss_death` |
-| Storm Lance & carriers | `lance_charge` (re-trigger while charging) `lance_ready` `lance_fire` (deep thunder boom) `crackle` `laser_zap` `boomerang_whoosh` `melee_swipe` `chain_zap` |
+| Storm Lance & carriers | `lance_charge` (`param` = charge level) `lance_ready` `lance_fire` `crackle` `laser_zap` `boomerang_whoosh` `melee_swipe` `chain_zap` |
 | Status & shot mods | `freeze` `burn` `poison` `split_pop` `bounce_ping` `fire_nova` (ember heart) `tin_break` (tin heart) |
 | Fanfares & rooms | `item_pickup` `transformation` `secret_found` `trapdoor` `stairs` `achievement` `thunder` |
 | Economy | `shop_buy` `cant_afford` `slot_spin` `slot_win` `slot_lose` `donation` |

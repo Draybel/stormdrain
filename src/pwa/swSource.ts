@@ -1,5 +1,5 @@
 /**
- * Source of the generated `dist/sw.js` (pure string builder; scripts/sw-plugin.ts writes it at
+ * Source of the generated `dist/sw.js` (pure string builder; scripts/sw-plugin.mjs writes it at
  * build time, tests evaluate it against a fake worker environment).
  *
  * Behaviour:
@@ -28,7 +28,7 @@ export interface ServiceWorkerSourceOptions {
 
 export function renderServiceWorker(opts: ServiceWorkerSourceOptions): string {
   const prefix = opts.cachePrefix ?? 'stormdrain';
-  return `/* Stormdrain service worker. Generated at build time by scripts/sw-plugin.ts: do not edit. */
+  return `/* Stormdrain service worker. Generated at build time by scripts/sw-plugin.mjs: do not edit. */
 'use strict';
 const VERSION = ${JSON.stringify(opts.version)};
 const PRECACHE = ${JSON.stringify(opts.precache, null, 1)};

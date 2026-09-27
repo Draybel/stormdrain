@@ -6,7 +6,8 @@
  * - Ids are plain strings (kebab-case for content, e.g. 'brick-chip'); aliases below document intent.
  * - Health amounts are in HALF-HEART units unless a field says otherwise.
  * - Distances in px, times in seconds, speeds in px/s (ARCHITECTURE §3).
- * - Room templates / floor layouts are owned by the floor generator (src/sim/floor); they are NOT here.
+ * - Room templates / floor layouts are owned by the floor generator (src/sim/floor/types.ts); only
+ *   RoomType / ROOM_TYPES / RoomTemplate are re-exported here.
  */
 
 // ── Sprites ──────────────────────────────────────────────────────────────────
@@ -68,21 +69,12 @@ export const POOL_IDS = [
 ] as const;
 export type PoolId = (typeof POOL_IDS)[number];
 
-/** Room types (DESIGN.md "Rooms"). The floor generator owns RoomTemplate and the layouts. */
-export const ROOM_TYPES = [
-  'start',
-  'normal',
-  'treasure',
-  'shop',
-  'boss',
-  'miniboss',
-  'secret',
-  'deepSecret',
-  'challenge',
-  'cursed',
-  'broker',
-] as const;
-export type RoomType = (typeof ROOM_TYPES)[number];
+/**
+ * Room types (DESIGN.md "Rooms") and the room template shape. The floor generator owns them
+ * (src/sim/floor/types.ts); they are re-exported here so content code has one place to import from.
+ * The Broker's Nook room type is 'nook' (its item pool is still the 'broker' PoolId above).
+ */
+export { ROOM_TYPES, type RoomTemplate, type RoomType } from './floor/types';
 
 // ── Stats ────────────────────────────────────────────────────────────────────
 

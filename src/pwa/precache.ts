@@ -1,5 +1,5 @@
 /**
- * Service-worker precache list + build version (pure; used by scripts/sw-plugin.ts at build time
+ * Service-worker precache list + build version (pure; used by scripts/sw-plugin.mjs at build time
  * and by tests). URLs are RELATIVE (`./assets/index-abc.js`): the service worker resolves them
  * against its own URL, so the app works from any sub-path (GitHub Pages `/<repo>/`).
  */

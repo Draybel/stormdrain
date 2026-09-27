@@ -157,9 +157,10 @@ cell without allocating.
 
 ## Integration checklist (main track)
 
-1. **Types**: `RoomTemplate`/`RoomType` live in `src/sim/floor/types.ts`; `src/sim/types.ts` should re-export them
-   (ARCHITECTURE §5 points there). `src/content/registry.ts` can use `ROOM_TEMPLATES` (or glob the folder itself) and
-   run `validateTemplates` in its duplicate-id test.
+1. **Types** (done at the merge): `RoomTemplate`/`RoomType`/`ROOM_TYPES` live in `src/sim/floor/types.ts` and
+   `src/sim/types.ts` re-exports them. `src/content/registry.ts` points to `ROOM_TEMPLATES` instead of keeping its own
+   map; `validateTemplates` (tests/floorgen.test.ts) checks duplicate ids. The Sim's room entry point today is
+   `sim.loadRoom(rows, spawns)` (it calls `parseRoomLayout` and collects `e`/`E` markers for waves).
 2. **Floor start**: `generateFloor` → `pickTemplates` → `createMinimap`. Chapter id for the floor: chapter number
    `layout.chapter` (1..7) + `layout.track` → the matching `ChapterDef`.
 3. **Room load**: `parseRoomLayout(templateGrid(tpl, room.flip), grid)`. Markers: `e/E` enemies (chapter pool,

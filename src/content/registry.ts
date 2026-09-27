@@ -83,10 +83,11 @@ export const CHAMPIONS = collectDefs<ChampionDef>(
   import.meta.glob<DefModule<ChampionDef>>('./champions/*.ts', { eager: true }),
 );
 
-// TODO(floor generator): ROOMS — src/content/rooms/*.ts `export default RoomTemplate[]` (RoomTemplate is
-//   owned by src/sim/floor). Add here as: export const ROOMS = collectDefs<RoomTemplate>('room', import.meta.glob(...)).
-// TODO(music): MUSIC — src/content/music/*.ts `export default MusicTrack[]` (MusicTrack is owned by
-//   src/audio/music). Add here the same way.
+// Rooms and music have their own registries, owned by their modules (no Map here):
+// - ROOMS: src/content/rooms/*.ts → `ROOM_TEMPLATES` in src/sim/floor/library.ts, checked by
+//   `validateTemplates` (duplicate ids, legend, reachability) in tests/floorgen.test.ts.
+// - MUSIC: src/content/music/*.ts → src/audio/music/registry.ts (`getTrack`, throws on duplicate ids).
+//   It stays out of this file so the sim (which imports the registry) never pulls in audio code.
 
 // ── Lookups ──────────────────────────────────────────────────────────────────
 

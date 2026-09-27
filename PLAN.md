@@ -62,25 +62,53 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
       every carrier × modifier, every carrier pair, 1 and 5 stacks, targeted behaviour, all modifiers ×5 perf/caps)
 
 ## Phase 3 — Floors, rooms & bosses
-- [ ] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
+Side tracks merged after Phase 2 (standalone, tested modules; see docs/floorgen.md, docs/audio.md, docs/saving.md):
+floor generator + room templates + minimap model (`src/sim/floor`), music + SFX library (`src/audio/music`,
+`src/audio/sfxLibrary.ts`), saves + PWA (`src/meta`, `src/pwa`). The next agent starts by wiring them in.
+- [ ] Wire the side-track modules into the run: floor generator (docs/floorgen.md "Integration checklist": door and
+      secret-wall tiles, transitions, marker spawning, nook, grate, curse effects, minimap rendering, saving the
+      layout) and music cues (docs/audio.md "Suggested wiring": title, floor start / trapdoor sting, boss intros,
+      shop / secret rooms, item fanfare, game over, pause muffle)
+- [x] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
+      (module done, integration pending) — `src/sim/floor`: tree maps on an 11×11 grid, boss at the farthest dead
+      end, treasure / shop / miniboss / challenge / cursed, secret + deep secret, Broker's Nook cell, hint walls,
+      hidden-route grate, final-boss flags, seeded curses; deterministic, ≈0.03 ms per floor
 - [ ] Room templates schema + ~12 templates; chapter data for chapter 1; tile rendering per chapter palette
+      (schema, validation, mirroring and seeded picking + 25 generic templates covering all 11 room types: module
+      done, integration pending; chapter 1 data exists as the 2C stand-in; tile rendering per chapter palette to do)
 - [ ] Doors (normal, locked, boss, treasure lock, secret wall, cursed spikes), room transitions & clearing, rewards
       (2C: combat flow — waves at `e`/`E` markers, barred doors while enemies live, roomClear + reward drop — in sim/arena.ts)
 - [ ] HUD (hearts, coins/bombs/keys, active + charge, consumable/trinket, minimap w/ tap-to-expand)
-      (everything but the minimap was done in Phase 2A)
+      (everything but the minimap was done in Phase 2A; the minimap knowledge model — visited / seen / mapped,
+      reveal items, Lost Map curse — is in `src/sim/floor/minimap.ts`, rendering + tap-to-expand to do)
 - [ ] Boss framework (phases ≥2, patterns, HP bar, intro card) + 1 boss + 1 miniboss; trapdoor to next floor
 - [ ] Shop, treasure room, secret rooms, challenge arena, cursed room, Broker's Nook, donation jar, slot machine, trader
 - [ ] Floor progression through chapter list (main/alt tracks), floor transition effect
-- [ ] Unit tests: floor generation over thousands of seeds (reachability + special rooms)
+      (the generator already knows tracks, `chapterOfFloor`, `isFinalFloor`, `finalBossFor`)
+- [x] Unit tests: floor generation over thousands of seeds (reachability + special rooms)
+      (tests/floorgen.test.ts: 5000 seeds × 13 floors × 2 tracks, determinism, pinned fingerprint, templates;
+      tests/floorminimap.test.ts)
 
 ## Phase 4 — Meta, saving & mobile polish
-- [ ] Versioned save envelope + migrations; meta save on change; run autosave on room transition + background
+- [ ] Wire the save/PWA modules in (docs/saving.md): stores + `meta.endTick()` + `registerServiceWorker()` in
+      main.ts, `saveRunNow()` → `RunSaveStore` + `meta.flush()`, a Sim snapshot / restore, notices for restored /
+      corrupt / newer saves, save-survives-reload e2e, iPhone Add to Home Screen + offline check
+- [x] Versioned save envelope + migrations; meta save on change; run autosave on room transition + background
+      (module done, integration pending) — `src/meta`: checksummed `{ v, data, sum }` slots with `.bak` /
+      `.corrupt`, step-by-step migrations, `MetaStore` (end-of-tick / 5 s saves), `RunSaveStore`; the autosave
+      call sites and the Sim snapshot come with the wiring item above
 - [ ] Title (Continue / New Run / Daily / Seed / Collection / Bestiary / Stats / Achievements / Settings)
 - [ ] Character select (locked silhouettes), seed entry (DOM input modal), daily run
 - [ ] Pause menu with stats + items; settings (volumes, aim mode, shake, button size, left-handed?); save export/import
+      (export / import codes `SD1:` are done in `src/meta/exportCode.ts`; the menus and the DOM modal to do)
 - [ ] Achievements framework + unlocks (items, characters, routes, endings); collection, bestiary, stats pages
-- [ ] PWA: manifest, generated icons, service worker (offline), iOS meta tags; GitHub Pages base path
-- [ ] Unit tests: save round-trip + migrations + export/import
+      (the saved data — unlocks, achievements, counters, collection, bestiary, lifetime stats, daily results — is in
+      `MetaState`; the framework and pages to do)
+- [x] PWA: manifest, generated icons, service worker (offline), iOS meta tags; GitHub Pages base path
+      (module done, integration pending: call `registerServiceWorker()` from main.ts) — `public/manifest.webmanifest`,
+      `npm run icons`, build-time `dist/sw.js` (scripts/sw-plugin.mjs), relative URLs for any Pages sub-path
+- [x] Unit tests: save round-trip + migrations + export/import
+      (tests/save-*.test.ts, tests/pwa-*.test.ts)
 
 ## Phase 5 — Test infrastructure & tools
 - [ ] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
@@ -96,9 +124,13 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [ ] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
 - [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
 - [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
+      (25 generic templates so far; the generator rolls curses — their effects to do)
 - [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md
-- [ ] Music: unique loop per chapter (+ boss/final themes); full SFX set
+- [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
+      (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
+      miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
+      top of the Phase 2 sounds; the game doesn't call the music yet (Phase 3 wiring item)
 - [ ] Hidden routes to alt chapters; endings 1–3 with ending screens
 
 ## Phase 7 — Integration, balance & performance
