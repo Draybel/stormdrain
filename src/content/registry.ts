@@ -141,16 +141,17 @@ export function allChampions(): readonly ChampionDef[] {
 }
 
 /**
- * Enemies that can be rolled in a chapter (weight > 0): the chapter's `enemyPool` when it has one,
- * otherwise every enemy listing the chapter. Registry order (deterministic).
+ * Enemies that can be rolled in a chapter (weight > 0): the union of the chapter's explicit
+ * `enemyPool` and every enemy whose `chapters` lists the chapter, so enemy content can be added
+ * without editing chapter files. Registry order (deterministic).
  */
 export function enemiesInChapter(chapter: string): EnemyDef[] {
   const ch = CHAPTERS.get(chapter);
-  const ids = ch && ch.enemyPool.length > 0 ? ch.enemyPool : null;
+  const ids = ch ? ch.enemyPool : [];
   const out: EnemyDef[] = [];
   for (const d of ENEMIES.values()) {
     if (d.weight <= 0) continue;
-    if (ids ? ids.includes(d.id) : d.chapters.includes(chapter)) out.push(d);
+    if (ids.includes(d.id) || d.chapters.includes(chapter)) out.push(d);
   }
   return out;
 }
