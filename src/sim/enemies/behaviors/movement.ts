@@ -15,6 +15,7 @@ import type { World } from '../../world';
 import type { Enemy } from '../enemy';
 import { lineClear } from '../pathfield';
 import { triggerAttacks } from '../attackRunner';
+import { bounce, lurk } from './ext-a';
 import {
   ON_APPEAR,
   ON_BONK,
@@ -735,4 +736,6 @@ export const MOVES: Readonly<Record<MoveKind, MoveBehavior>> = {
   wallCrawl,
   float,
   turret,
+  bounce,
+  lurk,
 };
