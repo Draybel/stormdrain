@@ -13,7 +13,7 @@
  * floorStart, bomb, pickup, use). Each held trigger rolls its chance (+ luck scaling) on combatRng.
  */
 
-import { allSets, allSynergies, findItem, getItem } from '../content/registry';
+import { allSets, allSynergies, findItem, findSet, getItem } from '../content/registry';
 import { recomputeAttack } from './attack/recomputeAttack';
 import { explode } from './bombs';
 import { damageArea } from './combat';
@@ -42,8 +42,10 @@ import type {
   HookEffect,
   ItemDef,
   ItemId,
+  ItemSetDef,
   PickupsEffect,
   Requirement,
+  SynergyDef,
   TriggerEffect,
   TriggerOn,
 } from './types';
@@ -130,19 +132,45 @@ function forEachHeld(p: Player, fn: (def: ItemDef) => void): void {
   }
 }
 
+/** Scratch list of distinct item ids (set / tag counting; recompute only, never per tick). */
+const distinct: string[] = [];
+
+/** How many DISTINCT held items (passives, the active, trinkets) pass `test` — duplicates count once. */
+function countDistinct(p: Player, test: (d: ItemDef) => boolean): number {
+  distinct.length = 0;
+  forEachHeld(p, (d) => {
+    if (test(d) && !distinct.includes(d.id)) distinct.push(d.id);
+  });
+  const n = distinct.length;
+  distinct.length = 0;
+  return n;
+}
+
+/** Distinct held items of an item set (a transformation needs `need` of them). */
+export function setProgress(p: Player, setId: string): number {
+  return countDistinct(p, (d) => d.set === setId);
+}
+
+/** A synergy requirement: an item held, or at least `count` DISTINCT held items carrying the tag. */
 export function requirementMet(p: Player, req: Requirement): boolean {
   if (typeof req === 'string') return countItem(p.inv, req) > 0;
-  let n = 0;
-  forEachHeld(p, (d) => {
-    if (d.tags.includes(req.tag)) n++;
-  });
-  return n >= (req.count ?? 1);
+  return countDistinct(p, (d) => d.tags.includes(req.tag)) >= (req.count ?? 1);
 }
+
+/** Sets / synergies that switched on for the first time during a recompute (their one-time part runs after it). */
+const firstSets: ItemSetDef[] = [];
+const firstSynergies: SynergyDef[] = [];
 
 /**
  * Rebuilds everything derived from the inventory: stats, flags, trigger lists, slot counts,
- * completed sets, synergies and the attack loadout (then asks the attack pipeline to rebuild).
+ * transformations, synergies and the attack loadout (then asks the attack pipeline to rebuild).
  * Allocates a little (fresh trigger arrays) — it only runs when items change.
+ *
+ * Transformations (ItemSetDef): `need` distinct held items of a set add it to `p.sets` for the rest of the
+ * run; every set in `p.sets` adds its costume ('set:<id>'), style and persistent effects. Synergies
+ * (SynergyDef) are active while their requirements hold. A set's / synergy's FIRST activation in the run
+ * emits 'transform' / 'synergy' and runs its instant effects and hook once — after the rebuild, because
+ * they may change items (and recompute again).
  */
 export function recomputePlayer(w: World): void {
   const p = w.player;
@@ -153,29 +181,37 @@ export function recomputePlayer(w: World): void {
 
   forEachHeld(p, (d) => addItemEffects(p, d, triggers));
 
-  // Item sets (transformations).
-  p.sets.length = 0;
+  // Item sets (transformations): earned once, kept for the run.
   const sets = allSets();
   for (let s = 0; s < sets.length; s++) {
     const set = sets[s]!;
-    let n = 0;
-    forEachHeld(p, (d) => {
-      if (d.set === set.id) n++;
-    });
-    if (n < set.need) continue;
+    if (p.sets.includes(set.id) || setProgress(p, set.id) < Math.max(1, set.need)) continue;
     p.sets.push(set.id);
+    firstSets.push(set);
+  }
+  for (let s = 0; s < p.sets.length; s++) {
+    const set = findSet(p.sets[s]!);
+    if (!set) continue;
     if (set.costume) p.loadout.costumes.push(`set:${set.id}`);
+    if (set.style) p.loadout.styles.push(set.style);
     for (const e of set.effects) if (isPersistent(e)) addPersistent(p, e, set.id, triggers);
   }
 
-  // Special synergies.
+  // Special synergies: active while their requirements hold.
   p.synergies.length = 0;
   const syns = allSynergies();
   for (let s = 0; s < syns.length; s++) {
     const syn = syns[s]!;
-    if (!syn.requires.every((r) => requirementMet(p, r))) continue;
+    let ok = syn.requires.length > 0;
+    for (let r = 0; r < syn.requires.length && ok; r++) ok = requirementMet(p, syn.requires[r]!);
+    if (!ok) continue;
     p.synergies.push(syn.id);
+    if (syn.style) p.loadout.styles.push(syn.style);
     for (const e of syn.effects) if (isPersistent(e)) addPersistent(p, e, syn.id, triggers);
+    if (!p.synergiesSeen.includes(syn.id)) {
+      p.synergiesSeen.push(syn.id);
+      firstSynergies.push(syn);
+    }
   }
 
   // Temporary effects from uses / triggers.
@@ -194,6 +230,26 @@ export function recomputePlayer(w: World): void {
   p.statsVersion++;
   p.loadout.version++;
   recomputeAttack(p);
+
+  if (firstSets.length > 0 || firstSynergies.length > 0) runFirstActivations(w);
+}
+
+/** The one-time part of new transformations / synergies: event, instant effects, hook. */
+function runFirstActivations(w: World): void {
+  const p = w.player;
+  // Copies: the effects below may recompute (and fill the scratch lists) again.
+  const sets = firstSets.splice(0);
+  const syns = firstSynergies.splice(0);
+  for (const set of sets) {
+    w.events.emit('transform', p.x, p.y - 12, p.sets.length, 0, set.id);
+    executeEffects(w, set.effects, p.x, p.y, set.id, true);
+    if (set.hook) runHook(w, { type: 'hook', hook: set.hook }, p.x, p.y, set.id);
+  }
+  for (const syn of syns) {
+    w.events.emit('synergy', p.x, p.y - 12, 0, 0, syn.id);
+    executeEffects(w, syn.effects, p.x, p.y, syn.id, true);
+    if (syn.hook) runHook(w, { type: 'hook', hook: syn.hook }, p.x, p.y, syn.id);
+  }
 }
 
 // ── Instant effects ───────────────────────────────────────────────────────────

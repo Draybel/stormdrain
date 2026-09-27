@@ -118,6 +118,8 @@ export const COUNTER_IDS = [
   'tinHeartsGained',
   'emberNovas',
   'shopsDestroyed',
+  'consumablesUsed',
+  'trades',
 ] as const;
 export type CounterId = (typeof COUNTER_IDS)[number];
 
@@ -476,13 +478,14 @@ export class MetaStore {
     return true;
   }
 
-  isUnlocked(kind: UnlockKind, id: string): boolean {
-    return this.meta.unlocks[kind].has(id);
+  /** `kind`: a known UnlockKind, or any other kind (kept as its own set, e.g. 'chapters'). */
+  isUnlocked(kind: UnlockKind | (string & {}), id: string): boolean {
+    return this.meta.unlocks[kind]?.has(id) ?? false;
   }
 
-  /** Returns true when newly unlocked. */
-  unlock(kind: UnlockKind, id: string): boolean {
-    const set = this.meta.unlocks[kind];
+  /** Returns true when newly unlocked. Unknown kinds get their own set (saved like the known ones). */
+  unlock(kind: UnlockKind | (string & {}), id: string): boolean {
+    const set = this.meta.unlocks[kind] ?? (this.meta.unlocks[kind] = new Set<string>());
     if (!id || set.has(id)) return false;
     set.add(id);
     this.change.unlocked.push(`${kind}:${id}`);

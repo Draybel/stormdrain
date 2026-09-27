@@ -107,7 +107,9 @@ export const getChapter = (id: string): ChapterDef => must(CHAPTERS, 'chapter', 
 export const getSynergy = (id: string): SynergyDef => must(SYNERGIES, 'synergy', id);
 export const getSet = (id: string): ItemSetDef => must(SETS, 'set', id);
 export const findSet = (id: string): ItemSetDef | undefined => SETS.get(id);
+export const findSynergy = (id: string): SynergyDef | undefined => SYNERGIES.get(id);
 export const getAchievement = (id: string): AchievementDef => must(ACHIEVEMENTS, 'achievement', id);
+export const findAchievement = (id: string): AchievementDef | undefined => ACHIEVEMENTS.get(id);
 export const getFamiliar = (id: string): FamiliarDef => must(FAMILIARS, 'familiar', id);
 export const findFamiliar = (id: string): FamiliarDef | undefined => FAMILIARS.get(id);
 export const getDropTable = (id: string): DropTableDef => must(DROP_TABLES, 'drop table', id);
@@ -181,8 +183,31 @@ export function bossesInChapter(chapter: string, kind: BossDef['kind']): BossDef
   return out;
 }
 
-const ALL_SYNERGIES: readonly SynergyDef[] = [...SYNERGIES.values()];
-const ALL_SETS: readonly ItemSetDef[] = [...SETS.values()];
+const ALL_SYNERGIES: SynergyDef[] = [...SYNERGIES.values()];
+const ALL_SETS: ItemSetDef[] = [...SETS.values()];
+const ALL_ACHIEVEMENTS: AchievementDef[] = [...ACHIEVEMENTS.values()];
+
+/**
+ * Runtime registration of a synergy / item set / achievement for tests and tools (game content belongs
+ * in src/content/synergies, sets, achievements). Throws on a duplicate id.
+ */
+export function registerSynergy(def: SynergyDef): void {
+  if (SYNERGIES.has(def.id)) throw new Error(`duplicate synergy id "${def.id}"`);
+  SYNERGIES.set(def.id, def);
+  ALL_SYNERGIES.push(def);
+}
+
+export function registerSet(def: ItemSetDef): void {
+  if (SETS.has(def.id)) throw new Error(`duplicate set id "${def.id}"`);
+  SETS.set(def.id, def);
+  ALL_SETS.push(def);
+}
+
+export function registerAchievement(def: AchievementDef): void {
+  if (ACHIEVEMENTS.has(def.id)) throw new Error(`duplicate achievement id "${def.id}"`);
+  ACHIEVEMENTS.set(def.id, def);
+  ALL_ACHIEVEMENTS.push(def);
+}
 
 export function allItems(): readonly ItemDef[] {
   return ALL_ITEMS;
@@ -194,6 +219,11 @@ export function allSynergies(): readonly SynergyDef[] {
 
 export function allSets(): readonly ItemSetDef[] {
   return ALL_SETS;
+}
+
+/** Every achievement (registry order: by file, then by position in the file). */
+export function allAchievements(): readonly AchievementDef[] {
+  return ALL_ACHIEVEMENTS;
 }
 
 /** Items carrying a tag (in registry order). */

@@ -7,7 +7,7 @@
 import { validateBossDef } from '../sim/bosses/validate';
 import { validateChampionDef, validateEnemyDef } from '../sim/enemies/validate';
 import { hasHook } from '../sim/hooks';
-import { CHAPTER_PALETTE_KEYS, costumeList, type Effect, type SpriteDef } from '../sim/types';
+import { ACHIEVEMENT_EVENTS, CHAPTER_PALETTE_KEYS, costumeList, type Effect, type SpriteDef } from '../sim/types';
 import {
   ACHIEVEMENTS,
   BOSSES,
@@ -140,6 +140,18 @@ export function validateContent(): string[] {
 
   for (const a of ACHIEVEMENTS.values()) {
     const at = `achievement ${a.id}`;
+    need(a.name.length > 0 && a.desc.length > 0, `${at}: needs a name and a description`);
+    const c = a.condition;
+    if (c.kind === 'event') {
+      need((ACHIEVEMENT_EVENTS as readonly string[]).includes(c.event), `${at}: unknown event "${c.event}"`);
+      if (c.event === 'bossKilled' && c.id) need(BOSSES.has(c.id), `${at}: unknown boss "${c.id}"`);
+      if (c.event === 'characterWin' && c.id) need(CHARACTERS.has(c.id), `${at}: unknown character "${c.id}"`);
+      if (c.event === 'itemCollected' && c.id) need(ITEMS.has(c.id), `${at}: unknown item "${c.id}"`);
+      if (c.event === 'transformation' && c.id) need(SETS.has(c.id), `${at}: unknown set "${c.id}"`);
+    } else {
+      need(typeof c.counter === 'string' && c.counter.length > 0, `${at}: counter condition without a counter`);
+      need(Number.isFinite(c.atLeast) && c.atLeast > 0, `${at}: atLeast must be > 0`);
+    }
     for (const u of a.unlocks) {
       if (u.kind === 'item') need(ITEMS.has(u.id), `${at}: unlocks unknown item "${u.id}"`);
       if (u.kind === 'character') need(CHARACTERS.has(u.id), `${at}: unlocks unknown character "${u.id}"`);

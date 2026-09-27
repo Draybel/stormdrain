@@ -37,8 +37,8 @@ export function nearestTarget(sim: Sim): Enemy | null {
   return best;
 }
 
-/** Plays a boss fight to its end (or `maxTicks`) in god mode. */
-export function fightBoss(sim: Sim, maxTicks: number): FightResult {
+/** Plays a boss fight to its end (or `maxTicks`) in god mode. `each` runs after every step (e.g. the meta tracker). */
+export function fightBoss(sim: Sim, maxTicks: number, each?: () => void): FightResult {
   const w = sim.world;
   w.godMode = true;
   const input = makeInput();
@@ -60,6 +60,7 @@ export function fightBoss(sim: Sim, maxTicks: number): FightResult {
     input.moveY = [0, 1, 0, -1][side]! * 0.6;
     sim.step(input);
     clearEdges(input);
+    each?.();
     const q = sim.events;
     for (let i = 0; i < q.count; i++) {
       const e = q.at(i);

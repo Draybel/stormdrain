@@ -123,6 +123,11 @@ export class World {
   /** Debug god mode: the player takes no damage. */
   godMode = false;
   /**
+   * Items locked in the run's meta snapshot (`RunOptions.unlocked`, sim/run/pools.ts): drop tables never
+   * roll them either. Null outside floor runs (the training yard offers everything).
+   */
+  lockedItems: ReadonlySet<string> | null = null;
+  /**
    * Current room presentation state set by the floor run (sim/run): door slots, the trapdoor, the
    * chapter whose palette the room uses, and the floor curse (render + deluge movement).
    */

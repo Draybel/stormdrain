@@ -201,6 +201,7 @@ export class Run {
     this.lockedSet = new Set(data.locked);
     this.unlockedSet = new Set(data.unlocked);
     this.seenSet = new Set(data.seen);
+    host.world.lockedItems = this.lockedSet;
     host.world.onSecretWallBombed = (x, y) => this.onBombed(x, y);
     host.world.onExplosion = (x, y, r) => this.onExplosion(x, y, r);
   }

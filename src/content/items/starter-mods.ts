@@ -214,6 +214,8 @@ const items: ItemDef[] = [
     desc: 'SHOTS SHATTER INTO CRYSTAL SHARDS',
     kind: 'passive',
     quality: 3,
+    /** Locked until the 'deeper-still' achievement (src/content/achievements/core.ts). */
+    unlock: 'deeper-still',
     pools: ['treasure'],
     tags: ['modifier', 'glimmer'],
     effects: [
@@ -228,6 +230,8 @@ const items: ItemDef[] = [
     desc: 'HITS ARC LIGHTNING TO NEARBY FOES',
     kind: 'passive',
     quality: 3,
+    /** Locked until the 'dry-socks' achievement (src/content/achievements/core.ts). */
+    unlock: 'dry-socks',
     pools: ['treasure'],
     tags: ['modifier', 'stormcaller', 'lightning'],
     effects: [
@@ -243,6 +247,8 @@ const items: ItemDef[] = [
     desc: 'SHOTS GO POP! · NEVER HURTS YOU',
     kind: 'passive',
     quality: 3,
+    /** Locked until the 'drain-cleaner' achievement (src/content/achievements/core.ts). */
+    unlock: 'drain-cleaner',
     pools: ['treasure'],
     tags: ['modifier', 'toybox', 'explosive'],
     effects: [{ type: 'mod', mod: 'explode' }],
@@ -282,6 +288,8 @@ const items: ItemDef[] = [
     desc: 'COLD SHOTS MAY FREEZE FOES SOLID',
     kind: 'passive',
     quality: 3,
+    /** Locked until the 'pack-rat' achievement (src/content/achievements/core.ts). */
+    unlock: 'pack-rat',
     pools: ['treasure'],
     tags: ['modifier', 'glimmer'],
     effects: [
@@ -297,6 +305,8 @@ const items: ItemDef[] = [
     desc: 'SHOTS MAY CHARM FOES ONTO YOUR SIDE',
     kind: 'passive',
     quality: 3,
+    /** Locked until the 'soaked-through' achievement (src/content/achievements/core.ts). */
+    unlock: 'soaked-through',
     pools: ['treasure'],
     tags: ['modifier', 'toybox'],
     effects: [

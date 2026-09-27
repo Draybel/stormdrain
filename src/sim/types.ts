@@ -809,9 +809,15 @@ export interface ChapterDecor {
 
 // ── Synergies, sets, familiars, achievements ─────────────────────────────────
 
-/** An item id, or "at least `count` (default 1) held items with this tag". */
+/** An item id, or "at least `count` (default 1) DISTINCT held items with this tag". */
 export type Requirement = ItemId | { tag: string; count?: number };
 
+/**
+ * A special synergy (ARCHITECTURE §4.7, sim/effects.ts): active while every requirement holds (re-checked
+ * on every inventory change, so it switches off when an item is lost). While active its persistent effects
+ * join the loadout (source = the synergy id) and `style` tints the shots. The first time it switches on in
+ * a run: a 'synergy' event (the SYNERGY: NAME banner), its instant effects and `hook` run once.
+ */
 export interface SynergyDef {
   id: SynergyId;
   name: string;
@@ -821,16 +827,24 @@ export interface SynergyDef {
   hook?: HookId;
 }
 
-/** Transformation: hold `need` items whose `set` is this id. */
+/**
+ * Transformation (sim/effects.ts): holding `need` DISTINCT items whose `set` is this id transforms the
+ * player for the rest of the run (kept even if a set item is lost later; saved with the run): a
+ * 'transform' event (fanfare + big banner), the costume layers (they replace item layers of the same
+ * layer slot), persistent `effects` as a loadout source (source = the set id), `style` on the shots.
+ * Instant effects (hearts, heal, pickups, hook effects) and `hook` run once, at the transformation.
+ */
 export interface ItemSetDef {
   id: SetId;
   name: string;
   desc: string;
-  /** Items needed (default design: 3). */
+  /** Distinct items needed (default design: 3). */
   need: number;
   effects: readonly Effect[];
   costume?: CostumeSpec;
   hook?: HookId;
+  /** Look of the player's shots while transformed (like SynergyDef.style). */
+  style?: StyleOverride;
 }
 
 /**
@@ -868,14 +882,80 @@ export interface FamiliarDef {
   glow?: string;
 }
 
-export interface AchievementCondition {
-  /** Lifetime/run counter name (meta stats), e.g. 'deaths', 'bossKills.gutter-boss'. */
+/**
+ * Things that happen in a run that an achievement can wait for (reported by the meta tracker,
+ * src/meta/tracker.ts). Each carries an `id` and a `value` the condition may filter on:
+ */
+export const ACHIEVEMENT_EVENTS = [
+  /** An enemy died: id = enemy id. */
+  'enemyKilled',
+  /** A boss fight was won: id = boss id; value = 0 boss, 1 miniboss, 2 final boss. */
+  'bossKilled',
+  /** An item was picked up fresh: id = item id; value = items held afterwards. */
+  'itemCollected',
+  /** Items held at once (passives incl. duplicates + the active + trinkets): value. */
+  'itemsHeld',
+  /** Familiars at once: value. */
+  'familiars',
+  /** Coins held at once: value. */
+  'coinsHeld',
+  /** A floor began: value = floor number; id = chapter id. */
+  'floorReached',
+  /** A chapter began: value = chapter number (1-6); id = chapter id. */
+  'chapterReached',
+  /** A floor was finished (its exit taken, or the run won there) without taking damage: value = floor. */
+  'noDamageFloor',
+  /** A run was won with an ending: value = the ending (1 Clear Skies, 2 The Quiet Hive, 3 What the Rain Kept). */
+  'endingReached',
+  /** A run was won: id = character id; value = the ending. */
+  'characterWin',
+  /** The player transformed: id = set id. */
+  'transformation',
+  /** A special synergy switched on for the first time in a run: id = synergy id. */
+  'synergy',
+  /** A secret wall was blasted open: value = 0 secret room, 1 deep secret. */
+  'secretFound',
+  /** A chest opened: id = 'satchel' | 'lockbox'. */
+  'chestOpened',
+  /** The player died: value = floor. */
+  'death',
+] as const;
+export type AchievementEvent = (typeof ACHIEVEMENT_EVENTS)[number];
+
+/**
+ * A lifetime counter reached `atLeast`. `counter` is a stat (runs, wins, deaths, kills, bossKills,
+ * itemsCollected, floorsCleared, playTimeSec, bestFloor, winStreak, bestWinStreak), a meta counter id
+ * (chestsOpened, secretsFound, activesUsed… — any id the tracker bumps, src/meta/metaState.ts COUNTER_IDS),
+ * or a keyed count: 'killed.<enemy or boss id>', 'collected.<item id>', 'charWins.<character id>',
+ * 'charRuns.<character id>', 'achievements' (earned so far), 'discovered' (items seen).
+ */
+export interface AchievementCounterCondition {
+  kind?: 'counter';
   counter: string;
   atLeast: number;
 }
 
+/** An event happened (optionally only with this id, this exact value, or at least this value). */
+export interface AchievementEventCondition {
+  kind: 'event';
+  event: AchievementEvent;
+  id?: string;
+  /** The event's value must equal this (e.g. ending 2). */
+  value?: number;
+  /** The event's value must be at least this (e.g. 10 items held). */
+  atLeast?: number;
+}
+
+export type AchievementCondition = AchievementCounterCondition | AchievementEventCondition;
+
+/**
+ * An achievement's reward (the meta unlock sets, src/meta/metaState.ts): 'item' → items, 'character' →
+ * characters, 'route' → routes, 'ending' → endings ('ending1' opens the alt route into chapter 6;
+ * 'ending1' + 'ending2' open the whirlpool to floor 13), 'challenge' → challenges; 'chapter' / 'feature'
+ * are kept for later menus. Items / characters whose `unlock` names the achievement are unlocked by it too.
+ */
 export interface UnlockRef {
-  kind: 'item' | 'character' | 'route' | 'ending' | 'chapter' | 'feature';
+  kind: 'item' | 'character' | 'route' | 'ending' | 'challenge' | 'chapter' | 'feature';
   id: string;
 }
 
@@ -883,6 +963,7 @@ export interface AchievementDef {
   id: AchievementId;
   name: string;
   desc: string;
+  /** Not listed (name and description) until earned. */
   hidden?: boolean;
   condition: AchievementCondition;
   unlocks: readonly UnlockRef[];

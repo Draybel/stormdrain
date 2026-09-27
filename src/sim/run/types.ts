@@ -205,6 +205,10 @@ export interface PlayerSnap {
   atkDirY: number;
   keeper: boolean;
   dead: boolean;
+  /** Transformations earned this run (item set ids; optional so older snapshots load). */
+  sets?: string[];
+  /** Synergies already announced this run (their one-time part ran). */
+  synergiesSeen?: string[];
 }
 
 export interface WorldSnap {

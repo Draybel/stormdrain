@@ -1,5 +1,6 @@
 /**
- * Bootstrap: display + input + audio + scenes + loop + lifecycle, and the window.__SD test hooks.
+ * Bootstrap: display + input + audio + scenes + loop + lifecycle, saves (meta progress, the run save,
+ * achievements — src/meta/save.ts), toasts, the service worker, and the window.__SD test hooks.
  */
 
 import { createAudio } from './audio/engine';
@@ -8,8 +9,12 @@ import { Display } from './engine/display';
 import { Input } from './engine/input';
 import { installLifecycle } from './engine/lifecycle';
 import { Loop } from './engine/loop';
-import { SettingsStore } from './meta/settings';
-import { saveRunNow } from './meta/save';
+import { defaultSettings, SettingsStore } from './meta/settings';
+import { fromRuntimeSettings, toRuntimeSettings } from './meta/metaState';
+import { GameSave, installGameSave, saveRunNow } from './meta/save';
+import { createStorage, requestPersistentStorage } from './meta/storage';
+import { registerServiceWorker } from './pwa/register';
+import { TOAST_ACHIEVEMENT, TOAST_NOTICE, ToastLayer } from './render/toasts';
 import { ParticleSystem, PARTICLE_CAP } from './render/particles';
 import { RotateScreen } from './render/rotateScreen';
 import { ScreenShake } from './render/shake';
@@ -33,8 +38,12 @@ function boot(): void {
   const display = new Display(canvas, document.getElementById('safe-probe'));
   const registry = new ButtonRegistry();
   const input = new Input(canvas, display, registry);
-  const settings = new SettingsStore();
+  // Saves first: the settings the player chose last time come from the meta save.
+  const save = new GameSave(createStorage());
+  installGameSave(save);
+  const settings = new SettingsStore({ ...defaultSettings(), ...toRuntimeSettings(save.meta.settings) });
   const s0 = settings.value;
+  const toasts = new ToastLayer();
   const audio = createAudio({ master: s0.masterVolume, music: s0.musicVolume, sfx: s0.sfxVolume });
   const particles = new ParticleSystem();
   const shake = new ScreenShake();
@@ -44,8 +53,36 @@ function boot(): void {
   let clock = 0;
 
   const nav: Nav = {
-    title: () => scenes.replace(new TitleScene(app)),
-    newRun: () => scenes.replace(new RunScene(app, 'run')),
+    title: () => {
+      // Leaving a run keeps it for Continue (saved as it was when the player entered the room).
+      saveRunNow();
+      scenes.replace(new TitleScene(app));
+    },
+    newRun: () => {
+      save.abandonSavedRun();
+      scenes.replace(new RunScene(app, 'run'));
+    },
+    continueRun: () => {
+      const r = save.loadRun();
+      if (!r.ok) {
+        toasts.push(TOAST_NOTICE, "CAN'T CONTINUE", r.message);
+        // A damaged run can never load: drop it (a newer version's run is left alone).
+        if (r.reason === 'corrupt') save.clearRun();
+        return false;
+      }
+      let scene: RunScene;
+      try {
+        scene = new RunScene(app, 'run', r.snapshot);
+      } catch (err) {
+        console.warn('run restore failed', err);
+        toasts.push(TOAST_NOTICE, "CAN'T CONTINUE", "THE SAVED RUN COULDN'T BE RESTORED");
+        save.clearRun();
+        return false;
+      }
+      scenes.replace(scene);
+      if (r.restored) toasts.push(TOAST_NOTICE, 'RUN RESTORED', 'THE LATEST SAVE WAS DAMAGED · USED THE ONE BEFORE');
+      return true;
+    },
     yard: () => scenes.replace(new RunScene(app, 'yard')),
     map: () => {
       const sim = getSim();
@@ -72,14 +109,35 @@ function boot(): void {
       scenes.push(new DebugMenu(app, debugActions));
     },
   };
-  const app: App = { display, input, scenes, audio, settings, particles, shake, nav };
+  const app: App = { display, input, scenes, audio, settings, particles, shake, nav, save, toasts };
 
   settings.subscribe((s) => {
     input.setAim360(s.aim360);
     shake.scale = s.shake;
     audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
     scenes.relayout();
+    // Settings persist in the meta save (a no-op when nothing changed).
+    save.meta.updateSettings(fromRuntimeSettings(s));
   });
+  save.host = {
+    savableRun: () => {
+      const run = scenes.find('run');
+      return run instanceof RunScene ? run.savableSim() : null;
+    },
+  };
+  toasts.onShow = (kind) => {
+    if (kind === TOAST_ACHIEVEMENT) audio.play('achievement');
+  };
+  /** Achievements earned this tick → toasts (the trophy banner over the bottom wall; never blocks play). */
+  const drainAchievements = (): void => {
+    for (let a = save.achievements.drain(); a; a = save.achievements.drain()) {
+      toasts.push(TOAST_ACHIEVEMENT, `ACHIEVEMENT · ${a.name}`, a.rewards[0] ?? a.desc);
+    }
+  };
+  // A save restored from its backup / found damaged: a toast at boot. The lasting ones (a newer version's save,
+  // no storage) stay on the title instead.
+  const notice = save.notice;
+  if (notice && !notice.lasting) toasts.push(TOAST_NOTICE, notice.title, notice.line);
   input.onDebugToggle = () => nav.debug();
   input.onPerfToggle = () => perf.toggle();
 
@@ -122,11 +180,16 @@ function boot(): void {
       perf.update(dt, perfLines);
       if (display.portrait) {
         input.endTick();
+        save.endTick();
         return;
       }
       input.poll();
       scenes.update(dt, input.state);
       input.endTick();
+      // Meta: counter achievements, then the end-of-tick save; new achievements become toasts.
+      save.endTick();
+      drainAchievements();
+      toasts.update(dt);
     },
     render(alpha) {
       display.update();
@@ -144,6 +207,7 @@ function boot(): void {
       wasPortrait = false;
       const ctx = display.ctx;
       scenes.render(ctx, alpha);
+      toasts.draw(ctx);
       perf.draw(ctx);
       display.present();
     },
@@ -173,8 +237,15 @@ function boot(): void {
     return true;
   };
   installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions, getPresentation, restartRun });
-  nav.title();
+  scenes.replace(new TitleScene(app));
   loop.start();
+
+  // Offline play + the home-screen app (production builds on secure origins only; never blocks boot).
+  void registerServiceWorker({
+    onUpdate: () => toasts.push(TOAST_NOTICE, 'GAME UPDATED', 'RESTART TO PLAY THE NEW VERSION'),
+  });
+  // Ask the browser not to evict the saves (best effort).
+  void requestPersistentStorage();
 }
 
 try {

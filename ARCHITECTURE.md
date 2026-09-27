@@ -28,7 +28,8 @@ src/
   render/            renderer, sprite cache, pixel font, HUD, minimap, particles, lighting, effects
   ui/                canvas UI scenes & widgets (title, menus, pause, collection, settings...)
   audio/             Web Audio engine, procedural SFX (built-in recipes + sfxLibrary), music/ sequencer (§8)
-  meta/              save slots, codec, migrations, MetaStore, RunSaveStore, export codes, settings (§7)
+  meta/              save slots, codec, migrations, MetaStore, RunSaveStore, export codes, settings, the game's
+                     save service, meta tracker, achievements engine, unlocks (§7, §7a)
   pwa/               service-worker registration + pure precache / worker-source builders (§7)
   debug/             hidden debug menu, perf overlay
 tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, bot)
@@ -61,10 +62,11 @@ src/content/hooks/*.ts        side-effect modules that call registerHook(name, f
 `src/content/registry.ts` builds the lookup maps and **throws on duplicate ids** (a unit test enforces this).
 It exports one `Map` per type (`ITEMS`, `ENEMIES`, `BOSSES`, `CHARACTERS`, `CHAPTERS`, `SYNERGIES`, `SETS`,
 `ACHIEVEMENTS`, `FAMILIARS`, `DROP_TABLES`, `CHAMPIONS`) plus typed helpers (`getItem` throws on unknown ids, `findItem`
-returns undefined, `itemsWithTag`, `itemsInPool`, `findEnemy`, `enemiesInChapter`, `allChampions`…). Rooms and music
+returns undefined, `itemsWithTag`, `itemsInPool`, `findEnemy`, `enemiesInChapter`, `allChampions`, `findSet`,
+`findSynergy`, `findAchievement`, `allSets` / `allSynergies` / `allAchievements`…). Rooms and music
 are collected by their own modules instead: `ROOM_TEMPLATES` (`sim/floor/library.ts`, checked by `validateTemplates`
 in tests/floorgen.test.ts) and `audio/music/registry.ts` (`getTrack`, throws on duplicate ids) — music stays out of
-the content registry so the sim, which imports it, never pulls in audio code. `registerItem(def)` / `registerEnemy(def)` exist only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
+the content registry so the sim, which imports it, never pulls in audio code. `registerItem(def)` / `registerEnemy(def)` / `registerBoss` / `registerSet` / `registerSynergy` / `registerAchievement` exist only for tests/tools. `src/content/validate.ts` (`validateContent()`) checks every
 cross-reference (start items, sets, achievements, familiars, drop tables, hooks, chapters…) and every sprite; the
 unit tests require it to return no problems. Hook modules get their sim services through `ctx.api` (a `HookApi`,
 see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the registry free of import cycles.
@@ -98,7 +100,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   drag (`dragged`) that never activates; `downX/downY/curX/curY` give the gesture. The mouse wheel over the canvas goes
   to the top scene's `onWheel(dy, x, y)`.
 - Audio unlocks on the first pointerdown/touchend/keydown (resume AudioContext + silent buffer).
-- `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run**, suspend audio.
+- `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run** (`saveRunNow()`: the run save + a meta
+  flush, §7), suspend audio.
 - Portrait orientation (height > width): draw a "rotate your phone" screen, pause, and ignore pointer-downs and menu
   keys (the hidden UI underneath must not be pressable).
 
@@ -127,7 +130,8 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   `world.props` (`sim/roomProps.ts`: the arena's pressure plate, the hidden-route grate, the whirlpool, the
   skylight, the NPC perched on the top wall), `world.onExplosion(x, y, r)` (a tile-breaking blast went off —
   called from `explodeTiles`; the run breaks gamblers open and cracks the grate with it) and `arena.locked` (doors
-  stay shut between the Rain Barrel Arena's waves).
+  stay shut between the Rain Barrel Arena's waves). `world.lockedItems` (Phase 4A): the run's locked item ids (its meta
+  unlock snapshot, §7a) — drop tables never roll them either; null outside runs (the yard offers everything).
 - Entities are pooled classes with an `alive` flag; removal = swap-remove or free-list. Hot loops use scratch vectors,
   no closures/arrays/objects allocated per tick. Collision is circle-vs-circle for actors/shots and circle-vs-grid for tiles.
 - Units: pixels and seconds (dt = 1/60). Room-local coordinates: (0,0) = top-left of the interior floor.
@@ -191,10 +195,22 @@ object (its identity never changes).
 ### Items, effects, inventory (`sim/effects.ts`, `sim/inventory.ts`, `sim/loadout.ts`)
 - Effects are PERSISTENT (`stat, mod, carrier, familiar, flag, trigger`: derived from what is held) or INSTANT
   (`heal, hearts, pickups, hook`: run once). `recomputePlayer(w)` rebuilds stats, flags, trigger lists, slot counts,
-  completed sets, active synergies and `player.loadout` (mod stacks, carriers, familiars) from passives (duplicates
+  transformations, active synergies and `player.loadout` (mod stacks, carriers, familiars) from passives (duplicates
   count), the active item, trinkets, sets, synergies and temporary effects, then calls
   `recomputeAttack(player)` (`sim/attack/recomputeAttack.ts`), which rebuilds `player.attack` (the AttackProfile,
-  §4.1). The loadout also counts carrier copies (`carrierStacks`) and lists the held items with a costume.
+  §4.1). The loadout also counts carrier copies (`carrierStacks`), lists the held items with a costume (then
+  `'set:<id>'` per transformation) and collects `styles` (StyleOverrides of transformations and active synergies, applied
+  last by `composeStyle`, §4.6).
+- **Transformations** (`ItemSetDef`, Phase 4A): holding `need` DISTINCT items whose `ItemDef.set` is the set's id (duplicates
+  count once — `setProgress(p, id)`) adds the id to `player.sets` FOR THE REST OF THE RUN (losing a set item later doesn't
+  undo it; `PlayerSnap.sets` saves it). Every set in `player.sets` adds its persistent effects (source = the set id), its
+  costume (its layers replace item layers of the same slot — render/attackRenderer CostumeCache) and its `style`. The first
+  time: a 'transform' event (fanfare, big banner, light pillar), then its INSTANT effects and `hook` run once — after the
+  rebuild, because they may change items (`runFirstActivations`; no re-entrancy into a running recompute).
+- **Synergies** (`SynergyDef`, §4.7): active while every requirement holds (`requirementMet`: an item held, or `{ tag, count }`
+  = that many DISTINCT held items with the tag), re-checked on every recompute, so they switch off when an item is lost.
+  Active ones add persistent effects (source = the synergy id) and `style`. The first activation in a run (`player.synergiesSeen`,
+  saved as `PlayerSnap.synergiesSeen`): a 'synergy' event (the SYNERGY: NAME pill), instants + `hook` once.
 - Instants run when a FRESH copy is first picked up, when an active/consumable is used, or when a trigger fires.
   Persistent effects executed in those contexts become TEMPORARY: `duration` seconds, else until the player leaves
   the room (`leftRoom`, called by `loadRoom`).
@@ -517,7 +533,8 @@ dominant modifier's colour, dark outline, highlight, and up to **3 accent colour
 drawn as sparkle pixels on the shot — combos read at a glance). Shape hint: the carrier first (boomerang blade,
 melee crescent, bomb rider bomb), else the strongest shaped modifier (spiky, star, gear, shard, bubble…).
 Trail kinds (embers, bubbles, ice, sparks, wisps, dust, drops — up to 3, with colours; bomb shots always spark),
-glow radius. Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
+glow radius. Last, the loadout's `styles` (transformations, active synergies) override in order: a colour takes 75 % of the
+body and becomes the first accent, a shape replaces the composed one, a trail goes first, glow adds to the radius. Render (`render/attackRenderer.ts`) pre-renders a sprite per (style, shape, size bucket, rotation
 frame) and a glow per (style, size); crescents and shards turn with the heading, blades / gears / stars spin.
 Beams get core / glow / edge colours and lightning jitter from the same style. Wren's keeper marble has its own
 gilded star style.
@@ -525,9 +542,11 @@ gilded star style.
 crackling blue aura (behind, animated, additive, sparks) and glowing storm eyes (per facing).
 
 ### 4.7 Special synergies
-`SynergyDef { id, name, requires: ItemId[] (or tags), effects: Effect[], style?: StyleOverride, hook?: string }`.
-Evaluated when inventory changes; active ones are added to the profile like items. Automatic stacking is the default;
-special synergies add unique flourishes on top. All listed in SYNERGIES.md.
+`SynergyDef { id, name, requires: (ItemId | { tag, count? })[], effects: Effect[], style?: StyleOverride, hook?: string }`
+(content: `src/content/synergies/*.ts`). Evaluated on every inventory change (`recomputePlayer`, §3): active ones are added
+to the loadout like items (persistent effects, source = the synergy id) and tint the shots (`style`); they switch off again
+when a requirement fails. The first activation per run emits 'synergy' (banner) and runs the instant effects and `hook` once.
+Automatic stacking is the default; special synergies add unique flourishes on top. All listed in SYNERGIES.md.
 
 ### 4.8 Familiars (`attack/familiars.ts`, `content/familiars/*.ts`)
 Synced from the loadout (stable slots, cap 12). `follow` / `hover` join a follower chain trailing the player along
@@ -564,10 +583,13 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   `content/hooks`, params). Persistent kinds accept an optional `duration` for use/trigger contexts.
 - Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
 - `DropTableDef { id, rolls: [min, max], nothing?, luck?, entries: { kind: PickupName, weight, count?, pool? }[] }`.
-- `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook? }`,
+- `SynergyDef` (requires item ids or `{ tag, count }`), `ItemSetDef { id, name, desc, need, effects, costume?, hook?, style? }`,
   `FamiliarDef { id, name, desc, sprite, behavior: 'follow'|'hover'|'orbit'|'guard'|'chase', radius, attackScale
   (0 = never fires), fireRateMul?, contactDamage?, speed?, blocks? (swats enemy shots), glow? }` (§4.8),
-  `AchievementDef { id, name, desc, hidden?, condition: { counter, atLeast }, unlocks: { kind, id }[] }`.
+  `AchievementDef { id, name, desc (≤ 52 chars), hidden?, condition, unlocks: UnlockRef[] }` — `condition` = `{ counter,
+  atLeast }` (a lifetime counter: stat, meta counter id or `killed.<id>` / `collected.<id>` / `charWins.<id>` /
+  `charRuns.<id>` / `achievements` / `discovered`) or `{ kind: 'event', event: ACHIEVEMENT_EVENTS, id?, value?, atLeast? }`
+  (§7a); `UnlockRef { kind: 'item' | 'character' | 'route' | 'ending' | 'challenge' | 'chapter' | 'feature', id }`.
 - `EnemyDef { id, name, hp, speed, radius, contact (half hearts), move: MoveSpec, attacks: AttackSpec[], sprite,
   flying?, chapters: ChapterId[], weight, championable, bestiary, drops?, mass?, onDeath?: DeathSpec[], goo?: colours,
   shot?: EnemyShotStyle, resist?, big? }` — behaviours come from a shared library (`sim/enemies/behaviors`),
@@ -720,7 +742,8 @@ The Sim steps it at the end of every tick (`run.update(input)`).
 - **Snapshots** (`RUN_SNAPSHOT_VERSION` 2): every room entry stores a checkpoint — `JSON.stringify({ v, run: RunData,
   world: WorldSnap, player: PlayerSnap })` (`run/snapshot.ts`: health incl. bonus hearts, inventory + charges, luck
   bonus, temporary effects by value, trigger cooldowns by list position, the per-player timers that carry across
-  rooms, rng states, counters (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode).
+  rooms, the run's transformations and announced synergies (`sets`, `synergiesSeen`, optional), rng states, counters
+  (incl. `donated`, `slotPlays`, `bossKills`), seen enemies, enemy serial, god mode). The run save (§7) stores exactly this.
   `Sim.snapshot()` returns a fresh parse of it (JSON-safe, a few KB); `Sim.fromSnapshot(snap)` restores world + player
   and runs the same `enterCurrent()`, so play continues exactly as it did after the snapshot (same room, same future
   rolls and floors; a boss fight replays identically; tests step both side by side). Progress inside the current
@@ -816,8 +839,25 @@ A boss is an ordinary pooled Enemy (hits, statuses, knockback, collisions, rende
 
 ## 7. Saving & PWA (`src/meta`, `src/pwa`; integration guide: docs/saving.md)
 
-Modules done and tested (side track, merged after Phase 2); main.ts, the scenes and `meta/save.ts` don't use them yet
-(Phase 4 wiring item).
+Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`; `installGameSave` makes the module-level
+`saveRunNow()` reach it) owns the storage (`createStorage()`), the `MetaStore`, the `RunSaveStore` (version =
+`RUN_SNAPSHOT_VERSION`, migrations `RUN_SNAPSHOT_MIGRATIONS` — none yet), the `AchievementEngine` and the `MetaTracker` (§7a):
+- **Meta** saves itself: `save.endTick()` once per loop tick (also while portrait-paused) = counter achievements, then
+  `meta.endTick()` (urgent changes at the end of the tick, frequent ones every 5 s). `saveRunNow()` flushes it too.
+- **Settings** persist: the runtime `SettingsStore` starts from `toRuntimeSettings(meta.settings)` and every change goes back
+  through `meta.updateSettings(fromRuntimeSettings(s))` (a no-op when nothing changed).
+- **The run save** = `Sim.snapshot()` (the room-entry checkpoint, §6b): written when a run starts / is continued, after every
+  room entry (door, trapdoor, grate, whirlpool — the run scene sees 'roomEnter'), on pause, when the page is hidden
+  (visibilitychange / pagehide / blur) and before leaving a run for the title (`nav.title`). `save.host.savableRun()` (the
+  run scene's `savableSim()`) decides what may be written: a floor run in progress — never the yard, never a dead or won
+  run. Death clears the save the moment the player dies (closing the app can't dodge it); a win clears it at 'runEnd'. A
+  New Run over a saved run abandons it (`abandonSavedRun`: a 'quit', the win streak ends).
+- **Continue** (title, shown when `runs.hasRun()`): `save.loadRun()` → `new RunScene(app, 'run', snapshot)` → `Sim.fromSnapshot`
+  (the same room, re-entered exactly). A damaged latest save continues from the previous room's copy (toast "RUN RESTORED"),
+  a damaged / unknown-version one is dropped with a toast, a newer version's is left alone (toast). Restore errors are caught.
+- **Notices**: `save.notice` from the meta load status — restored from the backup, damaged, a newer version's save (the slot
+  is read-only), no persistent storage: the passing ones (restored, damaged) as a toast at boot, the lasting ones (newer
+  version, no storage) as a line on the title.
 - `localStorage` keys: `stormdrain.meta`, `stormdrain.run`. Envelope `{ v: number, data, sum }` (`saveCodec.ts`):
   `sum` = FNV-1a 32 over `'<v>:' + JSON.stringify(data)`, checked by re-serialising the parsed data.
 - `storage.ts`: `createStorage()` (localStorage, in-memory fallback; nothing throws) and one `SaveSlot` per key. A write
@@ -826,7 +866,8 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   A save from a NEWER version makes the slot read-only (status `future`): an old cached build never overwrites newer
   progress. `requestPersistentStorage()` asks the browser not to evict (best effort).
 - Migrations (`migrations.ts`): `MigrationSet`s `META_MIGRATIONS` (`META_VERSION` 1; v0 = the Phase 1 prototype layout)
-  and `RUN_MIGRATIONS` (`RUN_VERSION` 1); the loader upgrades step by step; unknown fields are never thrown away
+  and `RUN_MIGRATIONS` (`RUN_VERSION` 1, the store's default — the game's run slot uses `RUN_SNAPSHOT_VERSION` 2 with
+  `RUN_SNAPSHOT_MIGRATIONS`, meta/save.ts); the loader upgrades step by step; unknown fields are never thrown away
   (unknown top-level keys → `MetaState.extra`, unknown nested keys stay on their objects) and are written back.
 - `metaState.ts` `MetaStore`: settings, unlock sets (saved as sorted arrays), achievements + open-ended counters,
   collection, bestiary, lifetime stats, daily results (one per UTC date, newest 400). Important changes (settings,
@@ -834,10 +875,8 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   tick; frequent ones (kills, counts, play time) at most every 5 s; a failed write retries after 10 s. `flush()`,
   `subscribe()`; `toRuntimeSettings` / `fromRuntimeSettings` adapt to `meta/settings.ts` structurally.
 - `runSave.ts` `RunSaveStore` (`stormdrain.run`): save / load / clear / hasRun of any plain-JSON snapshot ≤ 1 M chars
-  (NaN, Infinity, cycles, Map / Set / class instances are rejected with the offending path). The run saves on every
-  room transition and on background / pause (`saveRunNow()`); the title shows **Continue** when a run save exists.
-  The snapshot is `Sim.snapshot()` (`RunSnapshot`, §6b: the whole `FloorLayout` included); wiring it to
-  `RunSaveStore` / Continue is the Phase 4 item.
+  (NaN, Infinity, cycles, Map / Set / class instances are rejected with the offending path). The snapshot is
+  `Sim.snapshot()` (`RunSnapshot`, §6b: the whole `FloorLayout` included; ≈ 20 KB, < 0.5 ms per save on desktop).
 - Export / Import (`exportCode.ts`): `SD1:` + base64url(UTF-8 of the same checksummed envelope) with body
   `{ app, at, meta: { v, data }, run?: { v, data } }`; import checks prefix, encoding, checksum and version, migrates,
   and returns a plain-language error (changing any character is rejected); a run that can't be upgraded is dropped.
@@ -847,16 +886,50 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   `swSource.ts`: every dist file with relative URLs, version = content hash, cache `stormdrain:<scope>:<version>`.
   The worker precaches with `cache: 'reload'`, serves navigations from the cached `index.html`, is cache-first
   otherwise, and ignores `Vary` on lookups. `src/pwa/register.ts` `registerServiceWorker()` (production + secure
-  origins only; call it from main.ts) applies updates quietly on the next launch, never reloads the page. It assumes
-  a single JS bundle (code splitting would need old chunks kept).
+  origins only; main.ts calls it after boot, plus `requestPersistentStorage()`) applies updates quietly on the next
+  launch, never reloads the page (a toast says "GAME UPDATED · RESTART TO PLAY THE NEW VERSION"). It assumes a single JS
+  bundle (code splitting would need old chunks kept). e2e/pwa.spec.ts checks the links, the manifest's icons,
+  `dist/sw.js` and the registration.
+
+## 7a. Meta progress & achievements (`meta/tracker.ts`, `meta/achievements.ts`, `meta/unlocks.ts`)
+
+- **MetaTracker** (`save.tracker`): the run scene calls `startRun(sim, daily?)` (a new run: `recordRunStart`) or
+  `resumeRun(sim)` (Continue: not a new run), `afterStep()` after every Sim step and `playTime(dt)` each tick the run is on
+  screen; `exit` detaches. From the tick's GameEvents: bestiary ('enemySeen', 'enemyKilled' — bosses once per FIGHT, from
+  `world.counters.bossKills` + `world.boss.id/kind`, never per split part), collection ('item' fresh → collected; every id
+  added to `run.data.seen` → seen, except under the Curse of the Blind), lifetime stats (runs, wins, deaths, kills, boss kills,
+  items, floors cleared, play time, best floor, streaks, per-character runs / wins, the daily result), and counters (chests,
+  keys, coins collected / spent, items bought, broker deals, actives / consumables / tonics / stickers used, bombs, secrets,
+  deep secrets, donations, slot plays, trades, ember novas, alt routes, cursed rooms, challenge rooms, minibosses,
+  transformations, synergies, no-damage / damage-taken floors) and records (`maxItemsHeld`, `maxCoinsHeld`, `maxFamiliars`,
+  polled each tick). A floor is finished when she drops through its exit ('trapdoor' a = 1) or wins on it; it is clean when
+  `world.counters.hurts` didn't change since it began. Death / 'runEnd' end the run (`recordRunEnd`; a win also unlocks
+  `endings: ending<n>` whatever the achievement content says). Nothing is tracked in the yard or after the run ended.
+- **AchievementEngine** (`save.achievements`): pending achievements split into counter watches (checked by
+  `checkCounters()` — the tracker's `endTick` only when something changed) and event lists (`event(kind, id, value)`,
+  filters `id` / `value` / `atLeast`). `grant(def)`: `meta.unlockAchievement`, then its rewards into the meta unlock sets —
+  `unlocks` entries (item → items, character → characters, route → routes, ending → endings, challenge → challenges, other
+  kinds get their own set) and every item / character whose `unlock` names it — and an `EarnedAchievement` (name, desc,
+  reward lines) joins `earned`; main.ts drains it into toasts (+ the 'achievement' sfx). `syncRewards()` at boot re-applies
+  rewards of earned achievements (content added later), then `checkCounters()`.
+- **Unlocks** (`meta/unlocks.ts`): an item / character with `unlock` is unlocked when its id is in the unlock set OR its
+  achievement is earned. `runUnlocks(meta)` = unlocked `unlock`-flagged items + endings + routes: the snapshot a NEW run takes
+  (`RunOptions.unlocked` — RunScene.makeSim / restartRun); a continued run keeps the one it started with.
+- Content: `src/content/achievements/core.ts` (15: first kill, first chest, first boss, 10 items held, 50 coins, 3
+  familiars, a clean floor, chapter 3, 5 secrets, a transformation, 10 deaths, Endings 1-3, a win with Wren). Six starter
+  items are locked behind them (Party Popper, Ice-Cube Tray, Paper Valentine, Geode, Wick Wisp, Rooftop Rod).
 
 ## 7b. Scenes & UI
 - `ui/scene.ts` is a stack: the top scene gets updates and keys and owns the hit-testable buttons; `overlay` scenes
   (pause, settings) draw over the scene below. Scenes never import each other: navigation goes through `App.nav`
   (built in `main.ts`). Menu buttons are canvas-drawn `UiButton`s (>= 24 game px tall, about 44 pt).
-- The run scene (`ui/run.ts`, `RunScene(app, 'run' | 'yard')`): `nav.newRun()` = a real floor run, `nav.yard()` = the
-  training yard (debug menu). In a run: walking through a door freezes stepping for 0.25 s while the previous frame's
-  room image (the back buffer's room rect, copied every run frame) slides out and the new room slides in, clipped to
+- The title (`ui/title.ts`): CONTINUE (primary, only when a run is saved) / NEW RUN / SETTINGS; keys Enter (the top
+  button), C, N, S; the lasting save notice on a line at the bottom.
+- Toasts (`render/toasts.ts` `ToastLayer`, `app.toasts`): achievements (trophy, gold) and notices (drop, blue) slide up over the
+  bottom wall one at a time (3.2 s), drawn by main.ts over every scene; never a button, never over the room's interior.
+- The run scene (`ui/run.ts`, `RunScene(app, 'run' | 'yard', snapshot?)`): `nav.newRun()` = a real floor run,
+  `nav.continueRun()` = the saved one, `nav.yard()` = the training yard (debug menu). In a run: walking through a door
+  freezes stepping for 0.25 s while the previous frame's room image (the back buffer's room rect, copied every run frame) slides out and the new room slides in, clipped to
   the room; the trapdoor closes an iris on the old image (0.45 s) and opens it on the new floor (0.5 s); the floor card
   ('CHAPTER N · NAME', floor, curse) shows 2.8 s; death (after 1.8 s of the death animation) or a final boss shows
   an ending card (the ending's title and line: 1 CLEAR SKIES, 2 THE QUIET HIVE, 3 WHAT THE RAIN KEPT — a stub M4
@@ -868,6 +941,10 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   lines ('npcSay') and jar / gambler / trader / grate notices show in the top band, and the iris closes on wherever she
   fell (the 'trapdoor' event's x,y: trapdoor, grate, whirlpool). Music: chapter loop, floor sting, boss intro + boss theme,
   miniboss / shop / secret themes, quality-4 item fanfare, game over / victory jingles; the pause overlay muffles.
+  Phase 4A (`render/featBanner.ts`): a 'transform' shows the big TRANSFORMATION! banner (set name, its line, sparkles) over
+  the top of the room for 3.2 s with the item fanfare (the 'transformation' sfx via eventSounds, a light pillar + flash in
+  WorldFx); a first 'synergy' shows the SYNERGY: NAME pill in the top band (over the top wall during a boss fight) in place of
+  the room label. Saving / tracking: see §7, §7a.
 - The big map (`ui/mapOverlay.ts`, scene 'map', `nav.map()`): tap the minimap or Tab; an overlay, so the run is paused
   underneath; any tap / Tab / Esc / M closes it.
 - Debug perf overlay: three-finger tap on touch screens; on desktop from the debug menu (or Backquote outside a run).
@@ -966,8 +1043,11 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   `content/music/*.ts` through `audio/music/registry.ts`; ids in `audio/music/ids.ts` — `CHAPTER_MUSIC[chapterId]`
   (= `ch_<chapterId>`, all 12 chapters), `BOSS_MUSIC` / `bossMusicFor`, `FINAL_MUSIC`, `MUSIC` roles (title, shop,
   secret, miniboss, jingles, stingers). `ChapterDef.music` / `BossDef.music` hold track ids (tests/music.test.ts
-  checks them). Wired in Phase 3A: title theme, chapter loops, floor sting, boss intro + boss theme, miniboss / shop /
-  secret themes, quality-4 item fanfare, game-over / victory jingles, pause muffle (ui/run.ts, ui/title.ts, ui/pause.ts).
+  checks them). Wired (docs/audio.md "Suggested wiring"; Phase 3A + 4A): title theme, chapter loops (crossfade), floor sting
+  into the next chapter's loop, the boss-intro sting into the boss / final / miniboss theme (`bossTrack`: `BossDef.music`, else
+  the miniboss theme, else the chapter's boss theme), back to the chapter loop when the room clears / on leaving shop and
+  secret themes, quality-4 item + transformation fanfare, game-over / victory jingles, pause muffle (ui/run.ts, ui/title.ts,
+  ui/pause.ts); volumes from the persisted settings.
 
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
@@ -995,5 +1075,10 @@ Modules done and tested (side track, merged after Phase 2); main.ts, the scenes 
   (tap = the big map, whose full-screen `map.close` closes it); `run.end` is the full-screen tap after a run ends; the
   pause overlay has the invisible `pause.title` (5 taps = debug menu); the debug menu's buttons are `debug.list`,
   `debug.tab.<items|foes|cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-19>` (18 picks a boss, 19 fights it here).
-- E2E: the Phase 2 specs start in the training yard (`__SD.debug.yard()` after New Run); `e2e/floors.spec.ts` covers runs.
+- Phase 4A: `__SD.meta()` (achievements, unlock sets, stats, counters, collection / bestiary sizes, `hasRun`, `runSaves`,
+  `lastRunError`, the meta load status, `runUnlocks`), `__SD.toast()` (the toast on screen + how many wait),
+  `__SD.save.now()` / `__SD.save.achievement(id)`; the title's buttons are `title.continue` (only with a saved run),
+  `title.newRun`, `title.settings`.
+- E2E: the Phase 2 specs start in the training yard (`__SD.debug.yard()` after New Run); `e2e/floors.spec.ts` covers runs,
+  `e2e/save.spec.ts` the run save across a reload + Continue, `e2e/pwa.spec.ts` the manifest / icons / service worker.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

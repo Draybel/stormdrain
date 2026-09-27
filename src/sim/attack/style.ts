@@ -9,7 +9,7 @@
  * (style.key, size bucket).
  */
 
-import type { CharacterDef, ShapeHint, TrailKind } from '../types';
+import type { CharacterDef, ShapeHint, StyleOverride, TrailKind } from '../types';
 import { MODIFIERS } from './modifiers/index';
 import type { AttackProfile } from './profile';
 
@@ -194,7 +194,14 @@ function build(
   };
 }
 
-export function composeStyle(p: AttackProfile, character: CharacterDef): ShotStyle {
+const NO_OVERRIDES: readonly StyleOverride[] = [];
+
+/**
+ * Composes the player's ShotStyle. `overrides` (transformations, active synergies — Loadout.styles) apply
+ * last, in order: a colour takes over most of the body and joins the accents first, a shape replaces the
+ * composed one, a trail goes first in the trail list, glow adds to the glow radius.
+ */
+export function composeStyle(p: AttackProfile, character: CharacterDef, overrides: readonly StyleOverride[] = NO_OVERRIDES): ShotStyle {
   let base = character.shotColor ?? DEFAULT_SHOT_COLOR;
   const tint = CARRIER_TINT[p.primary];
   if (tint) base = mix(base, tint[0], tint[1]);
@@ -260,7 +267,27 @@ export function composeStyle(p: AttackProfile, character: CharacterDef): ShotSty
     trails.push('sparks');
     trailColors.push('#ffcf57');
   }
-  const glowR = Math.min(6, 2 + Math.round(wSum * 0.5));
+  let glowR = Math.min(6, 2 + Math.round(wSum * 0.5));
+  for (const o of overrides) {
+    if (o.color) {
+      body = mixVivid(body, o.color, 0.75);
+      rim = darker(mix(body, o.color, 0.6), 0.28);
+      const at = accents.indexOf(o.color);
+      if (at >= 0) accents.splice(at, 1);
+      accents.unshift(o.color);
+      if (accents.length > 3) accents.length = 3;
+    }
+    if (o.shape) shape = o.shape;
+    if (o.trail && o.trail !== 'none' && !trails.includes(o.trail)) {
+      trails.unshift(o.trail);
+      trailColors.unshift(o.color ?? body);
+      if (trails.length > 3) {
+        trails.length = 3;
+        trailColors.length = 3;
+      }
+    }
+    if (o.glow) glowR = Math.max(0, Math.min(10, glowR + Math.round(o.glow)));
+  }
   let jitter = p.primary === 'lance' ? 1 : 0.35;
   if (p.mod('chain') > 0) jitter += 0.4;
   return build(body, rim, accents, shape, trails, trailColors, glowR, jitter);

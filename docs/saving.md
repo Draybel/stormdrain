@@ -4,6 +4,17 @@ Everything here is implemented and unit-tested as standalone modules; `main.ts`,
 `src/meta/save.ts` (owned by the main track) only need to call them. Nothing in `src/sim` is
 involved: the sim hands the run scene a plain JSON snapshot and the meta layer stores it.
 
+**Status — wired in Phase 4A** (ARCHITECTURE §7, §7a). `src/meta/save.ts` `GameSave` is the one place that
+does what sections 1-4 below describe: it builds the storage, `MetaStore`, `RunSaveStore` (version =
+`RUN_SNAPSHOT_VERSION` from `src/sim/run/types.ts`, migrations `RUN_SNAPSHOT_MIGRATIONS`), the
+`AchievementEngine` and the `MetaTracker` (which makes every "what the game reports" call in section 3 from
+the run's GameEvents). main.ts installs it (`installGameSave`), persists settings through it, calls
+`save.endTick()` every loop tick, shows its notices as toasts, registers the service worker and asks for
+persistent storage. The run scene is its save host (`savableSim()`), saves at run start / every room entry,
+clears the save on death / victory; the title's Continue calls `nav.continueRun()` (`save.loadRun()` →
+`Sim.fromSnapshot`). Still to do (later Phase 4 items): the Settings "save data" page (export / import codes,
+the in-memory warning) and the daily-run UI (`tracker.startRun(sim, { date, seed })` already records results).
+
 | Module | What it gives you |
 |---|---|
 | `src/meta/storage.ts` | `createStorage()` (localStorage, or an in-memory fallback with `persistent = false`), `MemoryStorage` (tests), `SaveSlot` (envelope + checksum + migrations + `.bak`), `requestPersistentStorage()` |

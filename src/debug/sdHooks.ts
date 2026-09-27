@@ -15,6 +15,28 @@ import type { PickupName } from '../sim/types';
 import type { DebugActions } from './actions';
 import type { FloorCurse } from '../sim/floor/types';
 import type { RunOptions } from '../sim/run/types';
+import { findAchievement } from '../content/registry';
+
+/** Meta progress at a glance (window.__SD.meta()). */
+export interface MetaSummary {
+  /** Earned achievement ids (sorted). */
+  achievements: string[];
+  /** Unlock sets (sorted ids per kind). */
+  unlocks: Record<string, string[]>;
+  stats: Record<string, number>;
+  counters: Record<string, number>;
+  /** Items seen / collected, enemies seen / killed (distinct ids). */
+  collection: { seen: number; collected: number };
+  bestiary: { seen: number; killed: number };
+  /** A run save exists (the title shows Continue); run saves written this session; saves that failed. */
+  hasRun: boolean;
+  runSaves: number;
+  lastRunError: string | null;
+  /** The meta save's load status ('ok' | 'empty' | 'restored' | 'corrupt' | 'future'). */
+  loaded: string;
+  /** The unlock snapshot a new run would carry. */
+  runUnlocks: string[];
+}
 
 /** The run scene's presentation state (window.__SD.presentation()). */
 export interface Presentation {
@@ -138,6 +160,15 @@ export interface SDHooks {
    * ending id), the boss intro card, boss-death slow motion.
    */
   presentation(): Presentation | null;
+  /** Meta progress (Phase 4A): achievements, unlocks, lifetime stats, collection / bestiary sizes, the run save. */
+  meta(): MetaSummary;
+  /** The toast on screen (achievement / notice), and how many are waiting. */
+  toast(): { kind: number; title: string; line: string; pending: number } | null;
+  /** Saving (Phase 4A): save the run now; grant an achievement by id (true if newly earned). */
+  save: {
+    now(): boolean;
+    achievement(id: string): boolean;
+  };
 }
 
 declare global {
@@ -337,6 +368,52 @@ export function installSdHooks(d: SdDeps): SDHooks {
     },
     presentation() {
       return d.getPresentation();
+    },
+    meta() {
+      const s = app.save;
+      const m = s.meta.state;
+      const unlocks: Record<string, string[]> = {};
+      for (const [k, set] of Object.entries(m.unlocks)) unlocks[k] = [...set].sort();
+      const stats: Record<string, number> = {};
+      for (const [k, v] of Object.entries(m.stats)) if (typeof v === 'number') stats[k] = v;
+      let seen = 0;
+      let collected = 0;
+      for (const e of Object.values(m.collection)) {
+        if (e.seen > 0) seen++;
+        if (e.collected > 0) collected++;
+      }
+      let met = 0;
+      let killed = 0;
+      for (const e of Object.values(m.bestiary)) {
+        if (e.seen > 0) met++;
+        if (e.killed > 0) killed++;
+      }
+      return {
+        achievements: Object.keys(m.achievements).sort(),
+        unlocks,
+        stats,
+        counters: { ...m.stats.counters },
+        collection: { seen, collected },
+        bestiary: { seen: met, killed },
+        hasRun: s.hasRun(),
+        runSaves: s.runSaves,
+        lastRunError: s.lastRunError,
+        loaded: s.meta.loaded.status,
+        runUnlocks: s.unlockedForRun(),
+      };
+    },
+    toast() {
+      const t = app.toasts.showing;
+      return t ? { ...t, pending: app.toasts.pending } : null;
+    },
+    save: {
+      now() {
+        return app.save.saveRunNow();
+      },
+      achievement(id: string) {
+        const def = findAchievement(id);
+        return def ? app.save.achievements.grant(def) : false;
+      },
     },
   };
   window.__SD = hooks;

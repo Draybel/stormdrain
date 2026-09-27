@@ -33,9 +33,15 @@ export class Player {
   readonly triggerReady = new Map<object, number>();
   /** Temporary effects from uses/triggers. */
   readonly temps: TempEffect[] = [];
-  /** Completed item sets and active synergies (ids). */
+  /**
+   * Transformations of this run (item set ids, in the order earned). Once earned a set stays for the run
+   * (losing a set item doesn't undo it); saved with the run.
+   */
   readonly sets: string[] = [];
+  /** Special synergies active right now (re-evaluated on every inventory change). */
   readonly synergies: string[] = [];
+  /** Synergies that have switched on at least once this run (their banner / one-time effects ran); saved. */
+  readonly synergiesSeen: string[] = [];
   /** Permanent luck from Lucky Coins. */
   luckBonus = 0;
   /** Bumped by every stats/flags recompute. */

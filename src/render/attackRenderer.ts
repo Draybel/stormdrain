@@ -234,7 +234,10 @@ function costumeGlow(c: CostumeDef): HTMLCanvasElement {
 
 // ── Costumes ─────────────────────────────────────────────────────────────────
 
-/** Costume layers of the held items (rebuilt when the loadout changes). */
+/**
+ * Costume layers of the held items and the transformations (rebuilt when the loadout changes). A
+ * transformation's layers SWAP OUT item layers of the same slot (a set's hat replaces an item's hat).
+ */
 class CostumeCache {
   version = -1;
   behind: CostumeDef[] = [];
@@ -244,9 +247,18 @@ class CostumeCache {
     this.version = p.loadout.version;
     this.behind = [];
     this.front = [];
+    const setLayers = new Set<string>();
     for (const id of p.loadout.costumes) {
-      const spec = id.startsWith('set:') ? findSet(id.slice(4))?.costume : findItem(id)?.costume;
-      for (const c of costumeList(spec)) (c.behind ? this.behind : this.front).push(c);
+      if (!id.startsWith('set:')) continue;
+      for (const c of costumeList(findSet(id.slice(4))?.costume)) setLayers.add(c.layer);
+    }
+    for (const id of p.loadout.costumes) {
+      const set = id.startsWith('set:');
+      const spec = set ? findSet(id.slice(4))?.costume : findItem(id)?.costume;
+      for (const c of costumeList(spec)) {
+        if (!set && setLayers.has(c.layer)) continue;
+        (c.behind ? this.behind : this.front).push(c);
+      }
     }
   }
 }

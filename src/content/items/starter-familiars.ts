@@ -71,6 +71,8 @@ const items: ItemDef[] = [
     desc: 'A LITTLE FLAME GUARDS YOU · SPITS SPARKS',
     kind: 'passive',
     quality: 2,
+    /** Locked until the 'little-parade' achievement (src/content/achievements/core.ts). */
+    unlock: 'little-parade',
     pools: ['treasure'],
     tags: ['familiar', 'waxen'],
     effects: [{ type: 'familiar', familiar: 'wick-wisp' }],

@@ -299,6 +299,13 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
     case 'pedestalVanish':
       audio.play('foe_blink', pan);
       break;
+    // ── Transformations & synergies (Phase 4A) ──
+    case 'transform':
+      audio.play('transformation', pan);
+      break;
+    case 'synergy':
+      audio.play('surge', pan);
+      break;
     default:
       break;
   }

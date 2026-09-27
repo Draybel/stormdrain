@@ -8,12 +8,17 @@
  *   Curse of Darkness dims the room. Death or the last boss ends the run with a card, then the title.
  * - 'yard' (debug menu): the Phase 2 training yard — F / the bell button call waves, death restarts.
  * Big kills get a 1-2 frame hit-stop (presentation only: the scene skips sim steps).
+ *
+ * Saving (Phase 4A, meta/save.ts): a run scene is the save host's run — a new run (or a Continue from a
+ * snapshot) is tracked by the meta tracker (collection, bestiary, stats, achievements), saved right away
+ * and after every room entry (door, trapdoor, grate: the snapshot is the room-entry checkpoint); death
+ * and victory clear the save. Transformations get their fanfare + big banner, first synergies their pill.
  */
 
 import type { InputState } from '../engine/inputState';
 import { ICON_FIGHT } from '../content/sprites/combat';
 import { CURSE_ICONS } from '../content/sprites/mapIcons';
-import { BOSSES, CHAPTERS, findItem } from '../content/registry';
+import { BOSSES, CHAPTERS, findItem, findSet, findSynergy } from '../content/registry';
 import { BOSS_BAR_W, BOSS_BAR_Y, BossHud } from '../render/bossHud';
 import { randomSeed } from '../engine/rng';
 import { GAME_H, GAME_W } from '../engine/screen';
@@ -29,11 +34,12 @@ import { MinimapRenderer } from '../render/minimap';
 import { drawPanel } from '../render/pixel';
 import { ctx2d, makeCanvas } from '../render/canvas';
 import { drawSprite } from '../render/sprites';
+import { FeatBanner } from '../render/featBanner';
 import { drawFloorCard, drawIris } from '../render/transitions';
 import { WorldFx } from '../render/worldFx';
 import { WorldRenderer, itemIcon } from '../render/worldRenderer';
 import type { FloorCurse } from '../sim/floor/types';
-import type { RunOptions } from '../sim/run/types';
+import type { RunOptions, RunSnapshot } from '../sim/run/types';
 import type { App } from './app';
 import type { Scene } from './scene';
 import { createRunButtons, drawHudButton, drawMinimapButton, drawSticks, layoutRunButtons, type RunButtons } from './touchControls';
@@ -155,8 +161,18 @@ export class RunScene implements Scene {
   /** Boss death slow motion: real seconds left, and the step-skipping toggle. */
   private slowT = 0;
   private slowSkip = false;
+  /** Transformation banner + synergy pill. */
+  private readonly feat = new FeatBanner();
+  /** Started from a saved run (Continue). */
+  readonly resumed: boolean;
+  /** The run save was cleared (the run ended). */
+  private saveCleared = false;
 
-  constructor(app: App, mode: RunMode = 'run') {
+  /**
+   * `snapshot`: continue a saved run (Sim.fromSnapshot — throws when the snapshot can't be restored;
+   * nav.continueRun catches that).
+   */
+  constructor(app: App, mode: RunMode = 'run', snapshot: RunSnapshot | null = null) {
     this.app = app;
     this.mode = mode;
     this.ui = createRunButtons();
@@ -166,11 +182,13 @@ export class RunScene implements Scene {
     this.endTap.onActivate = () => this.leave();
     this.buttons = [...this.ui.all, this.fight, this.endTap];
     this.fx = new WorldFx(app.particles, app.shake);
-    this.sim = this.makeSim();
+    this.resumed = snapshot !== null && mode === 'run';
+    this.sim = this.resumed ? Sim.fromSnapshot(snapshot!) : this.makeSim();
   }
 
   private makeSim(): Sim {
-    return this.mode === 'run' ? Sim.newRun(randomSeed()) : new Sim({ seed: randomSeed() });
+    // A new run carries the meta unlock snapshot (locked items, the ending-gated routes).
+    return this.mode === 'run' ? Sim.newRun(randomSeed(), { unlocked: this.app.save.unlockedForRun() }) : new Sim({ seed: randomSeed() });
   }
 
   enter(): void {
@@ -179,14 +197,47 @@ export class RunScene implements Scene {
     if (this.sim.run) {
       this.showFloorCard();
       this.playRoomMusic(true);
+      this.track(!this.resumed);
     } else {
       this.app.audio.music.play(CHAPTER_MUSIC.gutterways, { fade: 1.5 });
     }
   }
 
+  exit(): void {
+    // Leaving without an ending (quit to title, the yard): the save stays for Continue.
+    const tracker = this.app.save.tracker;
+    if (tracker.tracking === this.sim) tracker.detach();
+  }
+
+  /** Meta tracking + the first save of this run (a new run is counted; a continued one is not). */
+  private track(fresh: boolean): void {
+    if (this.mode !== 'run' || !this.sim.run) return;
+    const save = this.app.save;
+    if (fresh) save.tracker.startRun(this.sim);
+    else save.tracker.resumeRun(this.sim);
+    this.saveCleared = false;
+    save.saveRunNow();
+  }
+
+  /** The run the save service may write now: a floor run in progress (never the yard, never a finished run). */
+  savableSim(): Sim | null {
+    const sim = this.sim;
+    if (this.mode !== 'run' || this.ending || this.saveCleared || !sim.run || sim.run.data.won || sim.world.player.dead) return null;
+    return sim;
+  }
+
+  /** The run is over (death / victory): no Continue for it. */
+  private clearSave(): void {
+    if (this.saveCleared || this.mode !== 'run') return;
+    this.saveCleared = true;
+    this.app.save.clearRun();
+  }
+
   /** Debug / tests: replaces the sim with a fresh run (any floor, track, curse, seed). */
   restartRun(opts: RunOptions = {}, seed: number | string = randomSeed()): void {
-    this.sim = Sim.newRun(seed, opts);
+    const tracker = this.app.save.tracker;
+    if (tracker.tracking === this.sim) tracker.detach();
+    this.sim = Sim.newRun(seed, { ...opts, unlocked: opts.unlocked ?? this.app.save.unlockedForRun() });
     this.ending = '';
     this.endingId = 0;
     this.endTap.visible = false;
@@ -195,6 +246,7 @@ export class RunScene implements Scene {
     this.prepareRoom();
     this.showFloorCard();
     this.playRoomMusic(true);
+    this.track(true);
   }
 
   /** Fresh training room (the yard restarts after the death animation). */
@@ -214,6 +266,7 @@ export class RunScene implements Scene {
     this.app.shake.reset();
     this.hud.reset();
     this.bossHud.reset();
+    this.feat.reset();
     this.slowT = 0;
     this.iconsFor = -1;
     this.time = 0;
@@ -286,6 +339,7 @@ export class RunScene implements Scene {
       this.app.nav.pause();
       return;
     }
+    if (this.mode === 'run') this.app.save.tracker.playTime(dt);
     if (input.map) {
       if (this.sim.run) this.app.nav.map();
       else this.say('NO MAP IN THE YARD');
@@ -332,6 +386,9 @@ export class RunScene implements Scene {
 
     const sim = this.sim;
     sim.step(input);
+    if (sim.run) this.app.save.tracker.afterStep();
+    let entered = false;
+    let fanfare = false;
     const q = sim.events;
     for (let i = 0; i < q.count; i++) {
       const e = q.at(i);
@@ -385,6 +442,17 @@ export class RunScene implements Scene {
           break;
         case 'roomEnter':
           this.onRoomEnter(e.b);
+          entered = true;
+          break;
+        case 'transform': {
+          const set = findSet(e.id);
+          this.feat.transform(set?.name ?? e.id, set?.desc ?? '');
+          if (!fanfare) this.app.audio.music.stinger(MUSIC.itemFanfare);
+          fanfare = true;
+          break;
+        }
+        case 'synergy':
+          this.feat.synergy(findSynergy(e.id)?.name ?? e.id);
           break;
         case 'trapdoor':
           if (e.a === 1) this.startIris(e.x, e.y);
@@ -399,11 +467,15 @@ export class RunScene implements Scene {
           break;
         case 'runEnd':
           this.endingId = e.b;
+          this.clearSave();
           this.endRun('win');
           break;
         case 'item':
           // The best finds get a little fanfare over the music.
-          if (e.b === 1 && (findItem(e.id)?.quality ?? 0) >= 4) this.app.audio.music.stinger(MUSIC.itemFanfare);
+          if (e.b === 1 && !fanfare && (findItem(e.id)?.quality ?? 0) >= 4) {
+            this.app.audio.music.stinger(MUSIC.itemFanfare);
+            fanfare = true;
+          }
           break;
         default:
           break;
@@ -414,8 +486,13 @@ export class RunScene implements Scene {
 
     const p = sim.world.player;
     if (p.dead) {
+      // No Continue for a run that ended (cleared at once, so closing the app can't dodge the death).
+      if (sim.run) this.clearSave();
       if (!sim.run && p.deathTime > 2.2) this.restartRoom();
       else if (sim.run && p.deathTime > DEATH_WAIT) this.endRun('death');
+    } else if (entered && sim.run) {
+      // Every room entry is a checkpoint (Continue resumes in this room).
+      this.app.save.saveRunNow();
     }
   }
 
@@ -424,6 +501,7 @@ export class RunScene implements Scene {
     if (stepped) this.fx.tick(w, dt);
     this.hud.update(dt, w);
     this.bossHud.update(dt, w.boss);
+    this.feat.update(dt);
     this.app.particles.update(dt);
     this.app.shake.update(dt);
     this.syncButtonIcons();
@@ -476,7 +554,10 @@ export class RunScene implements Scene {
     return chapterMusicFor(id) ?? CHAPTER_MUSIC.gutterways;
   }
 
-  /** Music for the current room: shop / secret themes, boss intro, else the chapter loop. */
+  /**
+   * Music for the current room: shop / secret themes, the boss intro sting into the boss / final /
+   * miniboss theme (bossTrack), else the chapter loop (crossfading back when she walks out).
+   */
   private playRoomMusic(first: boolean): void {
     const run = this.sim.run;
     if (!run) return;
@@ -485,8 +566,7 @@ export class RunScene implements Scene {
     const cleared = run.state.cleared;
     if (type === 'shop') music.play(MUSIC.shop);
     else if (type === 'secret' || type === 'deepSecret') music.play(MUSIC.secret);
-    else if (type === 'boss' && !cleared) music.stinger(MUSIC.bossIntro, { then: this.bossTrack(run.state.boss) });
-    else if (type === 'miniboss' && !cleared) music.play(MUSIC.miniboss);
+    else if ((type === 'boss' || type === 'miniboss') && !cleared) music.stinger(MUSIC.bossIntro, { then: this.bossTrack(run.state.boss) });
     else music.play(this.chapterTrack(), first ? { fade: 1.5 } : undefined);
   }
 
@@ -543,6 +623,7 @@ export class RunScene implements Scene {
     } else if (this.slideT >= SLIDE_TIME) {
       this.bossHud.drawCard(ctx, world.boss, this.time);
     }
+    if (this.irisPhase === 0) this.feat.drawTransform(ctx, this.time);
     if (this.ending) this.drawEnding(ctx);
   }
 
@@ -593,6 +674,8 @@ export class RunScene implements Scene {
     // Room label over the top wall; short notices ("NO BOMBS") replace it for a moment. Both stay
     // in the top band so nothing covers the room. During a boss fight its HP bar takes that place
     // (notices then sit above it).
+    const pill = this.feat.synergyVisible;
+    if (pill) this.feat.drawSynergy(ctx, boss.active);
     if (boss.active) {
       this.bossHud.drawBar(ctx, boss, this.time);
       if (this.noticeTime > 0 && !banner) {
@@ -600,6 +683,8 @@ export class RunScene implements Scene {
         drawTextCentered(ctx, this.notice, GAME_W / 2, ROOM_OUTER_Y - 30, NOTICE);
         ctx.globalAlpha = 1;
       }
+    } else if (pill) {
+      // The synergy pill has the label's place for a moment.
     } else if (this.noticeTime > 0) {
       ctx.globalAlpha = Math.min(1, this.noticeTime * 3);
       drawTextCentered(ctx, this.notice, GAME_W / 2, ROOM_OUTER_Y - 12, NOTICE);

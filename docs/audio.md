@@ -98,6 +98,11 @@ miniboss uses `MUSIC.miniboss`); boss killed → back to the chapter loop; shop 
 the `item_pickup` sfx); death → `gameOver`; endings → `victory`; pause menu → `muffle(true)`. Backgrounding is
 already handled by the engine (the scheduler stops while the page is hidden).
 
+Status: all of the above is wired (Phase 3A + 4A, `src/ui/run.ts` `playRoomMusic` / event handling, `ui/title.ts`,
+`ui/pause.ts`). Minibosses get the `bossIntro` sting too (then `MUSIC.miniboss` or their own `BossDef.music`); a
+transformation plays the `itemFanfare` stinger with the `transformation` sfx (never two fanfares in one tick); an
+achievement toast plays the `achievement` sfx; volumes come from the persisted settings (meta save).
+
 ### Chapter → track ids (`CHAPTER_MUSIC` in `src/audio/music/ids.ts`)
 
 | Chapter id | Track id | Title | Key / feel |

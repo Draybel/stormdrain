@@ -42,6 +42,7 @@ const STONE = ['#5c6580', '#8691ad', '#3e455a', '#4f7447'] as const;
 const TINTED = ['#7a6a62', '#a8988a', '#e0a040', '#fff0a0'] as const;
 const SHOCK = ['#ffffff', '#bfe8ff', '#6fb3e0', '#fff27a'] as const;
 const ITEM_RAYS = ['#fff4b0', '#ffd76a', '#ffffff'] as const;
+const SYNERGY_SPARKS = ['#c9f2ff', '#5ad0e8', '#ffffff'] as const;
 const CHEST_GOLD = ['#fff0a0', '#e8b83a', '#d4a020', '#ffffff'] as const;
 const GOO = ['#6a7a5a', '#4a5a3a', '#9aaa7a'] as const;
 const POOF = ['#8691ad', '#c9d3f0', '#5c6580', '#e9edf7'] as const;
@@ -916,6 +917,30 @@ export class WorldFx {
           if (r) r.endSize = 12;
           this.shake.add(0.2);
         }
+        break;
+      }
+      case 'transform': {
+        // Transformation: a pillar of golden light, two rings and a bright flash.
+        for (let i = 0; i < 28; i++) {
+          const p = P.spawn(x + (Math.random() - 0.5) * 22, y + 8 + Math.random() * 8, 0, -60 - Math.random() * 70, 0.7 + Math.random() * 0.4, ITEM_RAYS[i % 3]!, i % 3 === 0 ? 2 : 1);
+          if (!p) break;
+          p.drag = 1.2;
+        }
+        P.burst(x, y, 24, 40, 110, 0.6, ITEM_RAYS, 1, 40, 3);
+        for (let k = 0; k < 2; k++) {
+          const r = P.spawn(x, y + 10, 0, 0, 0.45 + k * 0.2, k === 0 ? '#ffd76a' : '#fff3c4', 1, P_RING);
+          if (r) r.endSize = 18 + k * 12;
+        }
+        this.flash = Math.max(this.flash, 0.6);
+        this.flashColor = '#fff3c4';
+        this.flashMax = 0.4;
+        this.shake.add(0.3);
+        break;
+      }
+      case 'synergy': {
+        P.burst(x, y, 16, 25, 70, 0.5, SYNERGY_SPARKS, 1, 30, 2);
+        const r = P.spawn(x, y + 10, 0, 0, 0.4, '#5ad0e8', 1, P_RING);
+        if (r) r.endSize = 16;
         break;
       }
       default:

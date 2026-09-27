@@ -73,6 +73,8 @@ export function capturePlayer(w: World): PlayerSnap {
     atkDirY: p.atk.dirY,
     keeper: p.atk.keeper,
     dead: p.dead,
+    sets: [...p.sets],
+    synergiesSeen: [...p.synergiesSeen],
   };
 }
 
@@ -104,6 +106,11 @@ export function restorePlayer(w: World, s: PlayerSnap): void {
     const temp: TempEffect = { effect: t.effect as Effect, time: t.time < 0 ? Infinity : t.time, source: t.source };
     p.temps.push(temp);
   }
+  // Earned before the snapshot: restored as they were (no second fanfare, no second one-time effects).
+  p.sets.length = 0;
+  p.sets.push(...(s.sets ?? []));
+  p.synergiesSeen.length = 0;
+  p.synergiesSeen.push(...(s.synergiesSeen ?? []));
   recomputePlayer(w);
   p.triggerReady.clear();
   for (const [on, i, t] of s.triggerReady) {

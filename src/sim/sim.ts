@@ -571,7 +571,10 @@ export class Sim {
     w.waves.clear();
   }
 
-  /** Debug: drops every item the player holds (passives, active, trinkets, consumables, temporary effects). */
+  /**
+   * Debug: drops every item the player holds (passives, active, trinkets, consumables, temporary effects)
+   * and forgets the run's transformations and announced synergies.
+   */
   resetItems(): void {
     const w = this.world;
     const p = w.player;
@@ -582,6 +585,8 @@ export class Sim {
     inv.consumables.length = 0;
     inv.version++;
     p.temps.length = 0;
+    p.sets.length = 0;
+    p.synergiesSeen.length = 0;
     p.holdItem = '';
     p.holdTime = 0;
     recomputePlayer(w);

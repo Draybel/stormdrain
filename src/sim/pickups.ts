@@ -111,7 +111,8 @@ export function spawnPickup(
 /** Spawns loot of a kind; trinket/consumable kinds draw an item from `pool` (default 'chest'). */
 export function spawnLoot(w: World, kind: PickupKind, pool: PoolId | undefined, x: number, y: number): Pickup | null {
   if (isItemPickup(kind)) {
-    const def = pickItem(w.lootRng, { pool: pool ?? 'chest', kind: kind === PK.Trinket ? 'trinket' : 'consumable' });
+    // Items still locked in the run's meta snapshot never drop (floor runs set world.lockedItems).
+    const def = pickItem(w.lootRng, { pool: pool ?? 'chest', kind: kind === PK.Trinket ? 'trinket' : 'consumable', exclude: w.lockedItems ?? undefined });
     if (!def) return spawnPickup(w, PK.Coin, x, y, true);
     return spawnPickup(w, kind, x, y, true, def.id, true);
   }

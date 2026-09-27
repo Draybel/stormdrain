@@ -1,4 +1,7 @@
-/** Title screen: rainy drain-mouth backdrop, big pixel logo, New Run / Settings. */
+/**
+ * Title screen: rainy drain-mouth backdrop, big pixel logo, Continue (when a run is saved) / New Run /
+ * Settings, and a line about the save when it needs attention (restored, newer version, not kept).
+ */
 
 import type { InputState } from '../engine/inputState';
 import { GAME_H, GAME_W } from '../engine/screen';
@@ -18,6 +21,7 @@ import { drawMenuButtons, tickButtons, uiButton, type UiButton } from './widgets
 /** Outlined so it stays crisp where it crosses the arch bricks. */
 const SUBTITLE: TextStyle = { color: '#b4c3e6', outline: '#07080d', shadow: '#07080d' };
 const VERSION: TextStyle = { color: '#4b5776' };
+const NOTICE: TextStyle = { color: '#b9d6f0', shadow: '#07080d' };
 const RAIN = 'rgba(160,190,235,0.55)';
 const RAIN_FAR = 'rgba(120,150,200,0.3)';
 const SPLASH = 'rgba(170,200,240,0.5)';
@@ -36,6 +40,11 @@ export class TitleScene implements Scene {
   readonly wantsSticks = false;
   readonly buttons: UiButton[];
   private readonly app: App;
+  private readonly cont: UiButton;
+  private readonly newRun: UiButton;
+  private readonly settings: UiButton;
+  /** The save line under the buttons ('' = none). */
+  private notice = '';
   private time = 0;
   private rainAcc = 0;
   private lightning = 0;
@@ -46,36 +55,63 @@ export class TitleScene implements Scene {
     this.app = app;
     const w = 124;
     const x = Math.round((GAME_W - w) / 2);
-    this.buttons = [
-      uiButton({
-        id: 'title.newRun',
-        label: 'NEW RUN',
-        kind: 'primary',
-        x,
-        y: 84,
-        w,
-        h: 28,
-        onActivate: () => {
-          app.audio.play('ui_click');
-          app.nav.newRun();
-        },
-      }),
-      uiButton({
-        id: 'title.settings',
-        label: 'SETTINGS',
-        x,
-        y: 118,
-        w,
-        h: 26,
-        onActivate: () => {
-          app.audio.play('ui_click');
-          app.nav.settings();
-        },
-      }),
-    ];
+    this.cont = uiButton({
+      id: 'title.continue',
+      label: 'CONTINUE',
+      kind: 'primary',
+      x,
+      y: 76,
+      w,
+      h: 26,
+      visible: false,
+      onActivate: () => {
+        app.audio.play('ui_click');
+        if (!app.nav.continueRun()) this.layout();
+      },
+    });
+    this.newRun = uiButton({
+      id: 'title.newRun',
+      label: 'NEW RUN',
+      kind: 'primary',
+      x,
+      y: 84,
+      w,
+      h: 28,
+      onActivate: () => {
+        app.audio.play('ui_click');
+        app.nav.newRun();
+      },
+    });
+    this.settings = uiButton({
+      id: 'title.settings',
+      label: 'SETTINGS',
+      x,
+      y: 118,
+      w,
+      h: 26,
+      onActivate: () => {
+        app.audio.play('ui_click');
+        app.nav.settings();
+      },
+    });
+    this.buttons = [this.cont, this.newRun, this.settings];
+    this.layout();
+  }
+
+  /** Continue shows (on top, as the main button) only when a run is saved. */
+  private layout(): void {
+    const saved = this.app.save.hasRun();
+    this.cont.visible = saved;
+    this.newRun.kind = saved ? 'secondary' : 'primary';
+    this.newRun.y = saved ? 106 : 84;
+    this.newRun.h = saved ? 26 : 28;
+    this.settings.y = saved ? 136 : 118;
+    const n = this.app.save.notice;
+    this.notice = n?.lasting ? `${n.title} · ${n.line}` : '';
   }
 
   enter(): void {
+    this.layout();
     backdrop ??= buildTitleBackdrop();
     logo ??= buildLogo();
     subtitle ??= bakeText('FOLLOW THE GLOWING MARBLES', SUBTITLE);
@@ -88,11 +124,19 @@ export class TitleScene implements Scene {
 
   onKey(code: string): boolean {
     if (code === 'Enter' || code === 'Space' || code === 'NumpadEnter') {
-      this.buttons[0]!.onActivate?.();
+      (this.cont.visible ? this.cont : this.newRun).onActivate?.();
+      return true;
+    }
+    if (code === 'KeyC' && this.cont.visible) {
+      this.cont.onActivate?.();
+      return true;
+    }
+    if (code === 'KeyN') {
+      this.newRun.onActivate?.();
       return true;
     }
     if (code === 'KeyS') {
-      this.buttons[1]!.onActivate?.();
+      this.settings.onActivate?.();
       return true;
     }
     return false;
@@ -163,6 +207,7 @@ export class TitleScene implements Scene {
     ctx.drawImage(sub, Math.round((GAME_W - sub.width) / 2), 49);
 
     drawMenuButtons(ctx, this.buttons);
+    if (this.notice) drawText(ctx, this.notice, Math.round((GAME_W - measureText(this.notice)) / 2), 166, NOTICE);
     const v = 'V0.1';
     drawText(ctx, v, GAME_W - measureText(v) - 4, GAME_H - 8, VERSION);
   }

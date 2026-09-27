@@ -104,32 +104,46 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
       tests/floorminimap.test.ts)
 
 ## Phase 4 — Meta, saving & mobile polish
-- [ ] Wire the save/PWA modules in (docs/saving.md): stores + `meta.endTick()` + `registerServiceWorker()` in
+- [x] Wire the save/PWA modules in (docs/saving.md): stores + `meta.endTick()` + `registerServiceWorker()` in
       main.ts, `saveRunNow()` → `RunSaveStore` + `meta.flush()`, a Sim snapshot / restore, notices for restored /
       corrupt / newer saves, save-survives-reload e2e, iPhone Add to Home Screen + offline check
-      (3A: the Sim snapshot / restore API exists — `Sim.snapshot()` at every room entry, `Sim.fromSnapshot()` — tested
-      to continue identically; the stores / Continue wiring remains)
+      (3A: the Sim snapshot / restore API; 4A: `meta/save.ts` `GameSave` — meta saves at the end of the tick / every 5 s,
+      the run save at run start, every room entry, pause, background and quit-to-title, cleared on death / victory,
+      abandoned by a New Run; Continue on the title restores the exact room; persisted settings; toasts for restored /
+      damaged / newer-version / no-storage saves; the service worker registered in production; e2e/save.spec.ts (reload →
+      Continue) + e2e/pwa.spec.ts (manifest, icons, sw.js, registration). A real iPhone Add to Home Screen + airplane-mode
+      check still needs a device)
 - [x] Versioned save envelope + migrations; meta save on change; run autosave on room transition + background
-      (module done, integration pending) — `src/meta`: checksummed `{ v, data, sum }` slots with `.bak` /
-      `.corrupt`, step-by-step migrations, `MetaStore` (end-of-tick / 5 s saves), `RunSaveStore`; the autosave
-      call sites and the Sim snapshot come with the wiring item above
+      — `src/meta`: checksummed `{ v, data, sum }` slots with `.bak` / `.corrupt`, step-by-step migrations,
+      `MetaStore` (end-of-tick / 5 s saves), `RunSaveStore`; wired in 4A (above)
 - [ ] Title (Continue / New Run / Daily / Seed / Collection / Bestiary / Stats / Achievements / Settings)
+      (4A: Continue / New Run / Settings + the save notice line; the rest to do)
 - [ ] Character select (locked silhouettes), seed entry (DOM input modal), daily run
 - [ ] Pause menu with stats + items; settings (volumes, aim mode, shake, button size, left-handed?); save export/import
       (export / import codes `SD1:` are done in `src/meta/exportCode.ts`; the menus and the DOM modal to do)
-- [ ] Achievements framework + unlocks (items, characters, routes, endings); collection, bestiary, stats pages
-      (the saved data — unlocks, achievements, counters, collection, bestiary, lifetime stats, daily results — is in
-      `MetaState`; the framework and pages to do)
+- [x] Achievements framework + unlocks (items, characters, routes, endings)
+      (4A: `meta/achievements.ts` — counter + event conditions with id / value / at-least filters, rewards into the
+      meta unlock sets incl. items / characters naming the achievement, trophy toast + sfx; `meta/tracker.ts` records the
+      collection, bestiary, lifetime stats, counters and daily results from a run's events; `meta/unlocks.ts` — locked
+      items never roll (pedestals, shops, drop tables) and new runs carry the unlock snapshot incl. 'ending1' / 'ending2';
+      15 achievements in `content/achievements/core.ts`, 6 starter items locked behind them)
+- [ ] Collection, bestiary, stats and achievements pages (the data is all in `MetaState` / `__SD.meta()`)
 - [x] PWA: manifest, generated icons, service worker (offline), iOS meta tags; GitHub Pages base path
-      (module done, integration pending: call `registerServiceWorker()` from main.ts) — `public/manifest.webmanifest`,
+      (4A: `registerServiceWorker()` + `requestPersistentStorage()` called from main.ts) — `public/manifest.webmanifest`,
       `npm run icons`, build-time `dist/sw.js` (scripts/sw-plugin.mjs), relative URLs for any Pages sub-path
 - [x] Unit tests: save round-trip + migrations + export/import
-      (tests/save-*.test.ts, tests/pwa-*.test.ts)
+      (tests/save-*.test.ts, tests/pwa-*.test.ts; 4A: tests/save-continue.test.ts (snapshot → RunSaveStore → reload →
+      restore), tests/meta-progress.test.ts, tests/achievements.test.ts, tests/sets-synergies.test.ts)
+- [x] Item-set transformations engine + special synergy engine (4A, sim/effects.ts): 'need' distinct set items →
+      'transform' (fanfare, big banner, costume layers swap, style, persistent effects as a loadout source, one-time
+      instants + hook), kept for the run and saved; synergies switch on / off with the inventory, style overrides,
+      'SYNERGY: NAME' pill the first time; the set / synergy CONTENT is Phase 6 (content agents)
 
 ## Phase 5 — Test infrastructure & tools
 - [ ] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
 - [ ] Headless god-mode bot plays every floor (all tracks & finals)
-- [ ] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
+- [x] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
+      (boot / touch / floors specs; 4A: e2e/save.spec.ts — a run save survives a reload and Continue resumes it)
 - [x] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
       (2D: menu + items / foes / cheats; 3A: skip floor, reveal map, go to boss, next curse, training yard, new run;
       `__SD.debug.runAt(floor, track, curse, seed)`)
@@ -144,14 +158,17 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
       (25 generic templates so far; 3A: the 12 chapter looks and all six curse effects are done — templates to go)
 - [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)
+      (4A: the achievement framework, 15 first achievements and the transformation engine exist; characters, the big
+      achievement list and the set content to do)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md
+      (4A: the synergy engine is verified and tested; the content to do)
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
       (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
       top of the Phase 2 sounds; wired into the title / runs / pause in Phase 3A
 - [ ] Hidden routes to alt chapters; endings 1–3 with ending screens
       (3B: routes, whirlpool and endings flow done with run options standing in for the meta unlocks; ending screens are
-      stubs — the ending's title card — for M4, and M3 wires 'ending1' / 'ending2' / item unlocks from the meta save)
+      stubs — the ending's title card — for M4; 4A: 'ending1' / 'ending2' / item unlocks now come from the meta save)
 
 ## Phase 7 — Integration, balance & performance
 - [ ] Merge all content; full test suite green; bot clears every floor/track

@@ -15,6 +15,7 @@ import {
   type FamiliarId,
   type ModId,
   type PlayerFlag,
+  type StyleOverride,
   type TriggerEffect,
   type TriggerOn,
 } from './types';
@@ -69,8 +70,10 @@ export class Loadout {
   /** Copies of each carrier held (duplicates stack: thicker lances, more orbit blades…). */
   readonly carrierStacks = new Map<CarrierId, number>();
   readonly familiars = new Map<FamiliarId, number>();
-  /** Item ids with a costume (in pickup order; duplicates collapsed). */
+  /** Item ids with a costume (in pickup order; duplicates collapsed), then 'set:<id>' per transformation. */
   readonly costumes: string[] = [];
+  /** Shot look overrides of the transformations and active synergies (composeStyle applies them in order). */
+  readonly styles: StyleOverride[] = [];
   /** Bumped on every rebuild (the attack pipeline can cache on it). */
   version = 0;
 
@@ -80,6 +83,7 @@ export class Loadout {
     this.carrierStacks.clear();
     this.familiars.clear();
     this.costumes.length = 0;
+    this.styles.length = 0;
   }
 
   addCarrier(c: CarrierId, stacks = 1): void {

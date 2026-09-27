@@ -219,7 +219,7 @@ export function buildAttackProfile(player: Player): AttackProfile {
     if (d.beamTick) p.beamHooks.push(e);
   }
 
-  p.style = composeStyle(p, player.character);
+  p.style = composeStyle(p, player.character, player.loadout.styles);
   p.keeperStyle = composeKeeperStyle(p.style);
   return p;
 }

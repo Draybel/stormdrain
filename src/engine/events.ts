@@ -200,7 +200,13 @@ export type GameEventType =
   /** after a final boss: x,y; a = 0 the whirlpool (and skylight) appeared, 1 whirlpool entered, 2 skylight */
   | 'whirlpool'
   /** a choice pedestal vanished because another was taken (Broker's Nook): x,y; id = item id */
-  | 'pedestalVanish';
+  | 'pedestalVanish'
+  // ── Transformations & synergies (Phase 4A, sim/effects.ts) ──
+  /** the player transformed (an item set completed; once per set per run): x,y = player; id = set id;
+   *  a = transformations so far this run */
+  | 'transform'
+  /** a special synergy switched on for the first time this run: x,y = player; id = synergy id */
+  | 'synergy';
 
 export interface GameEvent {
   type: GameEventType;
