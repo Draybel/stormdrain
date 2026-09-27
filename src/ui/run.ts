@@ -13,7 +13,7 @@
 import type { InputState } from '../engine/inputState';
 import { ICON_FIGHT } from '../content/sprites/combat';
 import { CURSE_ICONS } from '../content/sprites/mapIcons';
-import { CHAPTERS } from '../content/registry';
+import { CHAPTERS, findItem } from '../content/registry';
 import { randomSeed } from '../engine/rng';
 import { GAME_H, GAME_W } from '../engine/screen';
 import { Sim } from '../sim/sim';
@@ -158,6 +158,8 @@ export class RunScene implements Scene {
     this.sim = Sim.newRun(seed, opts);
     this.ending = '';
     this.endTap.visible = false;
+    this.slideT = SLIDE_TIME;
+    this.irisPhase = 0;
     this.prepareRoom();
     this.showFloorCard();
     this.playRoomMusic(true);
@@ -328,6 +330,10 @@ export class RunScene implements Scene {
           break;
         case 'runEnd':
           this.endRun('win');
+          break;
+        case 'item':
+          // The best finds get a little fanfare over the music.
+          if (e.b === 1 && (findItem(e.id)?.quality ?? 0) >= 4) this.app.audio.music.stinger(MUSIC.itemFanfare);
           break;
         default:
           break;

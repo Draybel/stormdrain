@@ -22,15 +22,24 @@ const C_CURRENT = '#ffffff';
 const C_CONNECT = '#56648a';
 const QUESTION: TextStyle = { color: '#c9d3f0', shadow: '#07080d', scale: 2 };
 
+/** A drawn map and what it was drawn from (numbers only: checked every frame, no key strings). */
 interface Cached {
   canvas: HTMLCanvasElement | null;
-  key: string;
+  layout: FloorLayout | null;
+  version: number;
+  rooms: number;
+  lostMap: boolean;
+}
+
+function newCache(): Cached {
+  return { canvas: null, layout: null, version: -1, rooms: -1, lostMap: false };
 }
 
 /** Whole-floor map at a given cell pitch (rooms are pitch-1 boxes). */
 function renderMap(c: Cached, layout: FloorLayout, map: MinimapState, pw: number, ph: number, big: boolean): HTMLCanvasElement {
-  const key = `${map.version}:${layout.rooms.length}:${layout.seed}:${layout.floorIndex}:${layout.track}:${map.lostMap ? 1 : 0}`;
-  if (c.canvas && c.key === key) return c.canvas;
+  if (c.canvas && c.layout === layout && c.version === map.version && c.rooms === layout.rooms.length && c.lostMap === map.lostMap) {
+    return c.canvas;
+  }
   const w = layout.width * pw + 1;
   const h = layout.height * ph + 1;
   if (!c.canvas || c.canvas.width !== w || c.canvas.height !== h) c.canvas = makeCanvas(w, h);
@@ -85,13 +94,16 @@ function renderMap(c: Cached, layout: FloorLayout, map: MinimapState, pw: number
       g.fillRect(x + ((bw - 2) >> 1), y + ((bh - 2) >> 1), 2, 2);
     }
   }
-  c.key = key;
+  c.layout = layout;
+  c.version = map.version;
+  c.rooms = layout.rooms.length;
+  c.lostMap = map.lostMap;
   return c.canvas;
 }
 
 export class MinimapRenderer {
-  private readonly compact: Cached = { canvas: null, key: '' };
-  private readonly big: Cached = { canvas: null, key: '' };
+  private readonly compact: Cached = newCache();
+  private readonly big: Cached = newCache();
 
   /** The HUD map inside (x, y, w, h), centred on the current room. */
   drawCompact(ctx: CanvasRenderingContext2D, layout: FloorLayout, map: MinimapState, x: number, y: number, w: number, h: number, time: number): void {

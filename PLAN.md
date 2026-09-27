@@ -65,26 +65,34 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 Side tracks merged after Phase 2 (standalone, tested modules; see docs/floorgen.md, docs/audio.md, docs/saving.md):
 floor generator + room templates + minimap model (`src/sim/floor`), music + SFX library (`src/audio/music`,
 `src/audio/sfxLibrary.ts`), saves + PWA (`src/meta`, `src/pwa`). The next agent starts by wiring them in.
-- [ ] Wire the side-track modules into the run: floor generator (docs/floorgen.md "Integration checklist": door and
+- [x] Wire the side-track modules into the run: floor generator (docs/floorgen.md "Integration checklist": door and
       secret-wall tiles, transitions, marker spawning, nook, grate, curse effects, minimap rendering, saving the
       layout) and music cues (docs/audio.md "Suggested wiring": title, floor start / trapdoor sting, boss intros,
       shop / secret rooms, item fanfare, game over, pause muffle)
+      (3A: `src/sim/run` — New Run is a real run; every checklist item but the hidden-route grate (M2's track
+      switching; see the status table in docs/floorgen.md); `Sim.snapshot()` / `Sim.fromSnapshot()` store the whole
+      layout; all the music cues above)
 - [x] Floor generator (grid, room count by depth, dead ends, all special room placement rules, secret hints)
       (module done, integration pending) — `src/sim/floor`: tree maps on an 11×11 grid, boss at the farthest dead
       end, treasure / shop / miniboss / challenge / cursed, secret + deep secret, Broker's Nook cell, hint walls,
       hidden-route grate, final-boss flags, seeded curses; deterministic, ≈0.03 ms per floor
-- [ ] Room templates schema + ~12 templates; chapter data for chapter 1; tile rendering per chapter palette
-      (schema, validation, mirroring and seeded picking + 25 generic templates covering all 11 room types: module
-      done, integration pending; chapter 1 data exists as the 2C stand-in; tile rendering per chapter palette to do)
-- [ ] Doors (normal, locked, boss, treasure lock, secret wall, cursed spikes), room transitions & clearing, rewards
-      (2C: combat flow — waves at `e`/`E` markers, barred doors while enemies live, roomClear + reward drop — in sim/arena.ts)
-- [ ] HUD (hearts, coins/bombs/keys, active + charge, consumable/trinket, minimap w/ tap-to-expand)
-      (everything but the minimap was done in Phase 2A; the minimap knowledge model — visited / seen / mapped,
-      reveal items, Lost Map curse — is in `src/sim/floor/minimap.ts`, rendering + tap-to-expand to do)
+- [x] Room templates schema + ~12 templates; chapter data for chapter 1; tile rendering per chapter palette
+      (schema, validation, mirroring and seeded picking + 25 generic templates covering all 11 room types; 3A: all 12
+      ChapterDefs got palettes, tilesets (6 floor × 5 wall patterns, recoloured per chapter) and decor — decals, wall
+      trims, ambience; rooms render in their chapter's look)
+- [x] Doors (normal, locked, boss, treasure lock, secret wall, cursed spikes), room transitions & clearing, rewards
+      (2C: combat flow in sim/arena.ts; 3A: door kinds + frames, key locks, bombable secret walls with hints, Thorn Room
+      toll, camera-slide transitions with spawn safety, challenge waves, clears + seeded rewards)
+- [x] HUD (hearts, coins/bombs/keys, active + charge, consumable/trinket, minimap w/ tap-to-expand)
+      (3A: compact minimap in its slot, tap / Tab → the big map overlay (pauses), Lost Map '?', curse icon)
 - [ ] Boss framework (phases ≥2, patterns, HP bar, intro card) + 1 boss + 1 miniboss; trapdoor to next floor
+      (3A: the trapdoor and a placeholder boss / miniboss — a big sturdy chapter enemy — are in; the framework is M2's)
 - [ ] Shop, treasure room, secret rooms, challenge arena, cursed room, Broker's Nook, donation jar, slot machine, trader
+      (3A: treasure, secret / deep secret, challenge (2 waves → reward), cursed (toll), the nook (heart deals) and the
+      shop's priced item stock work; Magpie, pickups for sale, donation jar, slot machine and trader to do)
 - [ ] Floor progression through chapter list (main/alt tracks), floor transition effect
-      (the generator already knows tracks, `chapterOfFloor`, `isFinalFloor`, `finalBossFor`)
+      (3A: trapdoor → next floor on the same track, floors 1-12 → chapters, iris + floor card, floor 12's boss wins;
+      switching to the alt track (hidden-route grate) is M2's)
 - [x] Unit tests: floor generation over thousands of seeds (reachability + special rooms)
       (tests/floorgen.test.ts: 5000 seeds × 13 floors × 2 tracks, determinism, pinned fingerprint, templates;
       tests/floorminimap.test.ts)
@@ -93,6 +101,8 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] Wire the save/PWA modules in (docs/saving.md): stores + `meta.endTick()` + `registerServiceWorker()` in
       main.ts, `saveRunNow()` → `RunSaveStore` + `meta.flush()`, a Sim snapshot / restore, notices for restored /
       corrupt / newer saves, save-survives-reload e2e, iPhone Add to Home Screen + offline check
+      (3A: the Sim snapshot / restore API exists — `Sim.snapshot()` at every room entry, `Sim.fromSnapshot()` — tested
+      to continue identically; the stores / Continue wiring remains)
 - [x] Versioned save envelope + migrations; meta save on change; run autosave on room transition + background
       (module done, integration pending) — `src/meta`: checksummed `{ v, data, sum }` slots with `.bak` /
       `.corrupt`, step-by-step migrations, `MetaStore` (end-of-tick / 5 s saves), `RunSaveStore`; the autosave
@@ -114,8 +124,9 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] Synergy stress test (all carrier×modifier pairs + hundreds of 10–30 item stacks; crashes/NaN/object counts/frame time)
 - [ ] Headless god-mode bot plays every floor (all tracks & finals)
 - [ ] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
-- [ ] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
-      (2D: menu + items / foes / cheats done; skip floor and reveal map wait for the Phase 3 floors)
+- [x] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
+      (2D: menu + items / foes / cheats; 3A: skip floor, reveal map, go to boss, next curse, training yard, new run;
+      `__SD.debug.runAt(floor, track, curse, seed)`)
 - [ ] GitHub Actions: test + deploy to GitHub Pages on push
 
 ## Phase 6 — Content expansion (parallel)
@@ -124,13 +135,13 @@ floor generator + room templates + minimap model (`src/sim/floor`), music + SFX 
 - [ ] Enemies → 40+ with champion variants (2C: 8 chapter 1 enemies + all 7 champion variants)
 - [ ] Bosses → 20+, minibosses → 8+, final bosses → 3 (each with ≥2 phases)
 - [ ] Room templates → 60+ across chapters; 12 chapter themes (6 main + 6 alt); floor curses
-      (25 generic templates so far; the generator rolls curses — their effects to do)
+      (25 generic templates so far; 3A: the 12 chapter looks and all six curse effects are done — templates to go)
 - [ ] Characters → 7 with unique mechanics; achievements & unlock chain; 8+ item sets (transformations)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md
 - [x] Music: unique loop per chapter (+ boss/final themes); full SFX set
       (module done, integration pending) — 27 tracks in `src/content/music` (title, 12 chapter loops, 3 boss,
       miniboss, 3 finals, shop, secret, jingles, stingers), `app.audio.music` director, ~60-recipe SFX library on
-      top of the Phase 2 sounds; the game doesn't call the music yet (Phase 3 wiring item)
+      top of the Phase 2 sounds; wired into the title / runs / pause in Phase 3A
 - [ ] Hidden routes to alt chapters; endings 1–3 with ending screens
 
 ## Phase 7 — Integration, balance & performance

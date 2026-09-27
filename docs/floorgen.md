@@ -196,6 +196,23 @@ cell without allocating.
     `(seed, floor, track, opts)` also works while `layout.version === FLOORGEN_VERSION` and the template set is
     unchanged. `loadMinimap(json, layout)` sanitizes saved minimap data.
 
+### Status (Phase 3A, `src/sim/run` — ARCHITECTURE §6b)
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Types | done at the merge |
+| 2 | Floor start | done: `Run.startFloor` (chapter from `chapterFor(floor, track)`, chapter curse pool) |
+| 3 | Room load | done: `enterCurrent`; e/E enemies, p/c/i/S/B from contents pre-rolled on `fork('contents')` |
+| 4 | Doors | done: `world.doors` (secret walls + hints, key doors, styled by neighbour type, Thorn Room toll) |
+| 5 | Transitions | done: door front of the opposite side, `enterRoom(map…)`, camera slide in the run scene |
+| 6 | Secret walls | done: bombs open both sides (`RoomState.opened`), `discoverRoom` |
+| 7 | Broker's Nook | done: `fork('nook')` roll after the boss (0.55 clean floor / 0.2 hurt), heart-priced items |
+| 8 | Hidden route | not yet (track switching is M2's): runs pass `allowAltNext: false` |
+| 9 | Finals | boss rooms hold a placeholder boss until the boss framework (M2); floor 12's boss ends the run |
+| 10 | Curses | done: all six (sim: maze, deluge, lostMap; render: darkness, blind, unknown) |
+| 11 | Minimap rendering | done: `render/minimap.ts` (compact HUD map + the big map overlay), cached by `version` |
+| 12 | Saving | `Sim.snapshot()` stores the whole layout + minimap + room states; the localStorage wiring is Phase 4 |
+
 ## Debugging
 
 `floorToAscii(layout)` prints the map (`S` start, `.` normal, `B` boss, `T` treasure, `$` shop, `M` miniboss,

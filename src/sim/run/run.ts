@@ -298,6 +298,8 @@ export class Run {
     if (side >= 0) p.placeAt(DOOR_FRONT_X[side]!, DOOR_FRONT_Y[side]!);
     else this.placeNearCentre();
     respawnFamiliars(w);
+    // First, so presentation can reset (particles, camera) before the room's own spawn events.
+    w.events.emit('roomEnter', p.x, p.y, idx, side, room.type);
 
     // Inside a secret room every hidden wall is a door you know about.
     if (room.secret) {
@@ -322,7 +324,6 @@ export class Run {
     mapEnterRoom(d.map, d.layout, idx);
     w.safeT = RUN_TUNING.entrySafe;
     this.doorCooldown = RUN_TUNING.doorCooldown;
-    w.events.emit('roomEnter', p.x, p.y, idx, side, room.type);
     if (d.floorStartPending) {
       d.floorStartPending = false;
       floorStarted(w);
