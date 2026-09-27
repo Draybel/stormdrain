@@ -34,7 +34,9 @@ breathing room.
    it at the moment it reacts to (`updateMechanic` per tick, `mechanicRoomClear`, `mechanicHurt`, `mechanicFloorStart`,
    `mechanicEnemyHit`, `mechanicFamiliars`). Run state that must survive a run save goes in `MechanicSnap`. Register a
    placeholder hook with the same id in `content/hooks/characters.ts`.
-4. Tests: add it to `tests/characters.test.ts` (IDS, the loadout line, a rule test, the god-mode floor switch).
+4. Tests: add it to `tests/characters.test.ts` (IDS, the loadout line, a rule test, the god-mode floor switch) and to
+   `e2e/characters-play.spec.ts` (IDS + a check that its mechanic shows in touch play). Keep `desc` to two lines and
+   `mechanicDesc` to two (three at most) on the character card.
 
 ## Achievements
 

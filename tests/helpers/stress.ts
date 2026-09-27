@@ -20,6 +20,7 @@ import { ParticleSystem, PARTICLE_CAP } from '../../src/render/particles';
 import { ScreenShake } from '../../src/render/shake';
 import { WorldFx } from '../../src/render/worldFx';
 import { liveExplosions } from '../../src/sim/attack/impacts';
+import { BONUS_EMBER, BONUS_TIN, HEART_CAP } from '../../src/sim/health';
 import { SK_ORBIT } from '../../src/sim/attack/state';
 import {
   CAP_BOMBS,
@@ -49,6 +50,9 @@ export const STRESS_ROOM: readonly string[] = [
   '..u.......#..',
   '.............',
 ];
+
+/** Beam trace points per tick at most: the shared budget plus, per beam, one half-length fork started just under its share. */
+const TRACE_LIMIT = ATTACK_TUNING.beamTickBudget + ATTACK_TUNING.capBeams * (ATTACK_TUNING.beamMaxPoints >> 1);
 
 /** How far outside the room interior anything may be (px) before it counts as escaped. */
 export const ROOM_MARGIN = 16;
@@ -139,6 +143,74 @@ function outside(x: number, y: number, margin = ROOM_MARGIN): boolean {
 }
 
 /**
+ * The pools really are the sizes ARCHITECTURE promises (§3, §4.5). A pool refuses to grow past its capacity,
+ * so the per-tick "count ≤ cap" checks below can only fail if a capacity drifts from its documented cap —
+ * this catches the drift itself (a silently enlarged pool would break the perf budget the caps exist for).
+ * Returns '' when every capacity matches.
+ */
+export function checkCapacities(sim: Sim, particles: ParticleSystem | null): string {
+  const w = sim.world;
+  const want: [string, number, number][] = [
+    ['projectiles', w.projectiles.capacity, CAP_PROJECTILES],
+    ['enemies', w.enemies.capacity, CAP_ENEMIES],
+    ['enemy shots', w.enemyShots.capacity, CAP_ENEMY_SHOTS],
+    ['puddles', w.creep.capacity, CAP_CREEP],
+    ['shockwaves', w.waves.capacity, CAP_WAVES],
+    ['pickups', w.pickups.capacity, CAP_PICKUPS],
+    ['bombs', w.bombs.capacity, CAP_BOMBS],
+    ['pedestals', w.pedestals.capacity, CAP_PEDESTALS],
+    ['beams', w.atk.beams.capacity, ATTACK_TUNING.capBeams],
+    ['swipes', w.atk.swipes.capacity, ATTACK_TUNING.capSwipes],
+    ['events', w.events.capacity, 1024],
+    ['documented projectiles', CAP_PROJECTILES, 700],
+    ['documented enemy shots', CAP_ENEMY_SHOTS, 400],
+    ['documented beams', ATTACK_TUNING.capBeams, 48],
+    ['documented particles', PARTICLE_CAP, 1500],
+  ];
+  if (particles) want.push(['particles', particles.pool.capacity, PARTICLE_CAP]);
+  for (const [name, have, cap] of want) if (have !== cap) return `${name} pool holds ${have}, the documented cap is ${cap}`;
+  return '';
+}
+
+/** Temporary effects a player may carry at once before it counts as a leak (triggers must stay bounded). */
+export const TEMPS_MAX = 120;
+
+/**
+ * The player's own numbers: health (half hearts: 0 ≤ red ≤ redMax, containers + bonus hearts ≤ 12, no empty
+ * bonus heart; Marrow's `noRedHearts` means no red at all), counters 0-99 whole numbers, the active's charge
+ * (fractional for Bolt, never past its max), the character mechanic's timers / fireflies, and a bounded list of
+ * temporary effects.
+ */
+function checkPlayer(sim: Sim): string {
+  const p = sim.world.player;
+  const h = p.health;
+  if (!Number.isInteger(h.red) || !Number.isInteger(h.redMax) || h.redMax < 0 || (h.redMax & 1) !== 0 || h.red < 0 || h.red > h.redMax) {
+    return `health out of range (red ${h.red} / ${h.redMax})`;
+  }
+  if ((h.redMax >> 1) + h.bonusCount > HEART_CAP) return `hearts over the cap (${h.redMax >> 1} containers + ${h.bonusCount} bonus)`;
+  for (let i = 0; i < h.bonusCount; i++) {
+    const n = h.bonusHalves[i]!;
+    const k = h.bonusKind[i]!;
+    if (n < 1 || n > 2 || (k !== BONUS_TIN && k !== BONUS_EMBER)) return `bonus heart ${i} broken (kind ${k}, halves ${n})`;
+  }
+  if (p.flags.noRedHearts && (h.redMax > 0 || h.red > 0)) return `red hearts despite noRedHearts (red ${h.red} / ${h.redMax})`;
+  const inv = p.inv;
+  for (const k of ['coins', 'bombs', 'keys'] as const) {
+    const v = inv[k];
+    if (!Number.isInteger(v) || v < 0 || v > 99) return `${k} ${v} outside 0-99`;
+  }
+  const a = inv.active;
+  if (a && (!fin(a.charge) || a.charge < 0 || a.charge > a.max + 1e-9)) return `active ${a.id} charge ${a.charge} of ${a.max}`;
+  const m = p.mech;
+  if (!fin(m.dashT) || m.dashT < 0 || m.dashT > m.dashTime + 1e-9) return `burrow timer ${m.dashT}`;
+  if (!fin(m.dashCd) || m.dashCd < 0 || m.dashCd > m.dashCooldown + 1e-9) return `burrow cooldown ${m.dashCd}`;
+  if (!Number.isInteger(m.flies) || m.flies < 0 || m.flies > Math.max(0, m.fliesMax - m.fliesBase)) return `fireflies ${m.flies} (max ${m.fliesMax} incl. ${m.fliesBase})`;
+  if (!fin(m.soakT) || m.soakT < 0 || m.soakT >= m.soakEvery + 1e-9) return `soak timer ${m.soakT}`;
+  if (p.temps.length > TEMPS_MAX) return `temporary effects piling up (${p.temps.length})`;
+  return '';
+}
+
+/**
  * The per-tick invariants. Returns '' when everything holds, else what broke. Allocation-light: only
  * the failure message is built.
  */
@@ -151,22 +223,30 @@ export function checkWorld(sim: Sim, particles: ParticleSystem | null): string {
   for (const k of ['damage', 'fireRate', 'shotSpeed', 'range', 'moveSpeed', 'luck', 'shotSize', 'knockback'] as const) {
     if (!fin(p.stats[k])) return `stat ${k} not finite (${p.stats[k]})`;
   }
+  const pe = checkPlayer(sim);
+  if (pe) return pe;
   // Player projectiles.
   const shots = w.projectiles;
   if (shots.count > CAP_PROJECTILES) return `projectiles ${shots.count} > ${CAP_PROJECTILES}`;
+  let blades = 0;
   for (let i = 0; i < shots.count; i++) {
     const s = shots.items[i]!;
+    if (s.kind === SK_ORBIT) blades++;
     if (!fin(s.x) || !fin(s.y) || !fin(s.z) || !fin(s.vx) || !fin(s.vy) || !fin(s.damage) || !fin(s.size) || !fin(s.speed)) {
       return `shot kind ${s.kind} not finite at ${s.x},${s.y} (dmg ${s.damage}, size ${s.size}, speed ${s.speed})`;
     }
     if (outside(s.x, s.y)) return `shot kind ${s.kind} outside the room at ${s.x.toFixed(1)},${s.y.toFixed(1)} (flags ${s.flags})`;
     if (s.depth > ATTACK_TUNING.maxSplitDepth) return `split depth ${s.depth}`;
   }
+  // Orbit blades: at most orbitMax, however the profile changed (a blade left behind is a leak).
+  if (blades > ATTACK_TUNING.orbitMax) return `orbit blades ${blades} > ${ATTACK_TUNING.orbitMax}`;
   // Beams.
   const beams = w.atk.beams;
   if (beams.count > ATTACK_TUNING.capBeams) return `beams ${beams.count} > ${ATTACK_TUNING.capBeams}`;
+  let tracePts = 0;
   for (let i = 0; i < beams.count; i++) {
     const b = beams.items[i]!;
+    tracePts += b.n;
     if (b.n > ATTACK_TUNING.beamBudget) return `beam with ${b.n} points > ${ATTACK_TUNING.beamBudget}`;
     if (!fin(b.dmg) || !fin(b.width)) return `beam damage / width not finite (${b.dmg}, ${b.width})`;
     for (let k = 0; k < b.nseg; k++) if (b.segLen[k]! > ATTACK_TUNING.beamMaxPoints) return `beam segment of ${b.segLen[k]} points`;
@@ -177,6 +257,8 @@ export function checkWorld(sim: Sim, particles: ParticleSystem | null): string {
       if (outside(x, y)) return `beam point outside the room at ${x.toFixed(1)},${y.toFixed(1)} (kind ${b.kind})`;
     }
   }
+  // The shared trace budget (§4.3): each beam gets its share of beamTickBudget (+ at most one half-length fork past it).
+  if (tracePts > TRACE_LIMIT) return `beam trace points ${tracePts} this tick > ${TRACE_LIMIT}`;
   if (w.atk.swipes.count > ATTACK_TUNING.capSwipes) return `swipes ${w.atk.swipes.count} > ${ATTACK_TUNING.capSwipes}`;
   if (w.atk.arcsThisTick > ATTACK_TUNING.capChainArcs) return `chain arcs ${w.atk.arcsThisTick} > ${ATTACK_TUNING.capChainArcs}`;
   const live = liveExplosions(w);
@@ -191,6 +273,9 @@ export function checkWorld(sim: Sim, particles: ParticleSystem | null): string {
       return `enemy ${e.def.id} not finite (${e.x}, ${e.y}, hp ${e.hp})`;
     }
     if (outside(e.x, e.y)) return `enemy ${e.def.id} outside the room at ${e.x.toFixed(1)},${e.y.toFixed(1)}`;
+    // Killing only flags `dead` and the sweep releases it within the step: a live enemy at 0 HP (not a boss
+    // playing its death sequence) would never die — a room that never clears.
+    if (e.hp <= 0 && !e.dying) return `enemy ${e.def.id} alive at ${e.hp.toFixed(1)} HP (dead ${e.dead})`;
   }
   const es = w.enemyShots;
   if (es.count > CAP_ENEMY_SHOTS) return `enemy shots ${es.count} > ${CAP_ENEMY_SHOTS}`;
@@ -221,6 +306,7 @@ export function checkWorld(sim: Sim, particles: ParticleSystem | null): string {
   }
   if (w.pedestals.count > CAP_PEDESTALS) return `pedestals ${w.pedestals.count} > ${CAP_PEDESTALS}`;
   // Familiars.
+  if (w.atk.familiars.list.length > ATTACK_TUNING.familiarMax) return `familiar slots ${w.atk.familiars.list.length} > ${ATTACK_TUNING.familiarMax}`;
   for (const f of w.atk.familiars.list) {
     if (!f.alive) continue;
     if (!fin(f.x) || !fin(f.y)) return `familiar ${f.def?.id} not finite`;
@@ -228,7 +314,8 @@ export function checkWorld(sim: Sim, particles: ParticleSystem | null): string {
   }
   // Presentation.
   if (particles && particles.count > PARTICLE_CAP) return `particles ${particles.count} > ${PARTICLE_CAP}`;
-  if (w.events.count > w.events.capacity) return `event queue ${w.events.count} > ${w.events.capacity}`;
+  // The event queue never overwrites (dropped events = lost kills / hurts / items for render, audio and the meta tracker).
+  if (w.events.dropped > 0) return `the event queue overflowed (${w.events.dropped} events dropped)`;
   return '';
 }
 
@@ -305,6 +392,11 @@ export function runStress(build: StressBuild): StressResult {
     w.player.placeAt(40, 56);
     build.setup(s);
     w.events.clear();
+    const capErr = checkCapacities(s, particles);
+    if (capErr) {
+      res.error = `setup: ${capErr}`;
+      return finish();
+    }
     const input = makeInput();
     const rng = new Rng(`${build.seed}:input`);
 

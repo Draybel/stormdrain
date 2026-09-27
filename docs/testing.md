@@ -10,7 +10,10 @@ Four layers, from fast and narrow to slow and wide. All of them run headless exc
 | End-to-end | `e2e/*.spec.ts` | real WebKit on both iPhone 15 profiles: boot, touch, HUD, saves, debug menu | `npm run test:e2e` |
 
 `npm run typecheck` / `npm run build` complete the gate. CI (`.github/workflows/deploy.yml`) runs typecheck → tests →
-build → GitHub Pages on every push to `main`; the e2e job runs beside it and never blocks the deploy.
+build → GitHub Pages on every push to `main`; the e2e job runs beside it and never blocks the deploy (on CI a failed e2e
+test keeps a Playwright trace, uploaded with `test-results/`). The actions are pinned to their current major tags, all
+on GitHub's Node 24 runtime (checkout v7, setup-node v7, upload-pages-artifact v5, deploy-pages v5, upload-artifact v7);
+only the deploy job holds `pages: write` / `id-token: write`. `tests/ci-workflow.test.ts` keeps that contract.
 
 ## Switches (environment variables)
 
@@ -41,6 +44,15 @@ enemies 64, enemy shots 400, puddles 48, shockwaves 16, pickups 64, bombs 16, pe
 and nothing more than 16 px outside the room (familiars 32). The particle cap is real: a headless `WorldFx` +
 `ParticleSystem` consume the events exactly like the run scene does.
 
+A pool refuses to grow past its capacity, so "count ≤ cap" on its own could never fail. The verification pass added
+the checks that can: `checkCapacities` (once per build / bot run) pins every pool's capacity to the cap ARCHITECTURE
+documents, and `checkWorld` also checks what no pool enforces — orbit blades ≤ `orbitMax`, beam trace points per tick
+within the shared budget (+ one half fork per beam), no enemy alive at 0 HP outside a boss's death sequence (a room
+that could never clear), no event ever dropped, the player's health (0 ≤ red ≤ redMax, containers + bonus ≤ 12, no
+empty bonus heart, no red at all on `noRedHearts`), coins / bombs / keys whole numbers 0-99, the active's charge (Bolt's
+is fractional) within 0..max, the mechanic's burrow / firefly / soak state, and at most `TEMPS_MAX` (120) temporary
+effects. `tests/verify-characters.test.ts` breaks each of these on purpose and expects `checkWorld` to say so.
+
 Timing: sim step times per build (the particle layer is timed apart). A build whose p99 exceeds 8 ms × `PERF_SLACK` is
 replayed (deterministically) up to twice and fails only if it stays slow. On a desktop the whole matrix averages ≈ 0.01
 ms per step and 1000 random stacks ≈ 0.025 ms (p99 ≈ 0.3 ms).
@@ -63,10 +75,14 @@ On a final-boss floor it saves the boss room for last and holds its actives / co
 there); Pip burrows only at a foe, never with an open exit in the room.
 
 The report: `problems` (the test fails on any: exceptions, invalid states, soft-locks — a room that never clears, doors
-that stay shut with nothing to fight, a door that won't let her through, a boss that doesn't spawn / die, no trapdoor,
+that stay shut with nothing to fight, a door that won't let her through, a boss that doesn't spawn / die, a boss that
+fell without going through all its phases, an item for coins / keys that wouldn't sell after the top-up, no trapdoor,
 an exit that doesn't work, a floor change without an exit, death in god mode), `notes` (teleport fallbacks, fight
 time-outs, coin / key / bomb top-ups), per-floor records (boss killed by the fight or the fallback, rooms visited, secrets
-bombed, things bought, chests, items), tick / walk / teleport counts and `simMs`.
+bombed, things bought — only purchases a 'buy' event confirms —, chests, items), tick / walk / teleport counts, doors
+walked and locks opened, boss fights and the phases they went through, and `simMs`. The coverage test asks, over the
+whole-run cases, for ≥ 75 % of room entries through a door, locks opened, and more secret walls bombed, purchases and
+boss fights (≥ 2 phases each) than runs.
 
 What the default test plays (≈ 50 s, 1 M ticks ≈ 5 hours of play): each of the 8 characters one whole run — main (1-12,
 Old Thunderhead, the whirlpool, 13, The Undertow → Ending 3), alt (1-12 alt, The Nestmother → Ending 2), routes (the
@@ -90,7 +106,11 @@ menu buttons (`boot`, `menus`, `characters`); the full HUD inside the viewport /
 active + charge, consumable + two trinkets, minimap, pause, bomb, Pip's DASH; default / left-handed / 150 % / both; with
 the iPhone insets emulated on the home-screen profile); a save surviving a reload + Continue (`save`, `content`);
 multi-touch move + shoot (`touch`, `boot`); the debug menu by 5 taps on PAUSED and by keyboard, with spawns, the BOSSES
-tab, god mode, reveal map, go to boss, skip floor, UNLOCK ALL / RESET UNLOCKS (`debug`).
+tab, god mode, reveal map, go to boss, skip floor, UNLOCK ALL / RESET UNLOCKS (`debug`). Every character PLAYED by two
+synthetic thumbs (`characters-play`, home-screen profile: an in-page driver moves the floating sticks every animation
+frame — strafe round the nearest foe, aim at it, lift the thumb for charge shots, tap DASH — until the wave is dead,
+then checks the character's mechanic in real play), and a new player's locked roster / queued toasts / achievements page.
+Screenshots from these land in `e2e/__screens__` (git-ignored) for a human look.
 
 Stable by construction: wait on state (`waitForFunction` on `__SD`), never on fixed sleeps longer than a frame or two,
 and every run is seeded or driven by debug actions.
@@ -99,6 +119,9 @@ and every run is seeded or driven by debug actions.
 
 - New content is picked up automatically: the stress test draws from `allItems()`, the bot plays whatever rooms, enemies
   and bosses the floors roll, the debug menu lists every item / enemy / boss.
-- A new pool or cap: add it to `checkWorld` (and to the settle levels if it is transient).
+- A new pool or cap: add it to `checkCapacities` / `checkWorld` (and to the settle levels if it is transient); a new
+  invariant also gets a "breaks on purpose" case in `tests/verify-characters.test.ts`.
+- A new character: add it to `e2e/characters-play.spec.ts` (`IDS` + a mechanic check) as well as tests/characters.test.ts.
+- A CI change: `tests/ci-workflow.test.ts` checks the workflow as text (actions on Node-24 majors, the permissions).
 - A new floor exit or special room interaction: teach the bot (`collect`, `moveOn`, `stepOnto`) so runs keep ending.
 - A new timing assertion: `perfBudget(ms)` + `steadyTiming(first, budget, again)` so a busy CI box doesn't fail it.

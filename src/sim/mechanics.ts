@@ -337,11 +337,7 @@ export function mechanicEnemyHit(w: World, e: Enemy, source: number): void {
   const p = w.player;
   const m = p.mech;
   if (m.kind !== MK_PICKPOCKET || source !== SRC_PLAYER || p.dead) return;
-  const slot = e.uid & (POCKET_SLOTS - 1);
-  if (m.pocketUid[slot] !== e.uid) {
-    m.pocketUid[slot] = e.uid;
-    m.pocketN[slot] = 0;
-  }
+  const slot = pocketSlot(w, m, e.uid);
   const big = e.boss !== null || (e.def.big ?? e.r >= ENEMY_TUNING.bigRadius);
   if (m.pocketN[slot]! >= (big ? m.pickBig : m.pickPerEnemy)) return;
   const chance = Math.min(m.pickMax, Math.max(0, m.pickChance + p.stats.luck * m.pickLuck));
@@ -350,6 +346,42 @@ export function mechanicEnemyHit(w: World, e: Enemy, source: number): void {
   const silver = w.combatRng.next() < m.pickSilver;
   spawnLoot(w, silver ? PK.SilverCoin : PK.Coin, undefined, e.x, e.y - 2);
   w.events.emit('mechanic', e.x, e.y - e.r - 4, ME_PICKPOCKET, silver ? 5 : 1, p.character.id);
+}
+
+/**
+ * Sable's per-enemy coin count lives in a small open-addressed table keyed by enemy uid (no Enemy field):
+ * the uid's own slot, else the next ones. A slot is reused only when its enemy is gone — two live enemies
+ * whose uids share a slot (uids 64 apart: a boss and its 64th add) keep separate counts, so a boss never
+ * yields more than its three coins. At most 64 enemies live at once, so a slot is always free for a new one.
+ */
+function pocketSlot(w: World, m: MechanicState, uid: number): number {
+  const mask = POCKET_SLOTS - 1;
+  let reuse = -1;
+  for (let k = 0; k < POCKET_SLOTS; k++) {
+    const s = (uid + k) & mask;
+    const owner = m.pocketUid[s]!;
+    if (owner === uid) return s;
+    if (owner === 0) {
+      if (reuse < 0) reuse = s;
+      break;
+    }
+    if (reuse < 0 && !enemyLive(w, owner)) reuse = s;
+  }
+  // (Unreachable with ≤ 64 live enemies; fall back to the uid's own slot.)
+  if (reuse < 0) reuse = uid & mask;
+  m.pocketUid[reuse] = uid;
+  m.pocketN[reuse] = 0;
+  return reuse;
+}
+
+/** Is the enemy with this uid still in the room (alive, not yet swept)? */
+function enemyLive(w: World, uid: number): boolean {
+  const pool = w.enemies;
+  for (let i = 0; i < pool.count; i++) {
+    const e = pool.items[i]!;
+    if (e.uid === uid && !e.dead) return true;
+  }
+  return false;
 }
 
 // ── Save / restore ─────────────────────────────────────────────────────────────

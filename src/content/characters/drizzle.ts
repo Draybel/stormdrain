@@ -29,7 +29,7 @@ export const DRIZZLE: CharacterDef = {
   sprite: DRIZZLE_SPRITE,
   shotColor: '#bfe8ff',
   mechanic: 'drizzle.rainmaker',
-  mechanicDesc: 'RAINMAKER: FLOATS OVER PITS AND SPIKES. EVERY HIT YOU TAKE BURSTS A CLOUD OVER THE ROOM: ALL FOES SOAKED AND SLOWED.',
+  mechanicDesc: 'RAINMAKER: FLOATS OVER PITS AND SPIKES. EVERY HIT YOU TAKE BURSTS A CLOUD THAT SLOWS ALL FOES.',
   innate: [
     { type: 'flag', flag: 'flying' },
     {

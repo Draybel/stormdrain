@@ -231,8 +231,11 @@ export class CharacterSelectScene extends PageScene {
     ly += drawWrapped(ctx, c.desc, tx, ly, tw, BODY, 8, 2) * 8 + 1;
     if (c.mechanicDesc) ly += drawWrapped(ctx, c.mechanicDesc, tx, ly, tw, MECH, 8, 3) * 8 + 2;
     const statsY = Math.max(ly + 1, y + 44);
-    for (let i = 0; i < STAT_ROWS.length; i++) drawStatBar(ctx, STAT_ROWS[i]!, c.stats, tx, statsY + i * 8, tw, false);
-    this.drawLoadout(ctx, c, tx, y + 108 - 12);
+    // The stat rows end above the loadout line: a long description + mechanic (2 + 3 lines) packs them 7 px apart.
+    const loadoutY = y + 108 - 12;
+    const rowH = Math.max(6, Math.min(8, Math.floor((loadoutY - 2 - statsY) / STAT_ROWS.length)));
+    for (let i = 0; i < STAT_ROWS.length; i++) drawStatBar(ctx, STAT_ROWS[i]!, c.stats, tx, statsY + i * rowH, tw, false);
+    this.drawLoadout(ctx, c, tx, loadoutY);
   }
 
   /** Hearts, pickups and starting items on one line. */

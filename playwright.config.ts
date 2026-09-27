@@ -12,7 +12,8 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:4173/',
-    trace: 'off',
+    // CI (GitHub Actions sets CI): keep a trace of each failed test for the uploaded report.
+    trace: process.env.CI ? 'retain-on-failure' : 'off',
   },
   webServer: {
     command: 'npm run build && npm run preview',

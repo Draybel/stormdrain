@@ -186,6 +186,15 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       (Phase 5: .github/workflows/deploy.yml — npm ci, typecheck, test, build, upload-pages-artifact + deploy-pages
       (pages / id-token permissions, one `pages` concurrency group), plus a non-blocking WebKit e2e job; timing budgets get
       3× slack on CI (tests/helpers/perf.ts))
+- [x] Independent verification pass (characters + achievements, Phase 5 tooling): every character played in WebKit by two
+      synthetic thumbs with its mechanic checked (e2e/characters-play.spec.ts, screenshots of the select cards, fights,
+      locked roster, toasts, achievements page); the stress / bot invariants made able to fail (pool capacities pinned to
+      the documented caps, orbit blades, beam trace budget, 0-HP enemies, dropped events, health / counters / charge /
+      mechanic state) and proven to (tests/verify-characters.test.ts); the bot counts only real purchases, checks every
+      boss goes through all its phases, counts doors / locks; BOT_FULL (83 runs) and STRESS=full clean. Fixed: Sable's
+      pickpocket paid a boss again and again once an add's uid shared its slot; the CI build job's configure-pages step
+      (no pages permission) and Node-20 action majors; no e2e traces on CI; the achievement count (53, not 54); the
+      character card's stat rows running into the loadout line (tests/ci-workflow.test.ts pins the workflow)
 
 ## Phase 6 — Content expansion (parallel)
 - [x] Passive items → 100+
@@ -210,7 +219,7 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       (4A: the achievement framework and 15 first achievements; characters pass: Pip (burrow dash + DASH button / Shift),
       Marrow (Tin only + boomerang), Juniper (firefly jar), Bolt (charge rider + wind-up actives), Sable (melee, pickpocket,
       haggler), Mosswick (puddles + soak) and the secret Drizzle (floats, cloudburst when hit) — original 14×16 sprites in
-      Wren's frame layout, `sim/mechanics.ts`, `innate` effects; 54 achievements (core / heroes / milestones) with badge
+      Wren's frame layout, `sim/mechanics.ts`, `innate` effects; 53 achievements (core / heroes / milestones) with badge
       icons and reward lines, 45 gated items, character / route unlocks, robbing Magpie's jar; docs/characters.md;
       tests/characters.test.ts, tests/achievements-content.test.ts, e2e/characters.spec.ts)
 - [ ] 40+ hand-crafted special synergies + SYNERGIES.md

@@ -26,7 +26,7 @@ export const WREN: CharacterDef = {
   startPickups: { coins: 0, bombs: 1, keys: 0 },
   sprite: WREN_SPRITE,
   mechanic: 'wren.luckyMarble',
-  mechanicDesc: 'LUCKY MARBLE: the first shot in every uncleared room is a big keeper marble that pierces and hits three times as hard.',
+  mechanicDesc: 'LUCKY MARBLE: THE FIRST SHOT IN EVERY UNCLEARED ROOM IS A BIG KEEPER MARBLE THAT PIERCES AND HITS THREE TIMES AS HARD.',
   order: 0,
 };
 

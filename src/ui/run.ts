@@ -783,7 +783,16 @@ export class RunScene implements Scene {
   }
 
   /** Test hook: is a room slide / iris / card / ending / boss card / slow motion showing? */
-  get presentation(): { slide: boolean; iris: number; card: boolean; ending: string; bossCard: boolean; slowmo: boolean; endingId: number } {
+  get presentation(): {
+    slide: boolean;
+    iris: number;
+    card: boolean;
+    ending: string;
+    bossCard: boolean;
+    slowmo: boolean;
+    endingId: number;
+    notice: string;
+  } {
     return {
       slide: this.slideT < SLIDE_TIME,
       iris: this.irisPhase,
@@ -792,6 +801,7 @@ export class RunScene implements Scene {
       bossCard: this.bossHud.cardVisible,
       slowmo: this.slowT > 0,
       endingId: this.endingId,
+      notice: this.noticeTime > 0 ? this.notice : '',
     };
   }
 }

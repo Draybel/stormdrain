@@ -49,6 +49,8 @@ export interface Presentation {
   bossCard: boolean;
   slowmo: boolean;
   endingId: number;
+  /** The short notice in the top band right now ('ROOM CLEARED!', a trigger's 'say' line…), '' when none. */
+  notice: string;
 }
 
 export interface CssRect {

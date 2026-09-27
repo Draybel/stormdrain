@@ -35,7 +35,7 @@ src/
   debug/             hidden debug menu, perf overlay
 tests/               vitest unit + simulation tests (floorgen, items, save, synergy stress, play-bot; guide docs/testing.md)
 e2e/                 playwright webkit tests
-.github/workflows/   deploy.yml: typecheck + tests + build → GitHub Pages on every push to main (+ a non-blocking e2e job)
+.github/workflows/   deploy.yml: typecheck + tests + build → GitHub Pages on every push to main (+ a non-blocking e2e job; tests/ci-workflow.test.ts)
 scripts/             node build helpers (gen-icons.mjs → public/icons, sw-plugin.mjs → dist/sw.js)
 public/              static files copied verbatim (manifest, icons)
 docs/                module guides: floorgen.md (§6), saving.md (§7), audio.md (§8); content packs (Phase 6):
@@ -216,7 +216,9 @@ the soak timer, the dash cooldown). Hot paths stay allocation-free.
   per whole charge). Starts with the Jar of Lightning.
 - **Sable — Pickpocket** (`sable.pickpocket`): the melee carrier + `haggler` innate; a landed SRC_PLAYER hit
   (`damageEnemy` → `mechanicEnemyHit`) knocks a coin loose at 14 % + 3 % per luck (≤ 40 %), one per enemy (three from
-  bosses / big ones, remembered by uid), 8 % of them silver ('mechanic' a = 3).
+  bosses / big ones, counted per enemy uid in a 64-slot open-addressed table whose slots are reused only once their enemy
+  is gone — verification pass: two live enemies 64 uids apart used to share a count, so a boss could pay out again and
+  again), 8 % of them silver ('mechanic' a = 3).
 - **Mosswick — Bog Blood** (`mosswick.bogBlood`): the puddle modifier innate; standing in an allied puddle (not flying)
   soaks up half a Tin heart every 2.5 s, up to 6 Tin halves ('mechanic' a = 4).
 - **Drizzle (secret) — Rainmaker** (`drizzle.rainmaker`, data): `flying` innate + a 'hurt' trigger bursting a room-wide
@@ -1054,7 +1056,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
 - Characters pass: the tracker also reports 'chapterBossKilled' (a kind-0 boss: id = chapter id, value = chapter number
   1-6), counts 'robbed' events as `shopsDestroyed` and a claimed scored daily as `dailyRuns`. Reward lines put a new
   character first (the toast shows the first line), then routes / endings, then items, then the `reward` text.
-- Content (characters pass, 54 achievements): `core.ts` (the first 15, now with icons / rewards), `heroes.ts` (Pip, Bolt
+- Content (characters pass, 53 achievements: core 15 + heroes 11 + milestones 27): `core.ts` (the first 15, now with icons / rewards), `heroes.ts` (Pip, Bolt
   and Sable's unlocks, SMASH AND GRAB, a win with each character — the secret one's hidden) and `milestones.ts` (chapters,
   the hidden route, bosses, clean floors, transformations, synergies, the collection, the daily run, Rain Barrel Arenas,
   secrets, shops, the gambler, tonics, bombs, a win streak). 45 items carry `unlock` (the strong and weird ones: 6 starters
@@ -1291,7 +1293,7 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
   `skipFloor()`, `revealMap()`, `curse(c | null)`, `map()`, `runAt(floor, track?, curse?, seed?, unlocked?, character?)` (the
   character defaults to the current run's); Phase 3B:
   `bosses()`, `boss(id?)` — a boss fight in the current room), `presentation()` (the run scene's slide / iris / card /
-  ending + `endingId` / `bossCard` / `slowmo`); `hud()` includes `bossBar` during a fight; `run()` has `boss`
+  ending + `endingId` / `bossCard` / `slowmo`; verification pass: `notice` — the top band's short notice, '' when none); `hud()` includes `bossBar` during a fight; `run()` has `boss`
   (id, hp, maxHp, phase, phases, dying, kind — null without a fight) and pedestals carry price / hearts / keys (after
   the haggler discount), goods, prop ('jar' | 'slots' | 'trader'), group; `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
   includes `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`,
@@ -1331,7 +1333,12 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
     pickup flow, every character in turn — each fought for seconds against waves of real chapter enemies (and bosses) in a
     room with obstacles. Every tick `checkWorld`: no exceptions / NaN / Infinity, every pool within its cap (incl. the
     presentation `ParticleSystem` fed by a headless `WorldFx`), nothing outside the room + 16 px; after the clear every
-    transient pool must fall back to its at-rest level. Step times reported (avg / p50 / p99 / max); a p99 over 8 ms ×
+    transient pool must fall back to its at-rest level. Verification pass (pools refuse to grow, so "count ≤ cap" alone
+    could never fail): `checkCapacities` pins every pool's capacity to its documented cap once per build / run, and
+    `checkWorld` also checks what the pools don't enforce — orbit blades ≤ `orbitMax`, the shared beam trace budget, no
+    enemy alive at 0 HP (outside a boss's death sequence), no dropped event, the player's health (0 ≤ red ≤ redMax, ≤ 12
+    hearts, no empty bonus heart, no red on `noRedHearts`), counters 0-99, the active's (fractional) charge ≤ max, the
+    mechanic's timers / fireflies and ≤ `TEMPS_MAX` temporary effects (tests/verify-characters.test.ts proves each one fires). Step times reported (avg / p50 / p99 / max); a p99 over 8 ms ×
     `PERF_SLACK` on three deterministic replays fails. `STRESS=full`, `STRESS_STACKS`, `STRESS_VERBOSE`.
   - **Play-bot** (`tests/bot.test.ts`, `tests/helpers/bot.ts` `Bot` / `playRun`): god mode, sim only; walks every room
     through the doors on an 8-way grid path smoothed by line of sight (a teleport only after 4 s without progress,
@@ -1339,13 +1346,21 @@ Wired in Phase 4A. `meta/save.ts` `GameSave` (built once in main.ts, `app.save`;
     walls and the grate, keys, chests, loot, shops / nook / Old Pell, jar, gambler, actives, consumables, the trapdoor /
     grate / whirlpool; per tick `checkWorld` + the run's invariants (no death, no floor change without an exit, no arena
     shut with nothing in it, doors open after a clear); a fight past its limit (45 s, bosses 150 s) is finished through
-    the damage path and logged, one that still won't end is a soft-lock. Runs: main 1-12 + the whirlpool to 13, alt 1-12,
+    the damage path and logged, one that still won't end is a soft-lock. Verification pass: a purchase counts only when a
+    'buy' event says it went through (an item for coins / keys that won't sell after the top-up is a problem), every
+    boss / miniboss fight must reach its last phase (none skipped), and the report counts doors walked and locks opened
+    — the coverage test wants ≥ 75 % of room entries through doors, locks, secrets, buys and boss fights in every run. Runs: main 1-12 + the whirlpool to 13, alt 1-12,
     and the hidden routes forced (`hiddenRouteChance` 1) — every character; plus a grate on each main floor 1-11.
     `BOT_FULL`, `BOT_SEEDS`, `BOT_VERBOSE`, `BOT_DEBUG`.
   - `tests/helpers/perf.ts`: `perfBudget(ms)` (× `PERF_SLACK`, default 3 on CI) and `steadyTiming` (re-measures a deterministic
     run before failing) for every timing assertion; `tests/verify-5.test.ts` pins the bot's findings; `tests/debug-tools.test.ts`
     the debug actions; `e2e/hud.spec.ts` the full HUD vs the viewport / safe area in four layouts (+ Pip, + insets);
     `e2e/debug.spec.ts` the debug menu by touch and keyboard in a floor run.
+- Characters / tests verification pass: `e2e/characters-play.spec.ts` (every character picked by touch and played with two
+  synthetic thumbs — per-frame PointerEvents from an in-page driver — against a wave, its mechanic checked in real play;
+  a new player's locked roster, queued unlock toasts, the achievements page; screenshots to e2e/__screens__),
+  `tests/verify-characters.test.ts` (regressions + the invariants catching broken states), `tests/ci-workflow.test.ts`
+  (the workflow's contract as text: triggers, build → deploy, permissions, Node-24 action majors, e2e non-blocking).
 - Characters pass: `tests/characters.test.ts` (the roster validates and follows the sprite contract; every mechanic's core
   rule; every character clears a god-mode floor with the explorer while using its mechanic — `ExploreOptions.dashEvery`
   presses Pip's dash in fights; the explorer lets a dash finish before walking to a door), `tests/achievements-content.test.ts`

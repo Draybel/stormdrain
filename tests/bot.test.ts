@@ -137,7 +137,17 @@ describe('play-bot: whole runs on every track, every character', () => {
     let grates = 0;
     let bosses = 0;
     let fought = 0;
+    let doors = 0;
+    let locks = 0;
+    let bossFights = 0;
+    let bossPhases = 0;
+    let entries = 0;
     for (const p of PLAYED) {
+      doors += p.report.doors;
+      locks += p.report.locksOpened;
+      bossFights += p.report.bossFights;
+      bossPhases += p.report.bossPhases;
+      entries += p.report.roomsEntered;
       for (const f of p.report.floors) {
         floors.add(`${f.floor}${f.track}`);
         secrets += f.secretsBombed;
@@ -154,8 +164,14 @@ describe('play-bot: whole runs on every track, every character', () => {
       expect(floors.has(`${f}alt`), `floor ${f} alt`).toBe(true);
     }
     expect(floors.has('13main'), 'floor 13').toBe(true);
-    expect(secrets, 'secret walls bombed').toBeGreaterThan(0);
-    expect(bought, 'things bought').toBeGreaterThan(0);
+    // Rooms are entered by walking through doors (the rest: floor starts and the odd teleport item).
+    expect(doors / Math.max(1, entries), `${doors} doors walked for ${entries} room entries`).toBeGreaterThan(0.75);
+    expect(locks, 'locked doors opened with a key').toBeGreaterThan(0);
+    expect(secrets, 'secret walls bombed').toBeGreaterThan(PLAYED.length);
+    expect(bought, 'things bought (paid for and handed over)').toBeGreaterThan(PLAYED.length);
+    // Every boss / miniboss fight went through all its phases (checked per fight); they have two or more each.
+    expect(bossFights, 'boss fights seen to the end').toBeGreaterThan(PLAYED.length);
+    expect(bossPhases, 'boss phases fought through').toBeGreaterThanOrEqual(2 * bossFights);
     expect(chests, 'chests opened').toBeGreaterThan(0);
     expect(items, 'items taken').toBeGreaterThan(0);
     expect(grates, 'hidden-route grates taken').toBeGreaterThan(0);
@@ -191,6 +207,8 @@ afterAll(() => {
   let fights = 0;
   let bossFb = 0;
   let topUps = 0;
+  let doors = 0;
+  let buys = 0;
   let ms = 0;
   let simMs = 0;
   for (const p of PLAYED) {
@@ -201,10 +219,12 @@ afterAll(() => {
     fights += p.report.fightFallbacks;
     bossFb += p.report.bossFallbacks;
     topUps += p.report.topUps;
+    doors += p.report.doors;
+    for (const f of p.report.floors) buys += f.bought;
     ms += p.ms;
   }
   console.log(
     `[bot] ${PLAYED.length} runs, ${ticks} ticks (${((ticks / 60) / 60).toFixed(0)} min of play) in ${(ms / 1000).toFixed(1)} s (sim ${(simMs / 1000).toFixed(1)} s) — ` +
-      `${walks} walks, ${teleports} teleport fallbacks, ${fights} room / ${bossFb} boss fights finished after the time limit, ${topUps} top-ups`,
+      `${walks} walks, ${doors} doors, ${buys} purchases, ${teleports} teleport fallbacks, ${fights} room / ${bossFb} boss fights finished after the time limit, ${topUps} top-ups`,
   );
 });

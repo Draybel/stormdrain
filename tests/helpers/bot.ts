@@ -44,7 +44,7 @@ import type { Sim } from '../../src/sim/sim';
 import { Tile } from '../../src/sim/tiles';
 import { BOMB_TUNING, ITEM_TUNING, RUN_TUNING } from '../../src/sim/tuning';
 import { floorPrint } from './explorer';
-import { checkWorld } from './stress';
+import { checkCapacities, checkWorld } from './stress';
 import { makeInput } from './sim';
 
 export interface BotOptions {
@@ -102,6 +102,12 @@ export interface BotReport {
   fightFallbacks: number;
   bossFallbacks: number;
   topUps: number;
+  /** Rooms left by walking through a door (the only way the bot moves between rooms), locked ones among them. */
+  doors: number;
+  locksOpened: number;
+  /** Boss / miniboss fights seen to the end, and the phases they went through in all. */
+  bossFights: number;
+  bossPhases: number;
   /** Time spent inside Sim.step (ms) — the rest of a run's time is the bot thinking. */
   simMs: number;
   /** "floor track:room" per room entry, in order. */
@@ -154,6 +160,10 @@ export class Bot {
     fightFallbacks: 0,
     bossFallbacks: 0,
     topUps: 0,
+    doors: 0,
+    locksOpened: 0,
+    bossFights: 0,
+    bossPhases: 0,
     simMs: 0,
     trace: [],
     final: '',
@@ -167,6 +177,10 @@ export class Bot {
   private lastRoom = '';
   /** Arena watchdog: ticks the arena has been shut with nothing alive in it. */
   private emptyArena = 0;
+  /** 'buy' events seen so far (purchases that went through). */
+  private buys = 0;
+  /** The boss fight being watched: its id / group, phase count and the furthest phase reached. */
+  private readonly bossWatch = { id: '', group: -1, phases: 0, max: -1 };
   // Path-finding scratch (no per-plan allocation).
   private readonly dist = new Float64Array(CELLS);
   private readonly prev = new Int16Array(CELLS);
@@ -235,6 +249,21 @@ export class Bot {
     }
     clearEdges(this.input);
     this.report.ticks++;
+    // Purchases that really went through (a 'buy' event: paid and handed over).
+    const q = this.sim.events;
+    for (let i = 0; i < q.count; i++) if (q.at(i).type === 'buy') this.buys++;
+    // A boss fight on: the furthest phase it reached (a boss must go through every phase before it falls).
+    const bf = w.boss;
+    if (bf.active) {
+      const bw = this.bossWatch;
+      if (bw.id !== bf.id || bw.group !== bf.group) {
+        bw.id = bf.id;
+        bw.group = bf.group;
+        bw.phases = bf.phases;
+        bw.max = -1;
+      }
+      if (bf.phase > bw.max) bw.max = bf.phase;
+    }
     if ((d.floor !== floor || d.track !== track) && !this.exiting) {
       const p = w.player;
       this.problem(`dropped from floor ${floor} ${track} to ${d.floor} ${d.track} without taking an exit (she was at ${p.prevX.toFixed(1)},${p.prevY.toFixed(1)})`);
@@ -286,6 +315,8 @@ export class Bot {
   play(): BotReport {
     try {
       this.w.godMode = true;
+      const capErr = checkCapacities(this.sim, null);
+      if (capErr) this.problem(capErr);
       while (!this.stopped) {
         const d = this.run.data;
         this.checkEntry();
@@ -466,6 +497,7 @@ export class Bot {
       this.floorRec.bossKilledBy = 'fight';
       this.floorRec.bossSeconds = secs;
     }
+    if (!this.busy()) this.checkBossPhases();
     if (!this.busy() || this.stopped) return;
     // Out of time: finish it through the real damage path (still a real kill: drops, phases, death sequence).
     const what = this.foes();
@@ -488,10 +520,23 @@ export class Bot {
     if (this.busy() && !this.stopped) {
       this.problem(`soft-lock: the room never cleared (cleared ${this.run.state.cleared}, arena ${w.arena.active}/${w.arena.locked}, wave ${this.run.state.wave}/${this.run.state.waves.length}; ${this.foes()})`);
       this.stopped = true;
-    } else if (bossAlive && this.floorRec) {
-      this.floorRec.bossKilledBy = 'fallback';
-      this.floorRec.bossSeconds = (t + f) / 60;
+    } else {
+      this.checkBossPhases();
+      if (bossAlive && this.floorRec) {
+        this.floorRec.bossKilledBy = 'fallback';
+        this.floorRec.bossSeconds = (t + f) / 60;
+      }
     }
+  }
+
+  /** A boss fight that just ended must have gone through every one of its phases (none skipped). */
+  private checkBossPhases(): void {
+    const bw = this.bossWatch;
+    if (!bw.id || this.w.boss.active) return;
+    if (bw.max < bw.phases - 1) this.problem(`the boss ${bw.id} fell in phase ${bw.max + 1} of ${bw.phases}: a phase was skipped`);
+    this.report.bossPhases += bw.max + 1;
+    this.report.bossFights++;
+    bw.id = '';
   }
 
   /** BOT_DEBUG: how a fight went (to tell a weak build from a bot that can't aim). */
@@ -1055,10 +1100,21 @@ export class Bot {
           else if (ped.price > 0) this.ensure(ped.price, 0, 0, `a shop slot (${ped.item || `goods ${ped.goods}`})`);
           if (ped.hearts > 0) boughtNook = true;
           this.doing = `taking ${ped.item || `goods ${ped.goods}`} from a pedestal at ${ped.x},${ped.y}`;
+          const priced = ped.price > 0 || ped.keys > 0 || ped.hearts > 0;
+          const what = ped.item || `goods ${ped.goods}`;
+          const plain = ped.hearts === 0 && ped.goods < 0 && !!ped.item;
+          const buysBefore = this.buys;
           if (!this.touch(ped.x, ped.y, 6)) return;
-          if (ped.price > 0 || ped.keys > 0 || ped.hearts > 0) {
-            bought++;
-            if (rec) rec.bought++;
+          if (priced) {
+            if (this.buys > buysBefore) {
+              bought++;
+              if (rec) rec.bought++;
+            } else if (plain) {
+              // Paid for in advance (topped up): an item for coins or keys must sell.
+              this.problem(`could not buy ${what} (price ${ped.price}, keys ${ped.keys}; coins ${w.player.inv.coins}, keys ${w.player.inv.keys})`);
+            } else {
+              this.note(`no sale: ${what} (hearts ${ped.hearts}; goods can only be bought when usable)`);
+            }
           }
           if (rec && w.counters.items > itemsBefore) rec.itemsTaken++;
           // Step away so a swapped-out item (or a refusal) doesn't stick to her.
@@ -1283,14 +1339,19 @@ export class Bot {
       }
       if (this.floorRec) this.floorRec.secretsBombed++;
     }
-    if (slot.state === DS.Locked) this.ensure(0, 0, 1, `the locked door on side ${side}`);
+    const locked = slot.state === DS.Locked;
+    if (locked) this.ensure(0, 0, 1, `the locked door on side ${side}`);
     this.doing = `walking to the door on side ${side} (kind ${slot.kind}, to room ${slot.to})`;
     if (!this.walkTo(DOOR_FRONT_X[side]!, DOOR_FRONT_Y[side]!, 3, -1)) return !this.stopped;
     this.surface();
     const p = w.player;
     this.doing = `pushing into the door on side ${side} (state ${slot.state})`;
     for (let i = 0; i < 60 * 4 && !this.stopped; i++) {
-      if (this.roomChanged(key)) return true;
+      if (this.roomChanged(key)) {
+        this.report.doors++;
+        if (locked) this.report.locksOpened++;
+        return true;
+      }
       // Push into the wall, keeping in line with the doorway.
       const lat = side === 0 || side === 2 ? (DOOR_X[side]! - p.x) / 8 : (DOOR_Y[side]! - p.y) / 8;
       this.input.moveX = PUSH_X[side]! + (side === 0 || side === 2 ? lat : 0);
@@ -1298,7 +1359,11 @@ export class Bot {
       this.step();
     }
     this.hands();
-    if (this.roomChanged(key)) return true;
+    if (this.roomChanged(key)) {
+      this.report.doors++;
+      if (locked) this.report.locksOpened++;
+      return true;
+    }
     this.problem(`soft-lock: pushing into the ${['hidden', 'locked', 'open'][slot.state] ?? slot.state} door on side ${side} (kind ${slot.kind}, to ${slot.to}) for 4 s did not change rooms (arena ${w.arena.active}/${w.arena.locked}, keys ${w.player.inv.keys}, player ${p.x.toFixed(1)},${p.y.toFixed(1)})`);
     return false;
   }
