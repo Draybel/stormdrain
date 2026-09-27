@@ -15,6 +15,8 @@ export interface Nav {
   settings(): void;
   pause(): void;
   resume(): void;
+  /** Opens the hidden debug menu over the run (or closes it when it is on top). */
+  debug(): void;
 }
 
 export interface App {

@@ -489,6 +489,30 @@ export class WorldFx {
         P.burst(x, y - 6, 4, 10, 30, 0.3, GOLD, 1, 0, 3);
         break;
       }
+      // ── Training yard (Phase 2D) ──
+      case 'say': {
+        // A trigger's big moment (Teacup Tempest): a crackling ring and a small jolt.
+        P.burst(x, y - 8, 16, 30, 90, 0.5, SHOCK, 1, 0, 3);
+        const r = P.spawn(x, y - 6, 0, 0, 0.4, '#bfe8ff', 1, P_RING);
+        if (r) r.endSize = 22;
+        this.shake.add(0.15);
+        break;
+      }
+      case 'pedestalRoll': {
+        // A new item pops onto a pedestal.
+        P.burst(x, y, e.a === 1 ? 12 : 7, 15, 45, 0.35, ITEM_RAYS, 1, -10, 3);
+        break;
+      }
+      case 'bell': {
+        // The yard bell rings out: expanding rings (bigger when it calls a wave).
+        for (let k = 0; k < (e.a === 1 ? 3 : 1); k++) {
+          const r = P.spawn(x, y, 0, 0, 0.35 + k * 0.15, k === 0 ? '#fff0a0' : '#e0b040', 1, P_RING);
+          if (r) r.endSize = 14 + k * 10;
+        }
+        P.burst(x, y, 6, 20, 50, 0.3, GOLD, 1, 0, 3);
+        if (e.a === 1) this.shake.add(0.1);
+        break;
+      }
       // ── Enemies & room combat ──
       case 'enemySpawn': {
         P.burst(x, y - 3, 12, 15, 55, 0.4, POOF, 1, -25, 3);

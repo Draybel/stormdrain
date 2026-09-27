@@ -104,3 +104,43 @@ export const ICON_FIGHT: SpriteDef = {
     ],
   ],
 };
+
+/**
+ * The training-yard bell (18×22, feet anchor 9/21): a brass bell hanging in a little wooden frame.
+ * Frames: 0 at rest, 1 swung left, 2 swung right (the renderer swings it after a ring).
+ */
+function bellFrame(shift: number): string[] {
+  const bell = [
+    '....oo....',
+    '...oBBo...',
+    '..ohBBbo..',
+    '..ohBBbo..',
+    '.ohBBBBbo.',
+    '.ohBBBBbo.',
+    'ohBBBBBBbo',
+    'obbbbbbbbo',
+    '.oooooooo.',
+    '....ok....',
+  ];
+  const rows = ['oooooooooooooooooo', 'oWWWWWWWWWWWWWWWWo', 'owwwwwwwwwwwwwwwwo', 'oWo.....oo.....oWo'];
+  for (let i = 0; i < bell.length; i++) {
+    // Pivot at the crown: the lower part swings.
+    const s = i < 2 ? 0 : shift;
+    const mid = `.${bell[i]}.`;
+    const moved = s < 0 ? mid.slice(-s) + '.'.repeat(-s) : s > 0 ? '.'.repeat(s) + mid.slice(0, mid.length - s) : mid;
+    rows.push(`oWo${moved}oWo`);
+  }
+  rows.push('oWo............oWo', 'oWo............oWo', 'oWo............oWo', 'oWo............oWo', 'oWo............oWo');
+  rows.push('oWWo..........oWWo', 'oooo..........oooo');
+  return rows;
+}
+
+export const BELL_SPRITE: SpriteDef = {
+  id: 'yard.bell',
+  w: 18,
+  h: 21,
+  anchorX: 9,
+  anchorY: 20,
+  palette: { o: OUTLINE, B: '#ffcf57', b: '#c98a1f', h: '#fff3b0', k: '#3a2a20', W: '#9a6a3a', w: '#5e3c1e' },
+  frames: [bellFrame(0), bellFrame(-1), bellFrame(1)],
+};

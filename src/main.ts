@@ -20,6 +20,8 @@ import { RunScene } from './ui/run';
 import { SceneManager } from './ui/scene';
 import { SettingsScene } from './ui/settingsPanel';
 import { TitleScene } from './ui/title';
+import { DebugActions } from './debug/actions';
+import { DebugMenu } from './debug/debugMenu';
 import { PerfOverlay } from './debug/perfOverlay';
 import { installSdHooks } from './debug/sdHooks';
 
@@ -49,6 +51,18 @@ function boot(): void {
       scenes.push(new PauseScene(app));
     },
     resume: () => scenes.pop(),
+    debug: () => {
+      if (scenes.top?.name === 'debug') {
+        scenes.pop();
+        return;
+      }
+      // Only over a run (the menu acts on its sim); elsewhere the key just toggles the perf overlay.
+      if (!getSim() || display.portrait) {
+        perf.toggle();
+        return;
+      }
+      scenes.push(new DebugMenu(app, debugActions));
+    },
   };
   const app: App = { display, input, scenes, audio, settings, particles, shake, nav };
 
@@ -58,12 +72,21 @@ function boot(): void {
     audio.setVolumes({ master: s.masterVolume, music: s.musicVolume, sfx: s.sfxVolume });
     scenes.relayout();
   });
-  input.onDebugToggle = () => perf.toggle();
+  input.onDebugToggle = () => nav.debug();
+  input.onPerfToggle = () => perf.toggle();
 
   const getSim = () => {
     const run = scenes.find('run');
     return run instanceof RunScene ? run.sim : null;
   };
+  const debugActions = new DebugActions({
+    sim: getSim,
+    perf: (on) => {
+      if (on === undefined || on !== perf.visible) perf.toggle();
+      return perf.visible;
+    },
+    perfVisible: () => perf.visible,
+  });
   const getHudRects = () => {
     const run = scenes.find('run');
     return run instanceof RunScene ? run.hudRects() : [];
@@ -129,7 +152,7 @@ function boot(): void {
     },
   });
 
-  installSdHooks({ app, loop, perf, registry, getSim, getHudRects });
+  installSdHooks({ app, loop, perf, registry, getSim, getHudRects, actions: debugActions });
   nav.title();
   loop.start();
 }

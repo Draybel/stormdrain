@@ -178,6 +178,20 @@ export const STATUS_TUNING = {
   knockPower: 180,
 } as const;
 
+/** Training yard (Phase 2D): rotating pedestals, the bell, endless waves. */
+export const YARD_TUNING = {
+  /** A rotating pedestal offers a new item this often (s) while nobody stands next to it. */
+  rotatePeriod: 7,
+  /** Rotating pedestals stagger their first change by this much each (s). */
+  rotateStagger: 1.6,
+  /** An emptied rotating pedestal refills this long after the player stepped away (s). */
+  refillDelay: 1.2,
+  /** Rotation pauses while the player is this close (px), so an item never changes under your nose. */
+  rotateNear: 36,
+  /** Endless waves: the next wave starts this long after a clear (s). */
+  autoWaveDelay: 2.5,
+} as const;
+
 export const ITEM_TUNING = {
   /** Seconds Wren holds a new item overhead. */
   holdTime: 0.8,

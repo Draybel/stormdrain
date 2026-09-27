@@ -86,7 +86,10 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
     CSS disables selection, callouts, overscroll, zoom. DOM text inputs (seed entry, save import/export)
     are the only exceptions and live in a DOM modal layer.
 - Keyboard (desktop testing): WASD move, Arrow keys shoot (last pressed wins), E bomb, Space active, Q consumable,
-  Esc/P pause, Tab map, Backquote (`) debug menu.
+  Esc/P pause, Tab map, Backquote (`) debug menu (outside a run it toggles the perf overlay).
+- Buttons may opt into `draggable` (scrollable lists): a press that moves more than `DRAG_SLOP` (4 game px) becomes a
+  drag (`dragged`) that never activates; `downX/downY/curX/curY` give the gesture. The mouse wheel over the canvas goes
+  to the top scene's `onWheel(dy, x, y)`.
 - Audio unlocks on the first pointerdown/touchend/keydown (resume AudioContext + silent buffer).
 - `visibilitychange`(hidden) / `pagehide` / `blur`: pause the run, **save the run**, suspend audio.
 - Portrait orientation (height > width): draw a "rotate your phone" screen, pause, and ignore pointer-downs and menu
@@ -121,19 +124,29 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   underfoot unless flying; touching a fire hurts ½ heart. Explosions destroy rocks, tinted rocks (loot), crates, urns,
   put out fires and call `World.onSecretWallBombed(x, y)` for secretWall tiles and for the four wall door slots in
   reach — the floor code decides what is there.
-- World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (8),
+- World entities besides the player: projectiles (700), dummies (16), pickups (64), bombs (16), pedestals (12),
   enemies (64), enemy shots (400), creep puddles (48), shockwaves (16), all pooled (`sim/constants.ts` CAP_*); the
   attack pipeline's beams (48), swipes (16) and familiars (12 stable slots) live in `world.atk` (§4). The event
   queue holds 1024 events per tick.
 - `Sim` API used by room/floor code and tools: `roomCleared()` (actives +1 charge, 'roomClear' triggers),
   `floorStarted()`, `loadRoom(layout, spawns)`, and debug helpers `giveItem`, `spawnPickup`, `placeBomb`, `explode`,
-  `hurtPlayer`, `killPlayer`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
+  `hurtPlayer`, `killPlayer`, `spawnItemPedestal(id)` (a pedestal on free floor next to the player; reuses an empty /
+  the farthest pedestal when all 12 are taken), `fullHeal`, `addPickups(coins, bombs, keys)`, `clearRoom` (kills every
+  enemy, clears enemy shots / creep / shockwaves — a running wave then clears normally), `resetItems`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
   generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
   as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)`,
   `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
   (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves,
   and every attack in flight (beams, swipes, queues; familiars regroup at the player — `resetAttackRoom`).
   `world.godMode` (debug) makes `damagePlayer` refuse all damage.
+- Training yard (the Sim built without a `room`; `content/testRoom.ts`): `RoomSpawn` also has `{ kind: 'bell' }` and
+  pedestal spawns take `pool` and `rotate`. ROTATING pedestals (`Pedestal.rotate` = an `ItemFilter`,
+  `pedestals.updateRotation`, run with the Sim's room stream) offer a new item every `YARD_TUNING.rotatePeriod` s while
+  the player isn't within `rotateNear` px, and refill `refillDelay` s after being emptied; picks never repeat an item
+  another pedestal shows (held items may come round again). The BELL is a pedestal slot without an item: bumping it
+  emits 'bell' and sets `world.bellRung`, and the Sim starts a wave. `Sim.autoWaves` (debug) starts the next wave
+  `autoWaveDelay` s after each clear. The yard: 3 rotating treasure-pool pedestals, a rotating attack-type pedestal,
+  both actives, the bell at (1, 5).
 
 ### Health model (`sim/health.ts`, pure; `sim/combat.ts` applies it)
 Half-heart units. `redMax` (containers ×2), `red`, bonus hearts stack in order after red:
@@ -441,7 +454,11 @@ resist); stacks make each application longer and stronger, not more frequent.
 ### 4.6 Visible combos: ShotStyle
 Composed once per profile (`attack/style.ts`, pure data): base colour from the character (`CharacterDef.shotColor`,
 default candle-gold), replaced / tinted by the primary carrier (lance electric blue, laser red-pink, boomerang steel,
-melee white), then tinted by each modifier's colour weighted by stacks (weighted blend, up to 80 %); rim in the
+melee white), then tinted by each modifier's colour weighted by stacks (weighted blend, up to 80 %; with 3+ colours
+`vividBlend` keeps the mean hue but restores the inputs' average saturation and brightness, and the final tint uses
+`mixVivid`, so big stacks and complementary pairs — the lance's blue + explode's orange — stay vivid instead of
+averaging to grey; boomerang / melee tints cover 70 / 80 % of the base so a modifier's colour reads true on them);
+rim in the
 dominant modifier's colour, dark outline, highlight, and up to **3 accent colours** (the top modifiers' colours,
 drawn as sparkle pixels on the shot — combos read at a glance). Shape hint: the carrier first (boomerang blade,
 melee crescent, bomb rider bomb), else the strongest shaped modifier (spiky, star, gear, shard, bubble…).
@@ -464,7 +481,8 @@ her recent path (breadcrumbs every 2 px, 13 px apart); `orbit` / `guard` circle 
 runs at the nearest enemy. Shooters (`attackScale` > 0) fire `fireVolley` with the player's profile at their scale
 whenever the player fires and their own cooldown (`period / fireRateMul`) allows — or always on charge releases.
 `contactDamage` hurts touched enemies every 0.3 s. Content: Lamplet (follow, 0.45), Paper Boat (follow, 0.35, fires
-faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
+faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`content/familiars/critters.ts`): Dustwing
+(hover, 0.4, fires a little slower), Roly-Poly (chase, contact 6), Wick Wisp (guard, 0.25, blocks shots, contact 2).
 
 ---
 
@@ -478,10 +496,16 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
   down, 1 up, 2 side (mirrored for left); `'anim'` cycles at `fps`. `CostumeSpec` = one def or an array of layers
   (`costumeList(spec)` flattens it). Items and sets may carry costumes.
   `name` is shown uppercase on the banner, `desc` is ONE short line (≤ 46 chars, a test enforces it).
+  Item tags: a category (`starter-attack` carriers, `modifier`, `weird`, `familiar`, `starter-stat`, `starter-active`…)
+  plus DESIGN.md set names where they fit (`stormcaller, mothkin, clockwork, sporeling, waxen, toybox, ossuary,
+  tidewalker, glimmer`) so future transformations (`ItemSetDef` / `SynergyDef` tag requirements) can pick them up.
+  The starter set (Phase 2D): `items/starter-attack.ts` (7 carriers), `starter-mods.ts` (19 modifier items),
+  `starter-weird.ts` (5 "useless alone, great in combos"), `starter-familiars.ts` (6, one per familiar behaviour and
+  then some) — together every carrier and every modifier (tests/starter-items.test.ts enforces coverage).
 - `Effect` = discriminated union: `stat` (add/mul), `mod` (stacks, params), `carrier`, `familiar`, `heal` (half hearts),
   `hearts` (containers in whole hearts; red/tin/ember in halves), `pickups` (coins/bombs/keys, charge, spawn[], table),
   `trigger` (`on: 'hurt'|'roomClear'|'kill'|'fire'|'floorStart'|'bomb'|'pickup'|'use'`, chance, luck, maxChance,
-  cooldown, effects), `flag` (`PLAYER_FLAGS`: flying, spectral, magnet, extraTrinket, extraConsumable,
+  cooldown, `say` (a short notice for the top band, sent as a 'say' event), effects), `flag` (`PLAYER_FLAGS`: flying, spectral, magnet, extraTrinket, extraConsumable,
   explosionImmune, spikeImmune, fireImmune, noRedHearts, seeSecrets, darkVision), `hook` (named code in
   `content/hooks`, params). Persistent kinds accept an optional `duration` for use/trigger contexts.
 - Ids declared for the attack pipeline: `CARRIER_IDS`, `MOD_IDS` (exactly §4.2 / §4.4), `ShapeHint`, `TrailKind`.
@@ -536,7 +560,14 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
 - `ui/scene.ts` is a stack: the top scene gets updates and keys and owns the hit-testable buttons; `overlay` scenes
   (pause, settings) draw over the scene below. Scenes never import each other: navigation goes through `App.nav`
   (built in `main.ts`). Menu buttons are canvas-drawn `UiButton`s (>= 24 game px tall, about 44 pt).
-- Debug perf overlay: Backquote on desktop, three-finger tap on touch screens.
+- Debug perf overlay: three-finger tap on touch screens; on desktop from the debug menu (or Backquote outside a run).
+- Hidden debug menu (`debug/debugMenu.ts`, scene 'debug', an overlay pushed by `App.nav.debug()`): Backquote on
+  desktop, or tap the PAUSED title 5 times (each within 1.5 s; an invisible press button `pause.title`) on touch.
+  Tabs ITEMS (every item, a scrollable two-column list: drag / flick / wheel / arrows; tap = pedestal next to Wren,
+  or give directly with the mode toggle), FOES (spawn any enemy, optional forced champion) and CHEATS (god mode, full
+  heal, +10 coins / bombs / keys, clear room, start wave, endless waves, perf overlay, +5 random items, drop all
+  items, charge active). Keyboard: 1/2/3 or Tab tabs, arrows + Enter, M mode, Esc / ` close. Every action lives in
+  the DOM-free `debug/actions.ts` (`DebugActions`), shared with `window.__SD.debug` and the headless tests.
 
 ## 8. Rendering & audio
 - Sprites are code: `{ w, h, palette: { [ch]: color }, frames: string[][] }`, rendered once into cached canvases.
@@ -571,7 +602,8 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
   prefixed `foe_`, `eshot_`, `gate_`, `room_`, `st_`); step-sequencer music with lookahead scheduling,
   a unique loop per chapter (+ boss variants), crossfades. Recipes are `{ minGap, length, gain, play(voice) }`
   built from the helpers in `audio/synth.ts` (leaf module); core sounds live in `audio/sfx.ts`, item/pickup/bomb/prop
-  sounds in `audio/sfxGameplay.ts`, attack sounds (lance_charge / lance_ready / lance_fire / crackle / laser_zap /
+  sounds in `audio/sfxGameplay.ts` (incl. the yard's `yard_bell`, `pedestal_roll` and the trigger notice `surge`),
+  attack sounds (lance_charge / lance_ready / lance_fire / crackle / laser_zap /
   swipe / blade_* / shot_boom / chain_zap …) in `audio/sfxAttack.ts`; `audio/eventSounds.ts` maps GameEvents to
   sounds. `AudioOut.play(name, pan?, volume?, param?)`: `param` reaches the recipe as `voice.param` (the lance charge
   hum rises with it).
@@ -584,9 +616,13 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots).
   `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
   counters…), `hud()` (HUD element rects in game px), `counts`,
   `debug.{overlay, hurt, kill, give(itemId), spawn(pickupName), roomClear, wave(count?), spawnEnemy(id, champion?),
-  killEnemies, god(on), aim360, newRun, title, pause}`; `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
+  killEnemies, god(on), aim360, newRun, title, pause, spawnItem(id) (pedestal next to the player), giveRandom(n),
+  items(), enemies(), heal, add(coins?, bombs?, keys?), clearRoom, resetItems, autoWaves(on), menu(open?)}` (the
+  debug menu's actions, `debug/actions.ts`); `counts` also has `enemies` / `enemyShots` / `beams`; `run()`
   includes `enemies` (id, x, y, hp, champion, status, burrowed), `enemyShots`, `creep`, `arena { active, wave, doors }`,
-  `attack { primary, riders, mods, charge, beams, swipes, familiars }`.
+  `attack { primary, riders, mods, charge, beams, swipes, familiars }`; `pedestals[]` carry `bell` / `rotate`.
   Button ids are `<scene>.<name>` (e.g. `title.newRun`, `run.pause`, `pause.resume`). The training yard adds
-  `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F.
+  `run.fight` (the bell under the consumable button; hidden during a wave) — keyboard: F; the pause overlay has the
+  invisible `pause.title` (5 taps = debug menu); the debug menu's buttons are `debug.list`, `debug.tab.<items|foes|
+  cheats>`, `debug.mode`, `debug.close`, `debug.cheat.<0-11>`.
 - Headless: `tests/helpers/sim.ts` builds a `Sim` with a seed + character and steps it with scripted input.

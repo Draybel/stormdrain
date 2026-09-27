@@ -1,13 +1,12 @@
 /**
- * Attack carriers and familiars (ARCHITECTURE §4.2): each item grants one carrier or familiar. Tag
- * 'starter-attack' — the training yard offers one of the carriers at random.
- * The Storm Lance is the signature quality-4 item (DESIGN.md) with a costume: a crackling blue aura
- * and glowing storm eyes.
+ * Starter attack types (ARCHITECTURE §4.2): one item per carrier. Tag 'starter-attack' — the training
+ * yard's attack pedestal rotates through these. Holding two changes HOW damage travels (the primary)
+ * and merges the other in as a rider, so every pair makes something new; duplicates stack.
+ * The Storm Lance is the signature quality-4 item (DESIGN.md). Set tags follow DESIGN.md's item sets.
  */
 
 import type { ItemDef } from '../../sim/types';
 import {
-  BOTTLECAP_BEETLE_SPRITE,
   ICON_BROKEN_OAR,
   ICON_COILED_SPRING,
   ICON_FIRECRACKER_POUCH,
@@ -15,12 +14,10 @@ import {
   ICON_RUSTY_BOOMERANG,
   ICON_STORM_LANCE,
   ICON_TIN_PINWHEEL,
-  LAMPLET_SPRITE,
-  PAPER_BOAT_SPRITE,
   STORM_AURA_SPRITE,
   STORM_EYES_SPRITE,
-  iconFrom,
 } from '../sprites/attack';
+import { COSTUME_FIRECRACKER_POUCH, COSTUME_NEON_VISOR, COSTUME_TIN_PINWHEEL } from '../sprites/starterItems';
 
 const items: ItemDef[] = [
   {
@@ -30,7 +27,7 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 4,
     pools: ['treasure', 'boss'],
-    tags: ['starter-attack', 'storm', 'lightning'],
+    tags: ['starter-attack', 'stormcaller', 'lightning'],
     effects: [{ type: 'carrier', carrier: 'lance' }],
     sprite: ICON_STORM_LANCE,
     costume: [
@@ -55,9 +52,10 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     pools: ['treasure', 'shop'],
-    tags: ['starter-attack', 'lightning'],
+    tags: ['starter-attack', 'stormcaller', 'lightning'],
     effects: [{ type: 'carrier', carrier: 'laser' }],
     sprite: ICON_NEON_TUBE,
+    costume: { id: 'neon-visor', layer: 'eyes', sprite: COSTUME_NEON_VISOR, frames: 'dir', glow: '255,90,140', additive: true },
   },
   {
     id: 'rusty-boomerang',
@@ -66,7 +64,7 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 2,
     pools: ['treasure'],
-    tags: ['starter-attack'],
+    tags: ['starter-attack', 'toybox'],
     effects: [{ type: 'carrier', carrier: 'boomerang' }],
     sprite: ICON_RUSTY_BOOMERANG,
   },
@@ -77,7 +75,7 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 2,
     pools: ['treasure', 'shop'],
-    tags: ['starter-attack', 'water'],
+    tags: ['starter-attack', 'tidewalker'],
     effects: [{ type: 'carrier', carrier: 'melee' }],
     sprite: ICON_BROKEN_OAR,
   },
@@ -88,9 +86,10 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     pools: ['treasure'],
-    tags: ['starter-attack'],
+    tags: ['starter-attack', 'explosive'],
     effects: [{ type: 'carrier', carrier: 'bomb' }],
     sprite: ICON_FIRECRACKER_POUCH,
+    costume: { id: 'firecracker-pouch', layer: 'body', sprite: COSTUME_FIRECRACKER_POUCH, frames: 'dir' },
   },
   {
     id: 'coiled-spring',
@@ -110,42 +109,10 @@ const items: ItemDef[] = [
     kind: 'passive',
     quality: 3,
     pools: ['treasure'],
-    tags: ['starter-attack'],
+    tags: ['starter-attack', 'toybox', 'clockwork'],
     effects: [{ type: 'carrier', carrier: 'orbit' }],
     sprite: ICON_TIN_PINWHEEL,
-  },
-  {
-    id: 'lamplet',
-    name: 'Lamplet',
-    desc: 'A LANTERN SPRITE THAT SHOOTS WITH YOU',
-    kind: 'passive',
-    quality: 2,
-    pools: ['treasure', 'shop'],
-    tags: ['familiar'],
-    effects: [{ type: 'familiar', familiar: 'lamplet' }],
-    sprite: iconFrom(LAMPLET_SPRITE, 'item.lamplet', '#3a2a40'),
-  },
-  {
-    id: 'paper-boat',
-    name: 'Paper Boat',
-    desc: 'A LITTLE BOAT FOLLOWS YOU AND FIRES',
-    kind: 'passive',
-    quality: 1,
-    pools: ['treasure'],
-    tags: ['familiar', 'water'],
-    effects: [{ type: 'familiar', familiar: 'paper-boat' }],
-    sprite: iconFrom(PAPER_BOAT_SPRITE, 'item.paper-boat', '#2c4a66'),
-  },
-  {
-    id: 'bottlecap-beetle',
-    name: 'Bottlecap Beetle',
-    desc: 'CIRCLES YOU · BUMPS FOES · BLOCKS SHOTS',
-    kind: 'passive',
-    quality: 2,
-    pools: ['treasure'],
-    tags: ['familiar'],
-    effects: [{ type: 'familiar', familiar: 'bottlecap-beetle' }],
-    sprite: iconFrom(BOTTLECAP_BEETLE_SPRITE, 'item.bottlecap-beetle', '#35523a'),
+    costume: { id: 'tin-pinwheel', layer: 'hat', sprite: COSTUME_TIN_PINWHEEL, frames: 'anim', fps: 10 },
   },
 ];
 

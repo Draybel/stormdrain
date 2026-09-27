@@ -20,6 +20,7 @@ import { PLAYER_TUNING } from '../sim/tuning';
 import type { SpriteDef } from '../sim/types';
 import { WREN_FRAME } from '../content/sprites/wren';
 import { DUMMY_SPRITE } from '../content/sprites/props';
+import { BELL_SPRITE } from '../content/sprites/combat';
 import { FIRE_BASE_SPRITE, FLAME_SPRITE } from '../content/sprites/obstacles';
 import {
   BOMB_SPRITE,
@@ -77,7 +78,7 @@ export class WorldRenderer {
     for (let f = 0; f < world.player.character.sprite.frames.length; f++) getFrame(world.player.character.sprite, f);
     getFrame(DUMMY_SPRITE, 0);
     getFrame(DUMMY_SPRITE, 1);
-    for (const s of [PEDESTAL_SPRITE, BOMB_SPRITE, SATCHEL_SPRITE, LOCKBOX_SPRITE, FLAME_SPRITE, FIRE_BASE_SPRITE]) {
+    for (const s of [PEDESTAL_SPRITE, BELL_SPRITE, BOMB_SPRITE, SATCHEL_SPRITE, LOCKBOX_SPRITE, FLAME_SPRITE, FIRE_BASE_SPRITE]) {
       for (let f = 0; f < s.frames.length; f++) getFrame(s, f);
     }
     getFlash(BOMB_SPRITE, 0);
@@ -173,6 +174,13 @@ export class WorldRenderer {
       const ped = peds.items[i]!;
       const x = ped.x + ox;
       const y = ped.y + oy;
+      if (ped.bell) {
+        // The yard bell swings for a moment after a ring.
+        const t = ped.changedT;
+        const swing = t < 0.9 ? Math.sin(t * 24) * (1 - t / 0.9) : 0;
+        drawSpriteAnchored(ctx, BELL_SPRITE, swing > 0.3 ? 2 : swing < -0.3 ? 1 : 0, x, y + 5);
+        continue;
+      }
       drawSpriteAnchored(ctx, PEDESTAL_SPRITE, 0, x, y + 5);
       if (!ped.item) continue;
       const bob = Math.round(Math.sin(time * 2.6 + i * 1.3) * 1.5);

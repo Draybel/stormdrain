@@ -7,8 +7,8 @@
  * along the top wall; a pit in the middle (fly over it!); a column of dummies on the right
  * (pop all three at once = "room cleared" → active charge); a hazard corner (fire, spikes)
  * guarding a satchel and a lockbox; item pedestals in rows 1 and 5 (their floating items use the
- * cells above them, so those stay free): two stat items, a special passive (flight, ember heart or a
- * shot modifier), both actives, and a random attack carrier.
+ * cells above them, so those stay free): three ROTATING pedestals from the treasure pool, both
+ * actives, and a rotating attack carrier; and a bell near the start (1,5) that calls a wave.
  *
  * Unit tests rely on: rock at (1,0) and (0,1); row 2 open end to end; columns 0 and 2 open top to
  * bottom; row 3 open from the start to the pit at (6-7,3) with a dummy behind it at (10,3).
@@ -27,14 +27,18 @@ export const TEST_ROOM: readonly string[] = [
 ];
 
 export const TEST_ROOM_SPAWNS: readonly RoomSpawn[] = [
-  // Item pedestals: two random stat items, a special passive, and two actives to swap between.
-  { kind: 'pedestal', col: 4, row: 5, tag: 'starter-stat' },
-  { kind: 'pedestal', col: 6, row: 5, tag: 'starter-stat' },
-  { kind: 'pedestal', col: 8, row: 5, tag: 'starter-special' },
+  // Three rotating pedestals from the treasure pool (every passive: modifiers, weird items,
+  // familiars, stat ups…): a new item every few seconds, refilled soon after you take one.
+  { kind: 'pedestal', col: 4, row: 5, pool: 'treasure', itemKind: 'passive', rotate: true },
+  { kind: 'pedestal', col: 6, row: 5, pool: 'treasure', itemKind: 'passive', rotate: true },
+  { kind: 'pedestal', col: 8, row: 5, pool: 'treasure', itemKind: 'passive', rotate: true },
+  // Both actives to swap between.
   { kind: 'pedestal', col: 6, row: 1, item: 'jar-of-lightning' },
   { kind: 'pedestal', col: 8, row: 1, item: 'picnic-basket' },
-  // A random attack carrier (Storm Lance, lasers, boomerang, melee, bombs, charge, orbit blades).
-  { kind: 'pedestal', col: 3, row: 1, tag: 'starter-attack' },
+  // A rotating attack type (Storm Lance, lasers, boomerang, melee, bombs, charge, orbit blades).
+  { kind: 'pedestal', col: 3, row: 1, tag: 'starter-attack', rotate: true },
+  // The bell by the start (column 0 stays open): bump into it to call a wave.
+  { kind: 'bell', col: 1, row: 5 },
   // Coins right by the start.
   { kind: 'pickup', pickup: 'coin', col: 3, row: 3 },
   { kind: 'pickup', pickup: 'silverCoin', col: 4, row: 3 },

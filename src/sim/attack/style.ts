@@ -45,8 +45,8 @@ export const DEFAULT_SHOT_COLOR = '#ffcf57';
 const CARRIER_TINT: Readonly<Partial<Record<string, readonly [string, number]>>> = {
   lance: ['#9fdcff', 1],
   laser: ['#ff5a78', 0.75],
-  boomerang: ['#dfe6f2', 0.35],
-  melee: ['#f4f7ff', 0.35],
+  boomerang: ['#dfe6f2', 0.7],
+  melee: ['#f4f7ff', 0.8],
 };
 
 // ── Colour maths (hex strings; profile builds only, never per frame) ──
@@ -81,6 +81,79 @@ export function lighter(c: string, k: number): string {
 export function rgbTriple(c: string): string {
   const x = parse(c);
   return `${x[0]},${x[1]},${x[2]}`;
+}
+
+/** RGB (0..255) → HSV (h 0..6, s 0..1, v 0..1). */
+function toHsv(r: number, g: number, b: number): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+  }
+  return [h, max > 0 ? d / max : 0, max / 255];
+}
+
+function fromHsv(h: number, s: number, v: number): string {
+  const c = v * s;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const m = v - c;
+  const i = Math.floor(h) % 6;
+  const [r, g, b] = i === 0 ? [c, x, 0] : i === 1 ? [x, c, 0] : i === 2 ? [0, c, x] : i === 3 ? [0, x, c] : i === 4 ? [x, 0, c] : [c, 0, x];
+  return hex((r + m) * 255, (g + m) * 255, (b + m) * 255);
+}
+
+/**
+ * Weighted blend of modifier colours that stays vivid: the hue of the RGB mean, but the inputs'
+ * average saturation and brightness (a plain RGB mean of many different hues goes grey-beige).
+ * When the hues cancel out, the heaviest colour's hue wins.
+ */
+export function vividBlend(colors: readonly { color: string; w: number }[]): string {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let s = 0;
+  let v = 0;
+  let wSum = 0;
+  for (const c of colors) {
+    const x = parse(c.color);
+    const hsv = toHsv(x[0], x[1], x[2]);
+    r += x[0] * c.w;
+    g += x[1] * c.w;
+    b += x[2] * c.w;
+    s += hsv[1] * c.w;
+    v += hsv[2] * c.w;
+    wSum += c.w;
+  }
+  if (wSum <= 0) return '#ffffff';
+  const mean = toHsv(r / wSum, g / wSum, b / wSum);
+  let hue = mean[0];
+  if (mean[1] < 0.08 && colors.length > 0) {
+    const top = parse(colors[0]!.color);
+    hue = toHsv(top[0], top[1], top[2])[0];
+  }
+  return fromHsv(hue, Math.min(1, Math.max(mean[1], s / wSum)), Math.max(0.8, v / wSum));
+}
+
+/**
+ * `mix(a, b, t)` that keeps the colour alive: complementary colours (the lance's blue + explode's
+ * orange) average to a washed-out grey, so the result gets the inputs' interpolated saturation and
+ * brightness back, keeping the mixed hue.
+ */
+export function mixVivid(a: string, b: string, t: number): string {
+  const m = parse(mix(a, b, t));
+  const x = parse(a);
+  const y = parse(b);
+  const hm = toHsv(m[0], m[1], m[2]);
+  const ha = toHsv(x[0], x[1], x[2]);
+  const hb = toHsv(y[0], y[1], y[2]);
+  const s = ha[1] * (1 - t) + hb[1] * t;
+  const v = Math.max(hm[2], ha[2] * (1 - t) + hb[2] * t);
+  if (hm[1] < 0.05) return fromHsv(t >= 0.5 ? hb[0] : ha[0], s, v);
+  return fromHsv(hm[0], Math.max(hm[1], s), v);
 }
 
 /** Saturated, brighter version for glows (so additive halos read as coloured light). */
@@ -152,9 +225,10 @@ export function composeStyle(p: AttackProfile, character: CharacterDef): ShotSty
   let rim = darker(base, 0.3);
   colored.sort((x, y) => y.w - x.w || x.order - y.order);
   if (wSum > 0) {
-    const avg = hex(r / wSum, g / wSum, b / wSum);
+    // One or two colours: a plain mean reads fine; many: keep it vivid (no grey-beige mud).
+    const avg = colored.length <= 2 ? hex(r / wSum, g / wSum, b / wSum) : vividBlend(colored);
     const t = Math.min(0.8, wSum / (wSum + 1.2));
-    body = mix(base, avg, t);
+    body = mixVivid(base, avg, t);
     rim = darker(mix(body, colored[0]!.color, 0.6), 0.28);
   }
   const accents: string[] = [];

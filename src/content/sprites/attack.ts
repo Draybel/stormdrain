@@ -1,7 +1,7 @@
 /**
  * Attack-pipeline art (all original pixel maps): the three familiars, the Storm Lance costume (a
- * crackling aura + glowing eyes over Wren), carrier item icons, and a generator for the round
- * "modifier token" icons (a coloured marble with a 5×5 glyph) used by the one-modifier items.
+ * crackling aura + glowing eyes over Wren), carrier item icons, and `iconFrom` (a familiar sprite
+ * centred on a glow disc, used for familiar item icons).
  */
 
 import type { SpriteDef } from '../../sim/types';
@@ -344,48 +344,4 @@ export function iconFrom(def: SpriteDef, id: string, disc: string): SpriteDef {
     }
   }
   return { id, w: 14, h: 14, palette: { ...def.palette, g: disc }, frames: [rows.map((r) => r.join(''))] };
-}
-
-// ── Modifier tokens ──────────────────────────────────────────────────────────
-
-function hex2(c: string): [number, number, number] {
-  const n = parseInt(c.slice(1, 7), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function shade(c: string, k: number): string {
-  const [r, g, b] = hex2(c);
-  const f = (v: number): string => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-  return k < 0 ? `#${f(r * (1 + k))}${f(g * (1 + k))}${f(b * (1 + k))}` : `#${f(r + (255 - r) * k)}${f(g + (255 - g) * k)}${f(b + (255 - b) * k)}`;
-}
-
-/**
- * A round token icon: a marble in `color` (outline, shade, highlight) with a 5×5 `glyph` ('#' pixels)
- * in its centre — white on dark colours, ink on light ones.
- */
-export function modToken(id: string, color: string, glyph: readonly string[]): SpriteDef {
-  const [r, g, b] = hex2(color);
-  const light = 0.3 * r + 0.59 * g + 0.11 * b > 170;
-  const rows: string[] = [];
-  for (let y = 0; y < 14; y++) {
-    let row = '';
-    for (let x = 0; x < 14; x++) {
-      const d = Math.hypot(x - 6.5, y - 6.5);
-      let ch = '.';
-      if (d <= 6.6) ch = d > 5.6 ? 'o' : x + y > 16 && d > 3.2 ? 'c' : 'C';
-      if ((x === 4 && y === 3) || (x === 3 && y === 4) || (x === 4 && y === 4)) ch = d <= 5.6 ? 'h' : ch;
-      const gx = x - 4;
-      const gy = y - 4;
-      if (gx >= 0 && gx < 5 && gy >= 0 && gy < 5 && glyph[gy]![gx] === '#') ch = 'g';
-      row += ch;
-    }
-    rows.push(row);
-  }
-  return {
-    id: `item.${id}`,
-    w: 14,
-    h: 14,
-    palette: { o, C: color, c: shade(color, -0.35), h: shade(color, 0.6), g: light ? '#1a1420' : '#ffffff' },
-    frames: [rows],
-  };
 }

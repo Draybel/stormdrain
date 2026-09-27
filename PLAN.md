@@ -47,6 +47,11 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [x] ~20 starter items covering every carrier & modifier; particles & screen shake & hit flash
       (2A: 14 items — 6 stat items + one of each active/passive/trinket/consumable flavour; 2B: 7 carriers,
       3 familiars, 29 modifier items)
+- [x] Starter item set + debug spawner (2D): 7 attack types, 19 modifier items, 5 weird items, 6 familiars (every
+      carrier and modifier covered, hand-drawn icons, costumes on major items, DESIGN set tags); hidden debug menu
+      (Backquote / 5 taps on PAUSED: spawn/give any item, spawn any enemy, god mode, heal, +10 pickups, clear room,
+      waves, perf overlay); training yard with rotating pedestals, a wave bell and endless waves;
+      tests/starter-items.test.ts + e2e/debug.spec.ts
 - [x] Unit tests: stats, item effects, every carrier × modifier pair smoke test
       (2A: stats, health, inventory swaps, pickups, chests, bombs, drop tables, triggers; 2B: tests/attack-pairs.test.ts —
       every carrier × modifier, every carrier pair, 1 and 5 stacks, targeted behaviour, all modifiers ×5 perf/caps)
@@ -77,6 +82,7 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
 - [ ] Headless god-mode bot plays every floor (all tracks & finals)
 - [ ] Playwright WebKit e2e: boot w/o console errors, touch taps on menu buttons, HUD fully on screen, save survives reload
 - [ ] Hidden debug menu (spawn item/enemy, god mode, skip floor, reveal map)
+      (2D: menu + items / foes / cheats done; skip floor and reveal map wait for the Phase 3 floors)
 - [ ] GitHub Actions: test + deploy to GitHub Pages on push
 
 ## Phase 6 — Content expansion (parallel)

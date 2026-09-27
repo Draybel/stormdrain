@@ -8,14 +8,14 @@ import type { InputState } from '../engine/inputState';
 import { Rng, seedToU32 } from '../engine/rng';
 import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
-import { getEnemy } from '../content/registry';
+import { getEnemy, getItem } from '../content/registry';
 import { startWave, updateArena, type WaveOpts } from './arena';
 import { resetAttackRoom, updateAttack } from './attack/update';
 import { explode, placeBomb, updateBombs } from './bombs';
 import { hurtPlayer, killPlayer } from './combat';
-import { DT } from './constants';
+import { DT, ROOM_H, ROOM_W, TILE } from './constants';
 import { spawnDummy, updateDummies } from './dummies';
-import { floorStarted, giveItem, leftRoom, recomputePlayer, roomCleared, updateEffects } from './effects';
+import { floorStarted, giveItem, healPlayer, leftRoom, recomputePlayer, roomCleared, updateEffects } from './effects';
 import { championCode, killEnemy } from './enemies/damage';
 import type { Enemy } from './enemies/enemy';
 import { updateCreep, updateEnemyShots, updateWaves } from './enemies/shots';
@@ -24,14 +24,17 @@ import { ST_COUNT } from './enemies/status';
 import { sweepEnemies, updateEnemies } from './enemies/update';
 import { SRC_PLAYER } from './hittable';
 import { describeHealth } from './health';
+import { addCounter } from './inventory';
 import { pickItem } from './itemPools';
-import { spawnPedestal, updatePedestals } from './pedestals';
+import { setPedestalItem, spawnBell, spawnPedestal, updatePedestals, updateRotation, type Pedestal } from './pedestals';
 import { pickupKindOf, pickupName } from './pickupKinds';
 import { spawnPickup, updatePickups } from './pickups';
 import { updatePlayer } from './player';
 import { cellCenterX, cellCenterY, parseRoomLayout } from './room';
 import type { RoomSpawn } from './roomSpawns';
 import { updateHazards } from './tileFx';
+import { Tile } from './tiles';
+import { ITEM_TUNING, YARD_TUNING } from './tuning';
 import { CARRIER_IDS, type CharacterDef, type PickupName } from './types';
 import { World } from './world';
 
@@ -51,7 +54,8 @@ export interface SimSummary {
   projectiles: number;
   dummies: { x: number; y: number; hp: number; popped: boolean }[];
   pickups: { kind: string; x: number; y: number; opened: boolean; item: string }[];
-  pedestals: { x: number; y: number; item: string }[];
+  /** Item pedestals (and the training-yard bell: `bell`, no item); `rotate` = a rotating yard pedestal. */
+  pedestals: { x: number; y: number; item: string; bell: boolean; rotate: boolean }[];
   bombs: number;
   enemies: {
     id: string;
@@ -114,7 +118,11 @@ export class Sim {
   /** The training yard (no custom room): popping every dummy at once counts as a room clear, and
    *  the arena (FIGHT bell / F) is available. */
   readonly trainingRoom: boolean;
+  /** Training yard: the next wave starts on its own a moment after each clear (debug menu / __SD). */
+  autoWaves = false;
   private allPopped = false;
+  /** The room has rotating pedestals (training yard). */
+  private rotating = false;
   /** Queue size / drop counter at the end of the last step (what consumers have drained). */
   private seenCount = 0;
   private seenDropped = 0;
@@ -159,6 +167,7 @@ export class Sim {
     w.waves.clear();
     w.arena.reset();
     w.flow.invalidate();
+    w.bellRung = false;
     leftRoom(w);
     let placed = false;
     for (const m of markers) {
@@ -184,10 +193,14 @@ export class Sim {
   private placeSpawns(spawns: readonly RoomSpawn[]): void {
     const w = this.world;
     const chosen = new Set<string>();
+    this.rotating = false;
+    let rotators = 0;
     for (const s of spawns) {
       const x = cellCenterX(s.col) + (s.dx ?? 0);
       const y = cellCenterY(s.row) + (s.dy ?? 0);
-      if (s.kind === 'pickup') {
+      if (s.kind === 'bell') {
+        spawnBell(w, x, y);
+      } else if (s.kind === 'pickup') {
         const pk = spawnPickup(w, pickupKindOf(s.pickup), x, y, false, s.item ?? '');
         if (pk && s.item === undefined && (s.pickup === 'trinket' || s.pickup === 'consumable')) {
           const def = pickItem(this.roomRng, { kind: s.pickup, tag: s.tag, exclude: chosen });
@@ -201,11 +214,17 @@ export class Sim {
       } else {
         let item = s.item ?? '';
         if (!item) {
-          const def = pickItem(this.roomRng, { tag: s.tag, kind: s.itemKind, exclude: chosen });
+          const def = pickItem(this.roomRng, { tag: s.tag, kind: s.itemKind, pool: s.pool, exclude: chosen });
           item = def?.id ?? '';
         }
         if (item) chosen.add(item);
-        spawnPedestal(w, x, y, item);
+        const ped = spawnPedestal(w, x, y, item);
+        if (ped && s.rotate) {
+          ped.rotate = { tag: s.tag, kind: s.itemKind, pool: s.pool };
+          // Stagger the first change so the rotating pedestals don't all flip at once.
+          ped.rotateT = -YARD_TUNING.rotateStagger * rotators++;
+          this.rotating = true;
+        }
       }
     }
   }
@@ -232,6 +251,7 @@ export class Sim {
     updateBombs(w, DT);
     updatePickups(w, DT);
     updatePedestals(w, DT);
+    if (this.rotating) updateRotation(w, this.roomRng, DT);
     updateHazards(w);
     updateDummies(w, DT);
     // Explosions and DOTs after the enemy update may have killed some: release them now.
@@ -243,7 +263,15 @@ export class Sim {
   }
 
   private trainingRoomRules(): void {
-    const d = this.world.dummies;
+    const w = this.world;
+    // The bell (or endless waves) calls the next wave.
+    if (w.bellRung) {
+      w.bellRung = false;
+      startWave(w);
+    }
+    const a = w.arena;
+    if (this.autoWaves && !a.active && !w.player.dead && a.sinceClear >= YARD_TUNING.autoWaveDelay) startWave(w);
+    const d = w.dummies;
     if (d.count === 0) return;
     let all = true;
     for (let i = 0; i < d.count; i++) {
@@ -316,6 +344,130 @@ export class Sim {
     explode(this.world, x, y);
   }
 
+  /**
+   * Debug: puts an item on a pedestal next to the player (a free floor spot around her). When every
+   * pedestal slot is taken, an empty (or the farthest) one is moved over instead. Returns the pedestal.
+   */
+  spawnItemPedestal(id: string): Pedestal | null {
+    const w = this.world;
+    getItem(id); // throws on unknown ids
+    const p = w.player;
+    let x = p.x;
+    let y = p.y + 24;
+    let found = false;
+    for (let ring = 0; ring < 2 && !found; ring++) {
+      const r = ring === 0 ? 24 : 38;
+      for (let k = 0; k < 8 && !found; k++) {
+        const a = Math.PI / 2 + (k * Math.PI) / 4;
+        const cx = p.x + Math.cos(a) * r;
+        const cy = p.y + Math.sin(a) * r;
+        if (this.pedestalSpotFree(cx, cy)) {
+          x = cx;
+          y = cy;
+          found = true;
+        }
+      }
+    }
+    if (!found) {
+      x = Math.min(ROOM_W - 10, Math.max(10, x));
+      y = Math.min(ROOM_H - 8, Math.max(14, y));
+    }
+    let ped = spawnPedestal(w, x, y, id);
+    if (!ped) {
+      // Full: reuse an empty item pedestal, else the one farthest from the player.
+      const pool = w.pedestals;
+      let best: Pedestal | null = null;
+      let bestScore = -1;
+      for (let i = 0; i < pool.count; i++) {
+        const o = pool.items[i]!;
+        if (o.bell) continue;
+        const score = (o.item === '' ? 1e6 : 0) + (o.x - p.x) * (o.x - p.x) + (o.y - p.y) * (o.y - p.y);
+        if (score > bestScore) {
+          bestScore = score;
+          best = o;
+        }
+      }
+      if (!best) return null;
+      ped = best;
+      ped.x = x;
+      ped.y = y;
+      ped.rotate = null;
+    }
+    setPedestalItem(ped, id);
+    w.events.emit('pedestalRoll', ped.x, ped.y - 16, 1, 0, id);
+    return ped;
+  }
+
+  /** Open floor for a debug pedestal: inside the room, plain floor, clear of the player and other pedestals. */
+  private pedestalSpotFree(x: number, y: number): boolean {
+    const w = this.world;
+    if (x < 10 || y < 14 || x > ROOM_W - 10 || y > ROOM_H - 8) return false;
+    if (w.room.get(Math.floor(x / TILE), Math.floor(y / TILE)) !== Tile.Floor) return false;
+    // The floating item uses the cell above: keep it clear of props too.
+    const above = w.room.get(Math.floor(x / TILE), Math.max(0, Math.floor((y - 12) / TILE)));
+    if (above !== Tile.Floor && above !== Tile.Pit && above !== Tile.Spikes) return false;
+    const p = w.player;
+    const reach = p.r + ITEM_TUNING.pedestalRadius + 4;
+    if ((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y) < reach * reach) return false;
+    const pool = w.pedestals;
+    for (let i = 0; i < pool.count; i++) {
+      const o = pool.items[i]!;
+      if (Math.abs(o.x - x) < 14 && Math.abs(o.y - y) < 14) return false;
+    }
+    for (let i = 0; i < w.dummies.count; i++) {
+      const d = w.dummies.items[i]!;
+      if (Math.abs(d.x - x) < 12 && Math.abs(d.y - y) < 12) return false;
+    }
+    for (let i = 0; i < w.enemies.count; i++) {
+      const e = w.enemies.items[i]!;
+      if (Math.abs(e.x - x) < 12 && Math.abs(e.y - y) < 12) return false;
+    }
+    return true;
+  }
+
+  /** Debug: red health back to full (returns the half hearts restored). */
+  fullHeal(): number {
+    return healPlayer(this.world, 99);
+  }
+
+  /** Debug: adds coins / bombs / keys (each clamped to 0..99). */
+  addPickups(coins: number, bombs: number, keys: number): void {
+    const inv = this.world.player.inv;
+    addCounter(inv, 'coins', coins);
+    addCounter(inv, 'bombs', bombs);
+    addCounter(inv, 'keys', keys);
+    inv.version++;
+  }
+
+  /**
+   * Debug: empties the room of danger — every enemy dies (credited to the player), enemy shots,
+   * creep and shockwaves vanish. A running wave then clears as usual on the next tick (doors open,
+   * reward drops).
+   */
+  clearRoom(): void {
+    const w = this.world;
+    this.killEnemies();
+    w.enemyShots.clear();
+    w.creep.clear();
+    w.waves.clear();
+  }
+
+  /** Debug: drops every item the player holds (passives, active, trinkets, consumables, temporary effects). */
+  resetItems(): void {
+    const w = this.world;
+    const p = w.player;
+    const inv = p.inv;
+    inv.passives.length = 0;
+    inv.active = null;
+    inv.trinkets.length = 0;
+    inv.consumables.length = 0;
+    inv.version++;
+    p.temps.length = 0;
+    p.holdItem = '';
+    p.holdTime = 0;
+    recomputePlayer(w);
+  }
+
   summary(): SimSummary {
     const w = this.world;
     const p = w.player;
@@ -350,7 +502,7 @@ export class Sim {
     const pedestals: SimSummary['pedestals'] = [];
     for (let i = 0; i < w.pedestals.count; i++) {
       const s = w.pedestals.items[i]!;
-      pedestals.push({ x: s.x, y: s.y, item: s.item });
+      pedestals.push({ x: s.x, y: s.y, item: s.item, bell: s.bell, rotate: s.rotate !== null });
     }
     return {
       tick: w.tick,

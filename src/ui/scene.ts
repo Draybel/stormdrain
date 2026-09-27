@@ -25,6 +25,8 @@ export interface Scene {
   render(ctx: CanvasRenderingContext2D, alpha: number): void;
   /** A fresh key press; return true if consumed. */
   onKey?(code: string): boolean;
+  /** Mouse wheel (dy > 0 = scroll down; x, y in game px). */
+  onWheel?(dy: number, x: number, y: number): void;
   /** The page went to the background (pause the run, etc.). */
   onBackground?(): void;
   /** Settings affecting layout changed (button size). */
@@ -42,6 +44,7 @@ export class SceneManager {
     this.input = input;
     this.registry = registry;
     input.keyHandler = (code) => this.top?.onKey?.(code) ?? false;
+    input.wheelHandler = (dy, x, y) => this.top?.onWheel?.(dy, x, y);
   }
 
   get top(): Scene | undefined {

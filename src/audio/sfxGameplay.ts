@@ -281,6 +281,41 @@ export const GAMEPLAY_RECIPES = {
       later(v, 0.09, () => osc(v, 'triangle', 1568, 1568, 0.25, 0.25));
     },
   },
+  // ── Training yard (Phase 2D) ──
+  // The yard bell: a bronze "dong" with an inharmonic ring and a strike click.
+  yard_bell: {
+    minGap: 0.25,
+    length: 1.6,
+    gain: 0.5,
+    play(v) {
+      noise(v, 'bandpass', 3200, 2400, 2, 0.03, 0.35);
+      osc(v, 'sine', 523, 521, 1.5, 0.45, 0.002);
+      osc(v, 'sine', 1046 * 1.003, 1040, 1.1, 0.22, 0.002);
+      osc(v, 'sine', 1397, 1390, 0.8, 0.14, 0.002);
+      osc(v, 'triangle', 2093, 2080, 0.35, 0.08, 0.002);
+    },
+  },
+  // A pedestal rolled a new item: a soft two-note shimmer.
+  pedestal_roll: {
+    minGap: 0.12,
+    length: 0.3,
+    gain: 0.18,
+    play(v) {
+      osc(v, 'triangle', 1760, 1760, 0.08, 0.2);
+      later(v, 0.06, () => osc(v, 'sine', 2637, 2637, 0.2, 0.16));
+    },
+  },
+  // A trigger's notice (the Teacup Tempest boiling over): a rising, crackling surge.
+  surge: {
+    minGap: 0.3,
+    length: 0.6,
+    gain: 0.45,
+    play(v) {
+      noise(v, 'bandpass', 500, 4000, 1.5, 0.45, 0.35, 0.05);
+      osc(v, 'square', 220, 880, 0.35, 0.18, 0.02);
+      later(v, 0.28, () => osc(v, 'triangle', 1318, 1760, 0.25, 0.25));
+    },
+  },
   // Coins landing on stone.
   tink: {
     minGap: 0.05,

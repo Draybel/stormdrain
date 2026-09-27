@@ -500,6 +500,7 @@ export function fireTrigger(w: World, on: TriggerOn, x: number, y: number): void
       if (chance < 1 && w.combatRng.next() >= chance) continue;
       if (e.cooldown) p.triggerReady.set(e, w.time + e.cooldown);
       w.events.emit('triggered', x, y, 0, 0, t.source);
+      if (e.say) w.events.emit('say', x, y, 0, 0, e.say);
       executeEffects(w, e.effects, x, y, t.source);
     }
   } finally {

@@ -53,7 +53,7 @@ test('stacked modifiers, riders and familiars fire and render without errors', a
   await page.evaluate(() => {
     const d = window.__SD.debug;
     d.god(true);
-    for (const id of ['compass-needle', 'cracked-marble', 'copper-wire', 'party-popper', 'toadstool-cap', 'twin-straws', 'tin-pinwheel', 'lamplet', 'bottlecap-beetle', 'broken-oar']) d.give(id);
+    for (const id of ['lantern-moth', 'geode', 'rooftop-rod', 'party-popper', 'toadstool-cap', 'twin-straws', 'tin-pinwheel', 'lamplet', 'bottlecap-beetle', 'broken-oar']) d.give(id);
     window.__SD.sim!.world.player.placeAt(40, 40);
   });
   await page.keyboard.press('KeyF');

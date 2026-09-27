@@ -42,6 +42,8 @@ describe('headless sim', () => {
 
   it('runs 600 scripted ticks: moves, collides, fires, despawns, damages; no NaN', () => {
     const sim = makeSim(2024);
+    // Plain marbles only: the yard's pedestals would hand out attack items along the way.
+    sim.world.pedestals.clear();
     const input = makeInput();
     const start = { x: sim.world.player.x, y: sim.world.player.y };
     let maxDist = 0;

@@ -317,6 +317,8 @@ export interface TriggerEffect {
   maxChance?: number;
   /** Seconds before this trigger can fire again (default 0). */
   cooldown?: number;
+  /** Short uppercase notice shown in the top band when it fires (a 'say' event), e.g. 'THE TEACUP BOILS OVER!'. */
+  say?: string;
   effects: readonly Effect[];
 }
 

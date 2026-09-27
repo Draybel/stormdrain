@@ -312,19 +312,24 @@ describe('effect triggers', () => {
 });
 
 describe('item pools', () => {
-  it('the training room rolls two different stat items, deterministically by seed', () => {
-    const a = makeSim('pedestals').summary().pedestals.map((p) => p.item);
-    const b = makeSim('pedestals').summary().pedestals.map((p) => p.item);
+  it('the training room rolls three different treasure passives and a carrier, deterministically by seed', () => {
+    const a = makeSim('pedestals').summary().pedestals;
+    const b = makeSim('pedestals').summary().pedestals;
     expect(a).toEqual(b);
-    expect(a.length).toBe(6);
-    // The sixth pedestal (Phase 2B) offers a random attack carrier.
-    expect(getItem(a[5]!).tags).toContain('starter-attack');
-    const stats = a.slice(0, 2);
-    expect(new Set(stats).size).toBe(2);
-    for (const id of stats) expect(getItem(id).tags).toContain('starter-stat');
+    // Phase 2D: 3 rotating treasure pedestals, 2 actives, a rotating carrier, and the bell.
+    expect(a.length).toBe(7);
+    expect(a.filter((p) => p.bell)).toHaveLength(1);
+    expect(a.filter((p) => p.rotate)).toHaveLength(4);
+    expect(getItem(a[5]!.item).tags).toContain('starter-attack');
+    const treasure = a.slice(0, 3).map((p) => p.item);
+    expect(new Set(treasure).size).toBe(3);
+    for (const id of treasure) {
+      expect(getItem(id).pools).toContain('treasure');
+      expect(getItem(id).kind).toBe('passive');
+    }
     const seen = new Set<string>();
-    for (let s = 0; s < 30; s++) for (const id of makeSim(s).summary().pedestals.slice(0, 2).map((p) => p.item)) seen.add(id);
-    expect(seen.size).toBeGreaterThanOrEqual(4);
+    for (let s = 0; s < 30; s++) for (const p of makeSim(s).summary().pedestals.slice(0, 3)) seen.add(p.item);
+    expect(seen.size).toBeGreaterThanOrEqual(20);
     // Rng is fine to use for this sanity check.
     expect(new Rng(1).next()).toBe(new Rng(1).next());
   });

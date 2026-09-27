@@ -4,7 +4,7 @@
  * Positions are grid cells (+ optional px offsets from the cell centre).
  */
 
-import type { ItemId, ItemKind, PickupName } from './types';
+import type { ItemId, ItemKind, PickupName, PoolId } from './types';
 
 interface At {
   col: number;
@@ -23,10 +23,21 @@ export interface PickupSpawn extends At {
 
 export interface PedestalSpawn extends At {
   kind: 'pedestal';
-  /** A fixed item, or a random one matching `tag` / `itemKind` (never repeating within the room). */
+  /** A fixed item, or a random one matching `tag` / `itemKind` / `pool` (never repeating within the room). */
   item?: ItemId;
   tag?: string;
   itemKind?: ItemKind;
+  pool?: PoolId;
+  /**
+   * Training yard: the pedestal keeps offering new items from its filter — a new one every few
+   * seconds while nobody stands next to it, and a refill shortly after its item was taken.
+   */
+  rotate?: boolean;
 }
 
-export type RoomSpawn = PickupSpawn | PedestalSpawn;
+/** Training yard: a bell on a post — bump into it to start a wave. */
+export interface BellSpawn extends At {
+  kind: 'bell';
+}
+
+export type RoomSpawn = PickupSpawn | PedestalSpawn | BellSpawn;

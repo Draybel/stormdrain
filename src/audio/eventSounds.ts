@@ -238,6 +238,16 @@ export function playEventSound(audio: AudioOut, e: GameEvent): void {
     case 'familiar':
       audio.play('familiar_poof', pan);
       break;
+    // ── Phase 2D ──
+    case 'bell':
+      audio.play('yard_bell', pan);
+      break;
+    case 'pedestalRoll':
+      audio.play('pedestal_roll', pan, e.a === 1 ? 1 : 0.35);
+      break;
+    case 'say':
+      audio.play('surge', pan);
+      break;
     default:
       break;
   }

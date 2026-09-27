@@ -135,7 +135,14 @@ export type GameEventType =
   /** Wren's keeper marble fired: x,y = muzzle; a,b = direction */
   | 'keeper'
   /** a familiar appeared: x,y; id = familiar id */
-  | 'familiar';
+  | 'familiar'
+  // ── Phase 2D ──
+  /** a short notice for the top band (a trigger's `say`): x,y = where it fired; id = the text */
+  | 'say'
+  /** a training-yard pedestal rolled a new item: x,y = pedestal; id = item id */
+  | 'pedestalRoll'
+  /** the training-yard bell was rung (starts a wave): x,y = bell; a = 1 started a wave, 0 already fighting */
+  | 'bell';
 
 export interface GameEvent {
   type: GameEventType;

@@ -11,7 +11,7 @@
  */
 
 import type { Display } from './display';
-import { buttonContains, type ButtonRegistry, type HitButton } from './buttons';
+import { DRAG_SLOP, buttonContains, type ButtonRegistry, type HitButton } from './buttons';
 import { clearEdges, createInputState, resetInput, type InputState } from './inputState';
 import { vec2 } from './math';
 import { GAME_W } from './screen';
@@ -43,7 +43,12 @@ export class Input {
    * Offered every fresh key press before game handling; return true to consume it (menus).
    */
   keyHandler: ((code: string) => boolean) | null = null;
+  /** Backquote: open / close the debug menu. */
   onDebugToggle: (() => void) | null = null;
+  /** Three fingers landing together (touch): toggle the perf overlay. */
+  onPerfToggle: (() => void) | null = null;
+  /** Mouse wheel over the canvas: dy in CSS px-ish units (positive = down), position in game px. */
+  wheelHandler: ((dy: number, x: number, y: number) => void) | null = null;
 
   private readonly canvas: HTMLCanvasElement;
   private readonly display: Display;
@@ -73,6 +78,7 @@ export class Input {
     canvas.addEventListener('pointercancel', this.onPointerCancel);
     canvas.addEventListener('lostpointercapture', this.onPointerCancel);
     canvas.addEventListener('contextmenu', prevent);
+    canvas.addEventListener('wheel', this.onWheel, { passive: true });
     // Kill scrolling, zooming, callouts and double-tap zoom on iOS.
     const nonPassive: AddEventListenerOptions = { passive: false };
     canvas.addEventListener('touchstart', prevent, nonPassive);
@@ -219,6 +225,9 @@ export class Input {
       this.owners.set(e.pointerId, b);
       b.held++;
       b.armed = true;
+      b.downX = b.curX = p.x;
+      b.downY = b.curY = p.y;
+      b.dragged = false;
       if (b.trigger === 'press') this.activate(b);
       return;
     }
@@ -244,8 +253,23 @@ export class Input {
         this.lastAimY = o.dirY;
       }
     } else {
-      o.armed = buttonContains(o, p.x, p.y, RELEASE_SLOP);
+      o.curX = p.x;
+      o.curY = p.y;
+      if (o.draggable && !o.dragged) {
+        const dx = p.x - o.downX;
+        const dy = p.y - o.downY;
+        if (dx * dx + dy * dy > DRAG_SLOP * DRAG_SLOP) o.dragged = true;
+      }
+      o.armed = !o.dragged && buttonContains(o, p.x, p.y, RELEASE_SLOP);
     }
+  };
+
+  private readonly onWheel = (e: WheelEvent): void => {
+    if (!this.wheelHandler || this.display.portrait) return;
+    const p = this.display.toGame(e.clientX, e.clientY, this.pt);
+    // Lines / pages → roughly pixels.
+    const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    this.wheelHandler(e.deltaY * k, p.x, p.y);
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
@@ -275,16 +299,18 @@ export class Input {
     }
     o.held = Math.max(0, o.held - 1);
     const p = this.display.toGame(e.clientX, e.clientY, this.pt);
+    o.curX = p.x;
+    o.curY = p.y;
     const inside = buttonContains(o, p.x, p.y, RELEASE_SLOP);
     if (o.held === 0) o.armed = false;
-    if (allowActivate && o.trigger === 'release' && inside && o.enabled && this.registry.has(o)) this.activate(o);
+    if (allowActivate && o.trigger === 'release' && inside && !o.dragged && o.enabled && this.registry.has(o)) this.activate(o);
   }
 
   /** Three fingers landing within 250 ms toggles the debug overlay (no keyboard on phones). */
   private checkThreeFingerTap(t: number): void {
     if (this.touchDown.size !== 3) return;
     for (const t0 of this.touchDown.values()) if (t - t0 > 250) return;
-    this.onDebugToggle?.();
+    this.onPerfToggle?.();
   }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────

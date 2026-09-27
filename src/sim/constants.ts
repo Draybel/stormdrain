@@ -15,7 +15,7 @@ export const CAP_PROJECTILES = 700;
 export const CAP_DUMMIES = 16;
 export const CAP_PICKUPS = 64;
 export const CAP_BOMBS = 16;
-export const CAP_PEDESTALS = 8;
+export const CAP_PEDESTALS = 12;
 /** Enemies alive at once (spawned minions and splits included). */
 export const CAP_ENEMIES = 64;
 /** Enemy projectiles (ARCHITECTURE §4.5). */

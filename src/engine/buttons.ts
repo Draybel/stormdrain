@@ -5,6 +5,8 @@
  * - trigger 'press'   → activates on pointer-down (in-game action buttons: bomb, pause, …)
  * - trigger 'release' → activates on pointer-up inside the same button (menus), so a thumb
  *                       can slide off to cancel.
+ * - `draggable` (release buttons, e.g. a scrollable list): moving more than DRAG_SLOP px turns the
+ *   press into a drag (`dragged`) that never activates; the owner reads down/cur positions to scroll.
  */
 
 import type { InputAction } from './inputState';
@@ -30,7 +32,19 @@ export interface HitButton {
   armed: boolean;
   /** Seconds since last activation (for a little flash); owners may advance it. */
   flash: number;
+  /** Opt-in: a press that moves past DRAG_SLOP becomes a drag (scrolling) instead of a tap. */
+  draggable: boolean;
+  /** Where the current / last press went down and where its pointer is now (game px). */
+  downX: number;
+  downY: number;
+  curX: number;
+  curY: number;
+  /** The current / last press moved past DRAG_SLOP (draggable buttons only): its release won't activate. */
+  dragged: boolean;
 }
+
+/** Game px a finger may wander before a press on a draggable button counts as a drag. */
+export const DRAG_SLOP = 4;
 
 export function makeButton(init: Partial<HitButton> & { id: string }): HitButton {
   return {
@@ -47,6 +61,12 @@ export function makeButton(init: Partial<HitButton> & { id: string }): HitButton
     held: 0,
     armed: false,
     flash: 1,
+    draggable: false,
+    downX: 0,
+    downY: 0,
+    curX: 0,
+    curY: 0,
+    dragged: false,
     ...init,
   };
 }

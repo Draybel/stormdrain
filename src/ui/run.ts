@@ -136,9 +136,9 @@ export class RunScene implements Scene {
     return false;
   }
 
-  private say(text: string): void {
+  private say(text: string, time = 1.4): void {
     this.notice = text;
-    this.noticeTime = 1.4;
+    this.noticeTime = time;
   }
 
   update(dt: number, input: InputState): void {
@@ -172,6 +172,8 @@ export class RunScene implements Scene {
         const stop = (e.b & 4) !== 0 ? HITSTOP_BIG : (e.b & 2) !== 0 ? HITSTOP_CHAMPION : 0;
         if (stop > this.hitStop) this.hitStop = stop;
       } else if (e.type === 'roomClear') this.say('ROOM CLEARED!');
+      else if (e.type === 'say') this.say(e.id, 2);
+      else if (e.type === 'bell' && e.a === 0) this.say('FINISH THIS WAVE FIRST');
     }
     this.fight.visible = this.sim.trainingRoom && !this.sim.world.arena.active && !this.sim.world.player.dead;
     this.fx.tick(sim.world, dt);
@@ -245,7 +247,11 @@ export class RunScene implements Scene {
   /** Room label: the yard's name, or the wave in progress (cached per wave / enemy count). */
   private roomLabel(): string {
     const w = this.sim.world;
-    if (!w.arena.active) return 'THE GUTTERWAYS · TRAINING YARD';
+    if (!w.arena.active) {
+      if (!this.sim.trainingRoom) return 'THE GUTTERWAYS';
+      if (this.sim.autoWaves) return 'TRAINING YARD · NEXT WAVE SOON...';
+      return this.app.input.touchUsed ? 'TRAINING YARD · RING THE BELL TO FIGHT' : 'TRAINING YARD · RING THE BELL (OR F) TO FIGHT';
+    }
     let n = 0;
     for (let i = 0; i < w.enemies.count; i++) if (!w.enemies.items[i]!.dead) n++;
     const key = w.arena.wave * 1000 + n;

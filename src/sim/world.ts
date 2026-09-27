@@ -108,6 +108,8 @@ export class World {
   onSecretWallBombed: ((x: number, y: number) => void) | null = null;
   /** Debug god mode: the player takes no damage. */
   godMode = false;
+  /** The training-yard bell was bumped this tick (the Sim starts a wave). */
+  bellRung = false;
   /** Nesting depth of trigger execution (guards against trigger → effect → trigger loops). */
   triggerDepth = 0;
   /** Services for content hooks (built lazily by sim/effects.ts). */

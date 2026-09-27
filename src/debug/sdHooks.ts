@@ -12,6 +12,7 @@ import type { Loop } from '../engine/loop';
 import type { ButtonRegistry } from '../engine/buttons';
 import type { HudRect } from '../render/hud';
 import type { PickupName } from '../sim/types';
+import type { DebugActions } from './actions';
 
 export interface CssRect {
   x: number;
@@ -57,6 +58,25 @@ export interface SDHooks {
     kill(): void;
     /** Gives an item by id (as a fresh pickup). */
     give(id: string): void;
+    /** Puts an item on a pedestal next to the player. */
+    spawnItem(id: string): boolean;
+    /** Gives n random treasure passives; returns their ids. */
+    giveRandom(n: number): string[];
+    /** Every item id / enemy id the debug menu lists. */
+    items(): string[];
+    enemies(): string[];
+    /** Red health back to full. */
+    heal(): void;
+    /** Adds coins / bombs / keys (default +10 each). */
+    add(coins?: number, bombs?: number, keys?: number): void;
+    /** Kills every enemy, clears enemy shots and creep (a running wave then clears). */
+    clearRoom(): void;
+    /** Drops every held item. */
+    resetItems(): void;
+    /** Training yard: endless waves on/off. */
+    autoWaves(on: boolean): void;
+    /** Opens (true) / closes (false) / toggles the debug menu; returns whether it is open. */
+    menu(open?: boolean): boolean;
     /** Pops a pickup out next to the player. */
     spawn(kind: PickupName): void;
     /** Counts as clearing the room (charges actives, fires roomClear triggers). */
@@ -91,6 +111,8 @@ export interface SdDeps {
   getSim(): Sim | null;
   /** HUD rects of the run scene (empty when there is none). */
   getHudRects(): HudRect[];
+  /** The debug actions (shared with the debug menu). */
+  actions: DebugActions;
 }
 
 export function installSdHooks(d: SdDeps): SDHooks {
@@ -167,6 +189,38 @@ export function installSdHooks(d: SdDeps): SDHooks {
       },
       give(id: string) {
         d.getSim()?.giveItem(id);
+      },
+      spawnItem(id: string) {
+        return d.actions.spawnItem(id);
+      },
+      giveRandom(n: number) {
+        return d.actions.giveRandom(n);
+      },
+      items() {
+        return d.actions.items().map((x) => x.id);
+      },
+      enemies() {
+        return d.actions.enemies().map((x) => x.id);
+      },
+      heal() {
+        d.actions.fullHeal();
+      },
+      add(coins = 10, bombs = 10, keys = 10) {
+        d.getSim()?.addPickups(coins, bombs, keys);
+      },
+      clearRoom() {
+        d.actions.clearRoom();
+      },
+      resetItems() {
+        d.actions.resetItems();
+      },
+      autoWaves(on: boolean) {
+        d.actions.autoWaves(on);
+      },
+      menu(open?: boolean) {
+        const isOpen = app.scenes.name === 'debug';
+        if (open === undefined || open !== isOpen) app.nav.debug();
+        return app.scenes.name === 'debug';
       },
       spawn(kind: PickupName) {
         d.getSim()?.spawnPickup(kind);
