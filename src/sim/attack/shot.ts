@@ -172,7 +172,7 @@ export function applyShotHit(w: World, s: ShotState, t: Hittable): boolean {
   const k = sp > 1e-6 ? s.knock / sp : 0;
   t.hurt(s.damage, SRC_PLAYER, s.vx * k, s.vy * k);
   rememberHit(s, t, w.tick);
-  w.events.emit('splash', s.x, s.y, 1, s.z, colorId(s));
+  w.events.emitFx('splash', s.x, s.y, 1, s.z, colorId(s));
   runHitHooks(w, s, t);
   s.hitCount++;
   if ((s.flags & F_KEEPER) !== 0) return false;
@@ -188,7 +188,7 @@ export function endShot(w: World, s: Shot, expire: boolean, burst = 1): void {
   if (expire) runExpireHooks(w, s);
   if (burst >= 0) {
     const pit = burst === 0 && w.room.tileAt(s.x, s.y) === Tile.Pit;
-    w.events.emit('splash', s.x, s.y, pit ? 2 : burst, s.z, colorId(s));
+    w.events.emitFx('splash', s.x, s.y, pit ? 2 : burst, s.z, colorId(s));
   }
   w.projectiles.release(s);
 }
@@ -320,12 +320,16 @@ export function updateShots(w: World, dt: number): void {
         s.y = py;
         if (runWallHooks(w, s, normal.x, normal.y)) {
           reflect(s, normal.x, normal.y);
+          // A one-step velocity override (orbit, corkscrew) would carry it straight back into the
+          // wall: the reflected heading takes over for the rest of this tick (the orbit reads the
+          // turn as a tilt next step).
+          s.ovr = false;
           updateVelocity(s);
           vx = s.vx;
           vy = s.vy;
           sx = (vx * dt) / steps;
           sy = (vy * dt) / steps;
-          w.events.emit('shotBounce', s.x, s.y, normal.x, normal.y, colorId(s));
+          w.events.emitFx('shotBounce', s.x, s.y, normal.x, normal.y, colorId(s));
           continue;
         }
         endShot(w, s, true, 1);
@@ -379,7 +383,7 @@ function updateBlade(w: World, s: Shot): void {
     const d = Math.sqrt(dx * dx + dy * dy);
     t.hurt(s.damage, SRC_PLAYER, d > 1e-6 ? (dx / d) * k : 0, d > 1e-6 ? (dy / d) * k : 0);
     rememberHit(s, t, w.tick);
-    w.events.emit('splash', s.x, s.y, 1, s.z, colorId(s));
+    w.events.emitFx('splash', s.x, s.y, 1, s.z, colorId(s));
     runHitHooks(w, s, t);
   }
   // Blades swat hostile enemy shots.
@@ -391,7 +395,7 @@ function updateBlade(w: World, s: Shot): void {
     const dy = e.y - s.y;
     const rr = e.r + s.size + 1;
     if (dx * dx + dy * dy < rr * rr) {
-      w.events.emit('eshotPop', e.x, e.y, 1, e.style, '');
+      w.events.emitFx('eshotPop', e.x, e.y, 1, e.style, '');
       shots.release(e);
     }
   }

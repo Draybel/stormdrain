@@ -39,6 +39,8 @@ export interface SDHooks {
   readonly scene: string;
   readonly stack: string[];
   readonly fps: number;
+  /** Loop cost (smoothed ms): one sim tick incl. event handling, one render; steps dropped so far. */
+  readonly perf: { updateMs: number; renderMs: number; droppedSteps: number };
   readonly ticks: number;
   /** Where the game image is drawn (CSS px) + viewport info. */
   readonly view: { x: number; y: number; w: number; h: number; scale: number; cssW: number; cssH: number; dpr: number };
@@ -136,6 +138,9 @@ export function installSdHooks(d: SdDeps): SDHooks {
     },
     get fps() {
       return loop.fps;
+    },
+    get perf() {
+      return { updateMs: loop.updateMs, renderMs: loop.renderMs, droppedSteps: loop.droppedSteps };
     },
     get ticks() {
       return loop.ticks;

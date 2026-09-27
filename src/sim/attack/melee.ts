@@ -15,7 +15,7 @@ import { shotBreakable } from '../tiles';
 import { TILE } from '../constants';
 import { ATTACK_TUNING } from '../tuning';
 import type { World } from '../world';
-import { queueExplosion } from './impacts';
+import { bombBlastMul, bombBlastRadius, queueExplosion } from './impacts';
 import type { AttackProfile } from './profile';
 import { runHitHooks } from './shot';
 import { F_BOMB, OWN_PLAYER, SK_SWIPE, ShotState, type Anchor } from './state';
@@ -86,8 +86,8 @@ export function spawnSwipe(
   w.events.emit('swipe', s.x, s.y, Math.cos(ang), Math.sin(ang), ownerKind === OWN_PLAYER ? '' : 'mini');
   if (s.bomb) {
     // Bomb rider: the swipe's tip explodes.
-    const r = (T.bombRadius + T.bombRadiusStack * Math.max(0, profile.riderBomb - 1)) * 0.8 * Math.sqrt(scale);
-    queueExplosion(w, s.x + Math.cos(ang) * reach, s.y + Math.sin(ang) * reach, r, dmg * 0.8, true);
+    const r = bombBlastRadius(profile) * 0.8 * Math.sqrt(scale);
+    queueExplosion(w, s.x + Math.cos(ang) * reach, s.y + Math.sin(ang) * reach, r, dmg * 0.8 * (bombBlastMul(profile) / T.bombDamage), true);
   }
   return s;
 }
@@ -113,7 +113,7 @@ function strike(w: World, s: Swipe, h: Hittable): void {
   const nx = d > 1e-6 ? dx / d : Math.cos(s.ang);
   const ny = d > 1e-6 ? dy / d : Math.sin(s.ang);
   h.hurt(s.dmg, SRC_PLAYER, nx * s.knock, ny * s.knock);
-  w.events.emit('swipeHit', h.x, h.y - h.r, nx, ny, s.style?.body ?? '');
+  w.events.emitFx('swipeHit', h.x, h.y - h.r, nx, ny, s.style?.body ?? '');
   const prof = s.profile;
   if (!prof || prof.hitHooks.length === 0) return;
   P.kind = SK_SWIPE;
@@ -173,7 +173,7 @@ export function updateSwipes(w: World, dt: number): void {
     for (let k = shots.count - 1; k >= 0; k--) {
       const e = shots.items[k]!;
       if (e.allied || e.lob || !inArc(s, e.x, e.y, e.r)) continue;
-      w.events.emit('eshotPop', e.x, e.y, 1, e.style, '');
+      w.events.emitFx('eshotPop', e.x, e.y, 1, e.style, '');
       shots.release(e);
     }
     // Crack breakable props in reach (once per swipe).

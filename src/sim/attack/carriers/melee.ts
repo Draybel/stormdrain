@@ -23,11 +23,26 @@ function wantsSwipe(v: Volley, ang: number): boolean {
   return true;
 }
 
-function swipe(v: Volley, ang: number, dmg: number, reach: number): void {
+/**
+ * Spawns a swipe; true if its damage found a home. At the swipe cap (orbit blades and familiars swipe
+ * too) the damage rides on this volley's previous swipe instead — false if there is none either (the
+ * caller then puts it on a projectile).
+ */
+function swipe(v: Volley, ang: number, dmg: number, reach: number): boolean {
   const src = v.src;
   const knock = v.profile.knockback * T.meleeKnock * (0.5 + 0.5 * v.scale);
   const s = spawnSwipe(v.w, v.profile, src.anchor, v.x, v.y, ang, reach, dmg, knock, v.scale, src.ownerKind);
-  if (s) v.swipeAng[v.swipes++] = ang;
+  if (s) {
+    v.swipeAng[v.swipes++] = ang;
+    v.lastSwipe = s;
+    return true;
+  }
+  const last = v.lastSwipe;
+  if (last && last.alive) {
+    last.dmg += dmg;
+    return true;
+  }
+  return false;
 }
 
 export const MELEE: Carrier = {
@@ -40,19 +55,31 @@ export const MELEE: Carrier = {
     const ctx = v.ctx;
     const extra = Math.max(0, p.stacksOf('melee') - 1);
     const ang = v.ang + ctx.ang[i]!;
+    let spare = 0;
     if (wantsSwipe(v, ang)) {
       const reach = T.meleeReach * (1 + 0.15 * extra) * Math.sqrt(v.scale) * Math.min(1.6, ctx.size[i]! * v.src.sizeMul);
       const dmg = p.damage * T.meleeDamage * (1 + 0.3 * extra) * ctx.dmg[i]! * v.scale * v.src.mul * (i === v.keeper ? 3 : 1);
-      swipe(v, ang, dmg, reach);
+      if (!swipe(v, ang, dmg, reach)) spare = dmg;
     }
     const s = launchProjectile(v, i, SK_CRESCENT, T.crescentDamage, T.crescentSpeed, T.crescentRange, 1.3);
-    if (s) s.pierceLeft += 1;
+    if (s) {
+      s.pierceLeft += 1;
+      // No swipe could be made (cap): its damage flies with the crescent.
+      s.baseDamage += spare;
+      s.damage = s.baseDamage;
+    }
   },
   rider(v, stacks) {
     if (v.profile.beam) return; // beams sweep instead (set when they are emitted)
     const p = v.profile;
     const reach = T.meleeReach * (1 + 0.15 * (stacks - 1)) * Math.sqrt(v.scale);
     const dmg = p.damage * T.meleeRiderDamage * (1 + 0.25 * (stacks - 1)) * v.scale * v.src.mul;
-    if (wantsSwipe(v, v.ang)) swipe(v, v.ang, dmg, reach);
+    if (wantsSwipe(v, v.ang) && !swipe(v, v.ang, dmg, reach)) {
+      const last = v.lastShot;
+      if (last && last.alive) {
+        last.baseDamage += dmg;
+        last.damage = last.baseDamage;
+      }
+    }
   },
 };

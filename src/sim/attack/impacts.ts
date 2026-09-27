@@ -17,11 +17,29 @@ import { ENEMY_SHOT_STYLES } from '../types';
 import { ATTACK_TUNING, BOMB_TUNING, ENEMY_TUNING } from '../tuning';
 import type { World } from '../world';
 import { allocShot, finishShot } from './shot';
-import { F_BOMB, F_CHILD, F_MINI, F_PHASE, F_SIDELASER, SK_BLADE, SK_BOMB, SK_CRESCENT, SK_MARBLE, rememberHit, type ShotState } from './state';
+import type { AttackProfile } from './profile';
+import { F_BOMB, F_CHILD, F_MINI, F_PHASE, F_SIDELASER, MOD_INDEX, SK_BLADE, SK_BOMB, SK_CRESCENT, SK_MARBLE, rememberHit, type ShotState } from './state';
 
 const T = ATTACK_TUNING;
 
 // ── Explosions ─────────────────────────────────────────────────────────────
+
+const EXPLODE = MOD_INDEX.explode;
+
+/**
+ * Bomb-rider blast radius (px, before the volley scale) and damage multiplier (× shot damage) of a
+ * profile: the explode stack's bomb numbers (the rider's copies are implicit explode stacks, and
+ * explode items stack on top), or the plain bomb numbers.
+ */
+export function bombBlastRadius(prof: AttackProfile): number {
+  const st = prof.stacks[EXPLODE];
+  return st ? st.v2 : T.bombRadius + T.bombRadiusStack * Math.max(0, prof.riderBomb - 1);
+}
+
+export function bombBlastMul(prof: AttackProfile): number {
+  const st = prof.stacks[EXPLODE];
+  return st ? st.v3 : T.bombDamage;
+}
 
 export class ExplosionQueue {
   readonly x = new Float64Array(T.explosionQueue);
@@ -240,7 +258,7 @@ export function splitShot(w: World, s: ShotState, t: Hittable, count: number): v
     rememberHit(c, t, w.tick);
     finishShot(w, c);
   }
-  w.events.emit('shotSplit', s.x, s.y, k, s.depth + 1, s.style?.body ?? '');
+  w.events.emitFx('shotSplit', s.x, s.y, k, s.depth + 1, s.style?.body ?? '');
 }
 
 // ── Chain lightning ────────────────────────────────────────────────────────

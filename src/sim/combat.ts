@@ -7,7 +7,8 @@
 import { damageDummy } from './dummies';
 import { fireTrigger } from './effects';
 import { damageHealth, makeDamageResult } from './health';
-import { SRC_BOMB } from './hittable';
+import { ST_CHARM, hasStatus } from './enemies/status';
+import { SRC_BOMB, SRC_PLAYER } from './hittable';
 import { ITEM_TUNING, PLAYER_TUNING } from './tuning';
 import type { World } from './world';
 
@@ -66,6 +67,9 @@ export function hurtPlayer(w: World, halfHearts = 1): void {
 /**
  * Damages every hittable (enemies, standing dummies) whose circle overlaps (x, y, radius), knocked
  * away from the centre. Player-side area damage (bombs, novas, item blasts). Returns how many were hit.
+ * Blasts from the player's own attacks (SRC_PLAYER: explode, the bomb rider) spare charmed enemies —
+ * like every other player attack (they are left out of the attack target snapshot); placed bombs and
+ * novas hurt everything in reach.
  */
 export function damageArea(
   w: World,
@@ -95,9 +99,10 @@ export function damageArea(
   // Enemies killed here are only flagged dead (released by the next sweep), so the loop stays valid;
   // anything they spawn on death is appended and may be caught by this blast too.
   const enemies = w.enemies;
+  const spareCharmed = source === SRC_PLAYER;
   for (let i = 0; i < enemies.count; i++) {
     const e = enemies.items[i]!;
-    if (!e.hittable) continue;
+    if (!e.hittable || (spareCharmed && hasStatus(e.status, ST_CHARM))) continue;
     const dx = e.x - x;
     const dy = e.y - y;
     const rr = radius + e.r;

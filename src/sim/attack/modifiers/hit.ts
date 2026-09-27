@@ -7,7 +7,7 @@
 import { SRC_PLAYER } from '../../hittable';
 import { ATTACK_TUNING } from '../../tuning';
 import { chainFrom, queueExplosion, spawnPlayerPuddle, splitShot } from '../impacts';
-import { F_BOMB, SK_BEAM, type ModifierDef, type ShotState } from '../state';
+import { F_BOMB, SK_BEAM, type ModStack, type ModifierDef, type ShotState } from '../state';
 
 const T = ATTACK_TUNING;
 
@@ -62,39 +62,47 @@ const chain: ModifierDef = {
   },
 };
 
-function blast(s: ShotState, v0: number, v1: number, riderBomb: number): void {
-  // (helper kept tiny: radius / damage for a shot's explosion)
-  blastR = v0;
-  blastD = s.damage * v1;
-  blastRocks = false;
+/** Radius / damage / rock-breaking of a shot's explosion (bomb shots use the bomb numbers v2 / v3). */
+function blast(s: ShotState, st: ModStack): void {
   if ((s.flags & F_BOMB) !== 0) {
-    blastR = Math.max(v0, T.bombRadius + T.bombRadiusStack * Math.max(0, riderBomb - 1));
-    blastD = Math.max(blastD, s.damage * T.bombDamage);
+    blastR = st.v2;
+    blastD = s.damage * st.v3;
     blastRocks = true;
+  } else {
+    blastR = st.v0;
+    blastD = s.damage * st.v1;
+    blastRocks = false;
   }
-  const k = Math.sqrt(Math.max(0.2, s.scale));
-  blastR *= k;
+  blastR *= Math.sqrt(Math.max(0.2, s.scale));
 }
 let blastR = 0;
 let blastD = 0;
 let blastRocks = false;
 
-/** Explodes where it hits and where it ends (player blasts never hurt the player). */
+/**
+ * Explodes where it hits and where it ends (player blasts never hurt the player). The bomb rider's
+ * copies are implicit explode stacks: its shots / beams / swipes use the BOMB numbers (v2 radius,
+ * v3 × damage, break rocks), and explode items held on top grow those further (+5 px, +0.25 × each)
+ * instead of being swallowed by them.
+ */
 const explode: ModifierDef = {
   id: 'explode',
   color: '#ff7a3a',
   trail: 'embers',
   order: 40,
-  prepare(st) {
+  prepare(st, prof) {
     st.v0 = 16 + 5 * st.stacks;
     st.v1 = 0.5 + 0.25 * st.stacks;
+    const extra = Math.max(0, st.stacks - prof.riderBomb);
+    st.v2 = T.bombRadius + T.bombRadiusStack * Math.max(0, prof.riderBomb - 1) + 5 * extra;
+    st.v3 = T.bombDamage + 0.25 * extra;
   },
   hit(s, _t, st, w) {
-    blast(s, st.v0, st.v1, s.profile?.riderBomb ?? 0);
+    blast(s, st);
     queueExplosion(w, s.x, s.y, blastR, blastD, blastRocks);
   },
   expire(s, st, w) {
-    blast(s, st.v0, st.v1, s.profile?.riderBomb ?? 0);
+    blast(s, st);
     queueExplosion(w, s.x, s.y, blastR, blastD, blastRocks);
   },
 };

@@ -284,7 +284,7 @@ export function updateFamiliars(w: World, dt: number): void {
         const dy = e.y - f.y;
         const rr = e.r + r;
         if (dx * dx + dy * dy < rr * rr) {
-          w.events.emit('eshotPop', e.x, e.y, 1, e.style, '');
+          w.events.emitFx('eshotPop', e.x, e.y, 1, e.style, '');
           shots.release(e);
         }
       }

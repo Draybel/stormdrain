@@ -20,10 +20,11 @@ import { hitTileWithShot } from '../tileFx';
 import { shotBreakable } from '../tiles';
 import { ATTACK_TUNING } from '../tuning';
 import type { World } from '../world';
-import { queueExplosion } from './impacts';
+import { bombBlastMul, bombBlastRadius, queueExplosion } from './impacts';
 import type { AttackProfile } from './profile';
 import { reflect, runExpireHooks, runHitHooks, runWallHooks } from './shot';
-import { F_CAUGHT, F_PHASE, OWN_PLAYER, SK_BEAM, ShotState, type Anchor } from './state';
+import { TARGET_CAP } from './targets';
+import { F_CAUGHT, F_PHASE, OWN_PLAYER, SK_BEAM, ShotState, forgetHits, recentlyHit, rememberHit, type Anchor } from './state';
 import type { ShotStyle } from './style';
 
 /** Beam kinds. */
@@ -37,7 +38,8 @@ export const BK_SIDE = 3;
 const T = ATTACK_TUNING;
 const BUDGET = T.beamBudget;
 const MAX_SEG = T.beamMaxSegments;
-const HIT_SLOTS = 16;
+/** One rate-limit slot per target a snapshot can hold, so no target ever waits for (or steals) a slot. */
+const HIT_SLOTS = TARGET_CAP;
 const CELLS = ROOM_COLS * ROOM_ROWS;
 
 export class Beam implements Poolable {
@@ -104,6 +106,8 @@ export class Beam implements Poolable {
   readonly hitRefs: (Hittable | null)[] = new Array<Hittable | null>(HIT_SLOTS).fill(null);
   readonly hitNext = new Int32Array(HIT_SLOTS);
   readonly hitCnt = new Int32Array(HIT_SLOTS);
+  /** Slots in use (0 .. hitUsed-1): lookups scan only these. */
+  hitUsed = 0;
   readonly tileNext = new Int32Array(CELLS);
 }
 
@@ -150,6 +154,7 @@ export function spawnBeam(
   b.hitRefs.fill(null);
   b.hitNext.fill(0);
   b.hitCnt.fill(0);
+  b.hitUsed = 0;
   b.tileNext.fill(0);
   const s = Math.sqrt(scale);
   switch (kind) {
@@ -245,7 +250,8 @@ function beamTileHit(w: World, b: Beam, cell: number): void {
 function beamHit(w: World, b: Beam, h: Hittable): void {
   const tick = w.tick;
   let slot = -1;
-  for (let i = 0; i < HIT_SLOTS; i++) {
+  const used = b.hitUsed;
+  for (let i = 0; i < used; i++) {
     if (b.hitRefs[i] === h) {
       slot = i;
       break;
@@ -254,10 +260,22 @@ function beamHit(w: World, b: Beam, h: Hittable): void {
   if (slot >= 0) {
     if (b.hitNext[slot]! > tick) return;
   } else {
-    // Take a free / expired slot (the one that frees up soonest).
-    let best = 0;
-    for (let i = 1; i < HIT_SLOTS; i++) if (b.hitNext[i]! < b.hitNext[best]!) best = i;
-    slot = best;
+    // A new target gets its own slot (never another target's: evicting a live one would reset its rate
+    // limit and let it be hit again at once — a crowd would take a hit every tick). Slots of targets
+    // that died are reused.
+    if (used < HIT_SLOTS) {
+      slot = used;
+      b.hitUsed = used + 1;
+    } else {
+      for (let i = 0; i < HIT_SLOTS; i++) {
+        const r = b.hitRefs[i]!;
+        if (r === null || !r.hittable) {
+          slot = i;
+          break;
+        }
+      }
+      if (slot < 0) return;
+    }
     b.hitRefs[slot] = h;
     b.hitCnt[slot] = 0;
   }
@@ -323,6 +341,9 @@ function traceSegment(
   C.homeRef = null;
   C.homeT = 0;
   C.ovr = false;
+  // What this trace passed through (homing moves on to the next target instead of looping back).
+  forgetHits(C);
+  C.rehit = 1 << 30;
   const init = prof.initHooks;
   for (let k = 0; k < init.length; k++) init[k]!.def.initShot!(C, init[k]!.stack);
   const mode: CollideMode = (C.flags & F_PHASE) !== 0 ? PHASE_MODE : SHOT_MODE;
@@ -338,7 +359,9 @@ function traceSegment(
   push(b, ox, oy, C.size * 2);
   let points = 1;
   while (points < maxPoints && b.n < allowPts) {
-    const dt = step / Math.max(30, C.speed);
+    // Uniform trace time (step / virtual speed): accelerate / decelerate shape a beam (taper, flare)
+    // but must not change how sharply homing / boomerang / spiral bend it.
+    const dt = step / T.beamSpeed;
     C.age += dt;
     C.sizeMul = 1;
     C.dmgMul = 1;
@@ -410,6 +433,7 @@ function traceSegment(
       const dy = h.y - C.y;
       const rr = h.r + hr;
       if (dx * dx + dy * dy >= rr * rr || !h.hittable) continue;
+      if (!recentlyHit(C, h, w.tick)) rememberHit(C, h, w.tick);
       if (!forked && forkN < FORK_CAP) {
         forked = true;
         forkX[forkN] = C.x;
@@ -464,8 +488,8 @@ function beamBombs(w: World, b: Beam): void {
   const len = b.segLen[0]!;
   let acc = 0;
   let made = 0;
-  const r = (T.bombRadius + T.bombRadiusStack * Math.max(0, prof.riderBomb - 1)) * Math.sqrt(b.scale);
-  const dmg = prof.damage * T.bombDamage * b.scale;
+  const r = bombBlastRadius(prof) * Math.sqrt(b.scale);
+  const dmg = prof.damage * bombBlastMul(prof) * b.scale;
   for (let i = 1; i < len && made < T.beamBombMax; i++) {
     const dx = b.px[i]! - b.px[i - 1]!;
     const dy = b.py[i]! - b.py[i - 1]!;
@@ -512,8 +536,11 @@ export function updateBeams(w: World, dt: number): void {
       continue;
     }
     const prof = b.profile!;
-    const hooks = prof.beamHooks;
-    for (let k = 0; k < hooks.length; k++) hooks[k]!.def.beamTick!(b, hooks[k]!.stack, w, dt);
+    // Side zaps are aimed at their target: rings and spins don't turn them away from it.
+    if (b.kind !== BK_SIDE) {
+      const hooks = prof.beamHooks;
+      for (let k = 0; k < hooks.length; k++) hooks[k]!.def.beamTick!(b, hooks[k]!.stack, w, dt);
+    }
     const sweep = b.sweep !== 0 ? b.sweep * (2 * Math.min(1, b.age / b.life) - 1) * b.spin : 0;
     const dir = b.ang + b.orbitAng * b.spin + b.spinAng + sweep;
     b.dir = dir;

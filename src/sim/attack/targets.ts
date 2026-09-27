@@ -7,8 +7,11 @@
 import type { Hittable } from '../hittable';
 import { ST_CHARM } from '../enemies/status';
 import type { World } from '../world';
+import { recentlyHit, type ShotState } from './state';
 
-const CAP = 96;
+/** Most targets a snapshot holds (enemies 64 + dummies 16, with room to spare). */
+export const TARGET_CAP = 96;
+const CAP = TARGET_CAP;
 
 export class TargetSnapshot {
   readonly refs: Hittable[] = new Array<Hittable>(CAP);
@@ -69,6 +72,53 @@ export function nearestTarget(
       bestD = d;
       best = i;
     }
+  }
+  return best;
+}
+
+/**
+ * The target a homing shot heading `heading` (rad) can actually reach, or -1. A shot turning at most
+ * `turnR` px of radius can't reach anything deep inside its two turning circles (it would orbit it
+ * forever), so those are skipped (θ = the bearing off the heading; `slack` = the shot's own radius
+ * counts as reach). Among the reachable ones within `maxDist` (edge distance) the
+ * cheapest path wins: distance + turnR·|θ| (the arc it has to turn), so targets ahead beat closer
+ * ones beside or behind — and with nothing ahead a shot still U-turns into what's behind it.
+ * Targets `shot` hit within its re-hit window (a piercing shot moving on) are skipped.
+ */
+export function seekTarget(
+  t: TargetSnapshot,
+  x: number,
+  y: number,
+  heading: number,
+  maxDist: number,
+  turnR: number,
+  slack: number,
+  shot: ShotState | null,
+  tick: number,
+): number {
+  let best = -1;
+  let bestCost = Infinity;
+  const hx = Math.cos(heading);
+  const hy = Math.sin(heading);
+  for (let i = 0; i < t.n; i++) {
+    const h = t.refs[i]!;
+    if (!h.hittable) continue;
+    const dx = h.x - x;
+    const dy = h.y - y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d - h.r > maxDist) continue;
+    if (d < 1e-6) return i;
+    const c = (dx * hx + dy * hy) / d; // cos θ
+    const sn = Math.abs(dx * hy - dy * hx) / d; // |sin θ|
+    // Inside the turning circle on its side (centre turnR px to that side), deeper than the shot can
+    // clip from the circle's rim: it would only ever orbit it.
+    const inner = turnR - h.r - slack;
+    if (inner > 0 && d * d - 2 * d * turnR * sn + turnR * turnR < inner * inner) continue;
+    const cost = d + turnR * Math.acos(c < -1 ? -1 : c > 1 ? 1 : c);
+    if (cost >= bestCost) continue;
+    if (shot !== null && recentlyHit(shot, h, tick)) continue;
+    bestCost = cost;
+    best = i;
   }
   return best;
 }

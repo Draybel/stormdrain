@@ -209,6 +209,8 @@ export const F_MINI = 128;
 export const F_CAUGHT = 256;
 /** A split child (render: slightly smaller glow). */
 export const F_CHILD = 512;
+/** Rides the tiny-planet orbit: homing picks its target but the orbit steers (the ring locks onto it). */
+export const F_ORBITING = 1024;
 
 /** Owner kinds. */
 export const OWN_PLAYER = 0;

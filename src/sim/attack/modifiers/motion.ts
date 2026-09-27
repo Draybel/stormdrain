@@ -5,11 +5,12 @@
  */
 
 import { ATTACK_TUNING } from '../../tuning';
-import { F_CAUGHT, F_CIRCLING, F_PHASE, F_RETURNING, SK_BEAM, forgetHits, type ModifierDef } from '../state';
-import { nearestTarget } from '../targets';
+import { F_CAUGHT, F_CIRCLING, F_ORBITING, F_PHASE, F_RETURNING, SK_BEAM, forgetHits, recentlyHit, type ModifierDef } from '../state';
+import { seekTarget } from '../targets';
 import { orbitRing } from './spawn';
 
 const TAU = Math.PI * 2;
+const HALF_PI = Math.PI / 2;
 
 function wrap(a: number): number {
   a %= TAU;
@@ -24,7 +25,11 @@ function steer(s: { ang: number; angOff: number }, to: number, max: number): voi
   s.ang += d > max ? max : d < -max ? -max : d;
 }
 
-/** Seeks the nearest enemy in range; stacks: longer reach, sharper turns. */
+/**
+ * Seeks an enemy in range; stacks: longer reach, sharper turns. The target is the one the shot can
+ * actually reach soonest (targets.ts seekTarget): ahead beats beside, never one it could only circle
+ * forever, and a piercing shot moves on to the next once it has hit one.
+ */
 const homing: ModifierDef = {
   id: 'homing',
   color: '#b07aff',
@@ -38,14 +43,17 @@ const homing: ModifierDef = {
     if ((s.flags & (F_RETURNING | F_CIRCLING)) !== 0) return;
     let ref = s.homeRef;
     s.homeT -= dt;
-    if (ref === null || s.homeT <= 0 || !ref.hittable) {
+    if (ref === null || s.homeT <= 0 || !ref.hittable || recentlyHit(s, ref, w.tick)) {
       const t = w.atk.targets;
-      const i = nearestTarget(t, s.x, s.y, st.v0);
+      // (Orbiting shots don't steer by heading: the nearest target in reach, see orbitPlayer.)
+      const turnR = (s.flags & F_ORBITING) !== 0 ? 0 : Math.max(4, s.speed) / st.v1;
+      const i = seekTarget(t, s.x, s.y, s.ang + s.angOff, st.v0, turnR, s.size, s, w.tick);
       ref = i >= 0 ? t.refs[i]! : null;
       s.homeRef = ref;
       s.homeT = 0.12;
     }
-    if (ref === null) return;
+    // Orbiting shots: the orbit follows the target by swelling / shrinking its ring (orbitPlayer).
+    if (ref === null || (s.flags & F_ORBITING) !== 0) return;
     steer(s, Math.atan2(ref.y - s.y, ref.x - s.x), st.v1 * dt);
   },
 };
@@ -69,51 +77,17 @@ const wavy: ModifierDef = {
 };
 
 /**
- * Corkscrew: the shot loops around a centre that keeps advancing along its heading, the loops
- * widening as it flies (stacks: faster, wider loops). Heading changes (homing, bounce) steer the
- * advancing centre, so spirals still seek and ricochet; beams draw the same corkscrew.
- */
-const spiral: ModifierDef = {
-  id: 'spiral',
-  color: '#ff7ad9',
-  shape: 'star',
-  order: 30,
-  prepare(st) {
-    // v0 loop speed (rad/s), v1 radius growth (px/s), v2 max radius (px), v3 forward speed fraction.
-    st.v0 = 9 + 1.5 * st.stacks;
-    st.v1 = 26 + 6 * st.stacks;
-    st.v2 = 10 + 3 * st.stacks;
-    st.v3 = 0.6;
-  },
-  initShot(s, st) {
-    const o = st.slot;
-    s.m[o] = s.ang - (s.spin * Math.PI) / 2; // loop angle (the offset starts at 0 radius)
-    s.m[o + 1] = s.x; // advancing centre
-    s.m[o + 2] = s.y;
-    if (s.kind !== SK_BEAM) s.range *= 1.6;
-  },
-  motion(s, st, _w, dt) {
-    if ((s.flags & (F_RETURNING | F_CIRCLING)) !== 0 || s.ovr) return;
-    const o = st.slot;
-    const fwd = s.speed * st.v3 * dt;
-    const bx = s.m[o + 1]! + Math.cos(s.ang) * fwd;
-    const by = s.m[o + 2]! + Math.sin(s.ang) * fwd;
-    s.m[o + 1] = bx;
-    s.m[o + 2] = by;
-    const a = s.m[o]! + s.spin * st.v0 * dt;
-    s.m[o] = a;
-    const r = Math.min(st.v2, st.v1 * s.age);
-    const tx = bx + Math.cos(a) * r;
-    const ty = by + Math.sin(a) * r;
-    s.ovr = true;
-    s.ovx = (tx - s.x) / dt;
-    s.ovy = (ty - s.y) / dt;
-  },
-};
-
-/**
  * Tiny planet: shots orbit their owner on a widening ring (living longer); beams become a rotating
  * ring (spawn: evenly spaced beams; beamTick: the ring turns).
+ * Composes with the other motion modifiers instead of overriding them:
+ * - homing: as the shot's sweep comes up on the homing target it whips out (or in) to the target's
+ *   distance from the owner, then settles back onto the ring — orbiting shots lash at enemies they
+ *   pass (homing only picks the nearest target for orbiting shots, F_ORBITING);
+ * - a heading change made by an earlier hook since the last step (a bounce off a wall…) TILTS the
+ *   heading away from the tangent; the shot moves along the tilted heading (split into angle +
+ *   radius around the owner, so it still travels with her) and the tilt fades back into the orbit;
+ * - wavy's heading offset makes the ring breathe; spiral corkscrews around the orbit path;
+ * - circle-first laps and boomerang returns pause it; it rejoins from wherever the shot is.
  */
 const orbitPlayer: ModifierDef = {
   id: 'orbitPlayer',
@@ -131,22 +105,64 @@ const orbitPlayer: ModifierDef = {
     if (s.kind === SK_BEAM) return;
     s.range *= st.v1;
     s.rehit = Math.min(s.rehit, 12);
-    const o = st.slot;
-    const dx = s.x - s.ax;
-    const dy = s.y - s.ay;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    s.m[o] = d > 2 ? Math.atan2(dy, dx) : s.ang;
-    s.m[o + 1] = Math.max(6, d);
+    s.flags |= F_ORBITING;
+    // m[o] angle around the owner, m[o + 1] radius (< 0: (re)join from the current position), m[o + 2] tilt.
+    s.m[st.slot + 1] = -1;
   },
   motion(s, st, _w, dt) {
-    if (s.kind === SK_BEAM || (s.flags & (F_CIRCLING | F_RETURNING)) !== 0) return;
+    if (s.kind === SK_BEAM) return;
     const o = st.slot;
-    let r = s.m[o + 1]!;
-    // Out to the ring quickly, then a slow outward creep so the orbit sweeps more of the room.
-    r = r < st.v0 ? Math.min(st.v0, r + 60 * dt) : r + 12 * dt;
-    s.m[o + 1] = r;
-    const a = s.m[o]! + (s.spin * s.speed * dt) / Math.max(8, r);
+    if ((s.flags & (F_CIRCLING | F_RETURNING)) !== 0) {
+      s.m[o + 1] = -1;
+      return;
+    }
+    const side = s.spin * HALF_PI;
+    let a: number;
+    let r: number;
+    let tilt: number;
+    if (s.m[o + 1]! < 0) {
+      const dx = s.x - s.ax;
+      const dy = s.y - s.ay;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      a = d > 2 ? Math.atan2(dy, dx) : s.ang - side;
+      r = Math.max(6, d);
+      tilt = 0;
+    } else {
+      a = s.m[o]!;
+      r = s.m[o + 1]!;
+      tilt = s.m[o + 2]!;
+      // Whatever turned the heading since this hook wrote it last step tilts the orbit.
+      tilt += wrap(s.ang - (a + side + tilt));
+    }
+    // The tilt fades (the orbit recovers); it may reach all the way round (homing can turn the shot
+    // back against the spin): the motion below is just its heading split into angle + radius.
+    tilt = wrap(tilt) * Math.max(0, 1 - 2.5 * dt);
+    const dir = tilt + s.angOff;
+    // A positive tilt (spin +1) turns the heading inward: radial speed = −spin · speed · sin(dir).
+    const radial = -s.spin * s.speed * Math.sin(dir);
+    // The ring: out to v0 quickly (60 px/s), then a slow widening (12 px/s) so the orbit sweeps more
+    // of the room. Homing: while its target is coming up in the sweep (up to ~70° ahead, until just
+    // past it) the shot whips out / in to the target's distance at full speed, then returns.
+    let ring = st.v0 + 12 * s.age;
+    let rate = 60;
+    const h = s.homeRef;
+    if (h !== null && h.hittable) {
+      const hx = h.x - s.ax;
+      const hy = h.y - s.ay;
+      const ahead = wrap(Math.atan2(hy, hx) - a) * s.spin;
+      if (ahead > -0.35 && ahead < 1.2) {
+        ring = Math.sqrt(hx * hx + hy * hy);
+        rate = s.speed;
+      }
+    }
+    const k = rate * dt;
+    const dr = ring - r;
+    r += dr > k ? k : dr < -k ? -k : dr;
+    r = Math.max(6, r + radial * dt);
+    a += (s.spin * s.speed * Math.cos(dir) * dt) / Math.max(8, r);
     s.m[o] = a;
+    s.m[o + 1] = r;
+    s.m[o + 2] = tilt;
     const tx = s.ax + Math.cos(a) * r;
     const ty = s.ay + Math.sin(a) * r;
     let vx = (tx - s.x) / dt;
@@ -160,7 +176,7 @@ const orbitPlayer: ModifierDef = {
     s.ovr = true;
     s.ovx = vx;
     s.ovy = vy;
-    s.ang = a + (s.spin * Math.PI) / 2;
+    s.ang = a + side + tilt;
   },
   beamTick(b, st, _w, dt) {
     b.orbitAng += st.v2 * dt;
@@ -199,6 +215,62 @@ const boomerang: ModifierDef = {
   },
 };
 
+/**
+ * Corkscrew: the shot loops around its own path, the loops widening as it flies (stacks: faster,
+ * wider loops). The loop is an OFFSET added on top of whatever path the shot is on — along its heading
+ * at 0.6 × speed (so homing, wavy and bounce still steer it), or the orbit / placed path an earlier
+ * hook set (a tiny planet that corkscrews) — so it composes instead of replacing. Coming home
+ * (boomerang) the loops close up so the catch still works. Beams draw the same corkscrew.
+ */
+const spiral: ModifierDef = {
+  id: 'spiral',
+  color: '#ff7ad9',
+  shape: 'star',
+  order: 55,
+  prepare(st) {
+    // v0 loop speed (rad/s), v1 radius growth (px/s), v2 max radius (px), v3 forward speed fraction.
+    st.v0 = 9 + 1.5 * st.stacks;
+    st.v1 = 26 + 6 * st.stacks;
+    st.v2 = 10 + 3 * st.stacks;
+    st.v3 = 0.6;
+  },
+  initShot(s, st) {
+    const o = st.slot;
+    s.m[o] = s.ang - s.spin * HALF_PI; // loop angle
+    s.m[o + 1] = 0; // current loop offset (x, y) from the path
+    s.m[o + 2] = 0;
+    if (s.kind !== SK_BEAM) s.range *= 1.6;
+  },
+  motion(s, st, _w, dt) {
+    if ((s.flags & F_CIRCLING) !== 0) return;
+    const o = st.slot;
+    const home = (s.flags & F_RETURNING) !== 0;
+    let bx: number;
+    let by: number;
+    if (s.ovr) {
+      bx = s.ovx;
+      by = s.ovy;
+    } else {
+      const th = s.ang + s.angOff;
+      const f = s.speed * (home ? 1 : st.v3);
+      bx = Math.cos(th) * f;
+      by = Math.sin(th) * f;
+    }
+    const ox = s.m[o + 1]!;
+    const oy = s.m[o + 2]!;
+    const r = home ? Math.max(0, Math.sqrt(ox * ox + oy * oy) - st.v1 * 2 * dt) : Math.min(st.v2, st.v1 * s.age);
+    const a = s.m[o]! + s.spin * st.v0 * dt;
+    s.m[o] = a;
+    const nx = Math.cos(a) * r;
+    const ny = Math.sin(a) * r;
+    s.m[o + 1] = nx;
+    s.m[o + 2] = ny;
+    s.ovr = true;
+    s.ovx = bx + (nx - ox) / dt;
+    s.ovy = by + (ny - oy) / dt;
+  },
+};
+
 /** Grows as it flies (and hits harder). */
 const grow: ModifierDef = {
   id: 'grow',
@@ -232,7 +304,7 @@ const shrink: ModifierDef = {
   },
 };
 
-/** Speeds up as it flies. */
+/** Speeds up as it flies. Beams: taper into a thinner, harder-hitting tip. */
 const accelerate: ModifierDef = {
   id: 'accelerate',
   color: '#ff6040',
@@ -249,23 +321,33 @@ const accelerate: ModifierDef = {
     const max = s.baseSpeed * st.v1;
     const v = s.speed * (1 + st.v0 * dt);
     s.speed = v > max ? max : v;
+    if (s.kind === SK_BEAM) {
+      // A beam has no speed to show: it tapers into a thinner, harder-hitting whip toward its tip.
+      const k = s.speed / s.baseSpeed;
+      s.dmgMul *= 1 + 0.5 * (k - 1);
+      s.sizeMul /= Math.sqrt(k);
+    }
   },
 };
 
-/** Slows down and lingers. */
+/** Slows down and lingers. Beams: flare out wider toward their end and linger longer. */
 const decelerate: ModifierDef = {
   id: 'decelerate',
   color: '#8a94b0',
   trail: 'dust',
   order: 71,
-  prepare(st) {
+  prepare(st, prof) {
     st.v0 = 1.5 + 0.3 * st.stacks;
     st.v1 = Math.max(0.12, 0.25 - 0.02 * st.stacks);
+    // Beams linger (+20 % lance / +25 % laser life per stack).
+    prof.lanceLife *= 1 + 0.2 * st.stacks;
+    prof.laserLife *= 1 + 0.25 * st.stacks;
   },
   motion(s, st, _w, dt) {
     const min = s.baseSpeed * st.v1;
     const v = s.speed * (1 - st.v0 * dt);
     s.speed = v < min ? min : v;
+    if (s.kind === SK_BEAM) s.sizeMul *= Math.sqrt(s.baseSpeed / s.speed);
   },
 };
 
@@ -288,24 +370,31 @@ const bounce: ModifierDef = {
   },
 };
 
-/** Passes through rocks and props (walls still stop it). */
+/**
+ * Passes through rocks and props (walls still stop it); +10 % range per stack. The Storm Lance already
+ * passes rocks, so on its beams each stack adds +15 % damage instead (nothing is in the way to soak it).
+ */
 const phase: ModifierDef = {
   id: 'phase',
   color: '#d8e8ff',
   trail: 'wisps',
   order: 90,
+  prepare(st, prof) {
+    st.v0 = prof.primary === 'lance' ? 1 + 0.15 * st.stacks : 1;
+  },
   initShot(s, st) {
     s.flags |= F_PHASE;
     if (s.kind !== SK_BEAM) s.range *= 1 + 0.1 * st.stacks;
+    else s.baseDamage *= st.v0;
   },
 };
 
 export const MOTION_MODIFIERS: readonly ModifierDef[] = [
   homing,
   wavy,
-  spiral,
   orbitPlayer,
   boomerang,
+  spiral,
   grow,
   shrink,
   accelerate,

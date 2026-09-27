@@ -88,13 +88,21 @@ const sideShots: ModifierDef = {
 };
 
 /**
- * Tiny planet. Spawn stage: a BEAM volley becomes a ring (at least 1 + stacks beams, spaced evenly);
- * the motion part lives in modifiers/motion.ts.
+ * Tiny planet. Spawn stage: a BEAM volley becomes a ring — every spec already in the volley (extra,
+ * back, side shots, pellets…) gets `stacks` more copies, all spaced evenly around the circle, so
+ * the ring multiplies with the other spawn modifiers instead of swallowing them. The motion part
+ * lives in modifiers/motion.ts.
  */
 export function orbitRing(ctx: SpawnCtx, stacks: number): void {
   if (!ctx.beam) return;
-  const want = Math.min(ctx.cap, Math.max(ctx.count, 1 + stacks));
-  while (ctx.count < want) ctx.add(0, 1, 1, 1, SF_EXTRA);
+  const base = ctx.count;
+  const want = Math.min(ctx.cap, base * (1 + stacks));
+  for (let k = base; k < want; k++) {
+    const i = ctx.add(0);
+    if (i < 0) break;
+    ctx.copy(k % base, i);
+    ctx.flags[i] = (ctx.flags[i]! & ~SF_MAIN) | SF_EXTRA;
+  }
   const n = ctx.count;
   for (let i = 0; i < n; i++) ctx.ang[i] = (i / n) * TAU;
 }
@@ -144,10 +152,11 @@ const circleFirst: ModifierDef = {
     s.ovy = (ty - s.y) / dt;
   },
   beamTick(b, st, _w, _dt) {
-    // Beams sweep one full circle around you before settling on the aim.
-    // (first trace at 0: the spin starts on the aim)
+    // Beams sweep one full circle around you before settling on the aim (first trace at 0: the spin
+    // starts on the aim). Short beams (lasers) finish the circle within 60 % of their life.
     const t = (b.ticks - 1) / 60;
-    b.spinAng = t < st.v2 ? (t / st.v2) * TAU * b.spin : 0;
+    const spin = Math.min(st.v2, b.life * 0.6);
+    b.spinAng = t < spin ? (t / spin) * TAU * b.spin : 0;
   },
 };
 

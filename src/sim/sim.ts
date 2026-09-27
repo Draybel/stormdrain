@@ -9,7 +9,7 @@ import { Rng, seedToU32 } from '../engine/rng';
 import { WREN } from '../content/characters/wren';
 import { TEST_ROOM, TEST_ROOM_SPAWNS } from '../content/testRoom';
 import { getEnemy, getItem } from '../content/registry';
-import { startWave, updateArena, type WaveOpts } from './arena';
+import { nearestFreeSpot, startWave, updateArena, type WaveOpts } from './arena';
 import { resetAttackRoom, updateAttack } from './attack/update';
 import { explode, placeBomb, updateBombs } from './bombs';
 import { hurtPlayer, killPlayer } from './combat';
@@ -109,6 +109,8 @@ export interface SimSummary {
     enemyShots: number;
   };
 }
+
+const spot = { x: 0, y: 0 };
 
 export class Sim {
   readonly seed: number;
@@ -302,11 +304,19 @@ export class Sim {
     return startWave(this.world, opts);
   }
 
-  /** Spawns one enemy by id at room px (defaults: a spot across the room from the player). */
+  /**
+   * Spawns one enemy by id at room px. Without a position: the free floor cell nearest a spot across
+   * the room from the player (never inside a prop, pit, pedestal or training dummy).
+   */
   spawnEnemy(id: string, x?: number, y?: number, opts?: SpawnOpts): Enemy | null {
     const p = this.world.player;
-    const sx = x ?? (p.x < 104 ? 170 : 38);
-    const sy = y ?? 56;
+    let sx = x ?? (p.x < 104 ? 170 : 38);
+    let sy = y ?? 56;
+    if (x === undefined && y === undefined) {
+      nearestFreeSpot(this.world, sx, sy, spot);
+      sx = spot.x;
+      sy = spot.y;
+    }
     return spawnEnemy(this.world, getEnemy(id), sx, sy, opts);
   }
 

@@ -106,7 +106,10 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   Options: `{ seed?, character?, room? }`. `step()` first discards the events that were in the queue after the
   previous step, so after a step the queue holds that tick's events (preceded by any emitted between ticks, e.g. by
   debug hooks like `sim.hurtPlayer()`); consumers must drain it after every step (the run scene does, per tick).
-  Event types and their field meanings are documented in `src/engine/events.ts`.
+  Event types and their field meanings are documented in `src/engine/events.ts`. Purely cosmetic, high-volume
+  events (shot splashes, bounce sparks, split shards, swipe hits, swatted-shot pops) go through `emitFx`, which skips
+  them once the queue already holds `fxCap` events (256 of the 1024), so an absurd build's sparks can never crowd out
+  kills / hurts / items or flood render and audio.
 - Feel constants (acceleration, marble drop, dummy spring...) live in `src/sim/tuning.ts`, not in logic files.
 - **Seeded RNG** (`engine/rng.ts`, sfc32 or mulberry32; state serializable). Streams:
   - `floorRng(seed, floorIndex, track)` → floor layout, room templates, pre-rolled pedestal items/shop stock.
@@ -134,7 +137,9 @@ see `src/sim/hooks.ts`) instead of importing sim modules, which keeps the regist
   the farthest pedestal when all 12 are taken), `fullHeal`, `addPickups(coins, bombs, keys)`, `clearRoom` (kills every
   enemy, clears enemy shots / creep / shockwaves — a running wave then clears normally), `resetItems`. `SimOptions.spawns` places pickups/chests/pedestals (`sim/roomSpawns.ts`; the floor
   generator may replace it with its own RoomTemplate markers). The training room counts popping every dummy at once
-  as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)`,
+  as a room clear. Combat: `startWave(opts?)` (room combat flow, see "Enemies" below), `spawnEnemy(id, x?, y?, opts?)` (without a
+  position: the free floor cell nearest a spot across the room — `arena.nearestFreeSpot`, never a prop / pit /
+  pedestal / training dummy; explicit coordinates are used as given),
   `killEnemies()` (debug). `loadRoom` collects the layout's `e` / `E` markers into `world.arena.points / elitePoints`
   (a wave in such a room puts one enemy on each marker); it also clears enemies, enemy shots, creep and shockwaves,
   and every attack in flight (beams, swipes, queues; familiars regroup at the player — `resetAttackRoom`).
@@ -212,7 +217,9 @@ Enemies, training dummies and shot-breakable tiles (one `TileTarget` adapter per
 direction remembered for a later `'knockback'` status). Sources (`SRC_PLAYER, SRC_BOMB, SRC_STATUS, SRC_ALLY,
 SRC_ENEMY, SRC_HAZARD`) decide kill credit (`creditsPlayer`). The attack pipeline (§4) hits everything through this.
 `combat.damageArea` (bombs, novas, hooks, player shot blasts) hurts enemies and dummies; every player attack
-(projectiles, beams, swipes, orbit blades, familiars, chains) hits through this interface (§4).
+(projectiles, beams, swipes, orbit blades, familiars, chains) hits through this interface (§4). Blasts of the player's
+own attacks (source `SRC_PLAYER`: explode, the bomb rider) spare charmed enemies like every other player attack;
+placed bombs and novas hurt everything in reach.
 
 ### Enemies (`sim/enemies/`)
 - `Enemy` (pooled): everything comes from its `EnemyDef` = ONE movement behaviour + up to 4 attacks + on-death effects
@@ -334,11 +341,15 @@ All damage delivery is built from two primitives that share the same modifier ho
   step along from the origin in small steps (4 px), applying the *same motion modifiers* a projectile would
   (homing steers, wavy wiggles, bounce reflects off walls, boomerang bends back, spiral corkscrews, orbit rotates the
   origin angle), up to max length / step cap. Result: a polyline (≤ 128 points per trace) that is collided and
-  drawn. The cursor runs at a virtual speed of 240 px/s (hooks see dt = step / speed). The beam re-traces every
+  drawn. The cursor runs at a virtual speed of 240 px/s and hooks see a UNIFORM dt = step / 240 (accelerate /
+  decelerate change the cursor's speed to shape the beam, never how sharply homing / boomerang / spiral bend it).
+  The cursor remembers what it passed through this trace (homing moves on to the next target). The beam re-traces every
   tick of its life, from its anchor's current position (so homing beams follow moving enemies and orbiting /
   melee-rider beams sweep). `split` FORKS the trace at the first enemy on the path into 1 + stacks child traces
   (max 5, half damage, depth ≤ min(2, stacks)); points per beam ≤ 384 in ≤ 16 segments. Hit / expire hooks run at
-  hit points, rate-limited per beam per target (16 slots); expire hooks run once at the end point when the beam dies.
+  hit points, rate-limited per beam per target (one slot per target the snapshot can hold — 96 — never taken from a
+  live target, so a crowd can't reset rate limits); expire hooks run once at the end point when the beam dies.
+  `beamTick` hooks (rings, spins) turn every beam except laser-rider side zaps (they stay on their target).
   Guardrail: all beams share a trace budget of 5000 points per tick — crowded beams get fewer fork points and a
   coarser step (≤ 12 px) so the main line still reaches as far.
 - **Swipes** (`world.atk.swipes`, cap 16) are a short-lived arc hitbox **plus** a crescent projectile, so projectile
@@ -385,11 +396,21 @@ non-accumulating `angOff` + `speed` (velocity is derived; a hook may set a one-s
 orbits, corkscrews, circling), owner position `ax, ay`, traveled / range / age / life, `damage = baseDamage ×
 dmgMul` and `size = baseSize × sizeMul` (the multipliers reset to 1 before the motion hooks, so grow and shrink
 compose), knock, depth, flags (`F_FALLING, F_RETURNING, F_PHASE, F_KEEPER, F_BOMB, F_SIDELASER, F_CIRCLING, F_MINI,
-F_CAUGHT, F_CHILD`), hitCount, pierceLeft, bounceLeft, rehit, owner kind, style, `m[]` (3 scratch slots per
+F_CAUGHT, F_CHILD, F_ORBITING` — the last: rides the tiny-planet orbit, homing only picks its target), hitCount,
+pierceLeft, bounceLeft, rehit, owner kind, style, `m[]` (3 scratch slots per
 modifier at `stack.slot`) and a 4-entry recent-hit memory (piercing shots re-hit a target only after `rehit` ticks).
 For beams, `hit/expire` run at the hit point along the path, **rate-limited per beam per target**.
 A hit: `target.hurt(damage, SRC_PLAYER, knockback along the motion)` → hit hooks → used up unless pierce is left
 (keepers never are). `expire` runs when a shot ends WITHOUT being used up by a hit (range, landing, wall, timeout).
+
+`prepare` may also adjust the profile's beam numbers (decelerate lengthens `lanceLife` / `laserLife`). Motion hooks run
+in this order: homing, wavy, orbitPlayer, boomerang, spiral, grow, shrink, accelerate, decelerate (spiral after the
+orbit so it can corkscrew around it). A wall bounce clears a one-step velocity override so the reflected heading
+takes effect at once.
+
+**Composition rule (verified by `tests/attack-compose.test.ts`):** every trajectory-shaping modifier changes every
+primary, and every PAIR of them differs from each of its parts — no modifier may silently override another. Every
+hit / status modifier lands through every delivery (marble, lance, laser, boomerang, swipe, orbit blade, familiar).
 
 Required modifiers (all must work with every carrier; the stress test enforces it):
 - spawn: `extraShots` (+1 per stack, fan), `spread`, `backShot`, `sideShots`, `circleFirst` (shots circle you, then launch), `inaccuracy`
@@ -412,7 +433,9 @@ creep (they hurt enemies, never the player); charmed enemies are left out of the
   - explosions queue (64, merged by proximity, full queue merges into the nearest); at most 6 go off per tick and
     48 per 0.5 s — the rest wait a tick; chain arcs over 32 per tick add half their damage to the first target;
   - puddles merge into an allied puddle already there (≤ 4 new per tick); the beam trace budget (4.3) bounds
-    beam work per tick; the event queue holds 1024 events per tick.
+    beam work per tick; the event queue holds 1024 events per tick (cosmetic ones stop at 256, see §3);
+  - a swipe that doesn't fit the swipe pool (16) adds its damage to the volley's previous swipe, else to the crescent
+    (or projectile) of the same volley.
 
 Per-modifier stacking (s = stacks; "dmg" = the shot's damage):
 
@@ -422,23 +445,23 @@ Per-modifier stacking (s = stacks; "dmg" = the shot's damage):
 | `spread` | spawn | 2 pellets (½ dmg, 0.7 size) in a ±14° cone | +2 pellets, cone ±(10 + 4s)° |
 | `backShot` | spawn | 1 shot behind you | +1 (fanned 12°) |
 | `sideShots` | spawn | 2 shots at ±90° (0.8 dmg) | +2 at ±70°, ±110°, ±50°… |
-| `circleFirst` | spawn / motion | one lap (0.45 s, r 14 px) before launching; beams spin 360° in 0.25 s | lap +0.1 s, radius +2 px; laps don't use range |
+| `circleFirst` | spawn / motion | one lap (0.45 s, r 14 px) before launching; beams spin 360° in 0.25 s (at most 60 % of their life, so a laser still ends on the aim) | lap +0.1 s, radius +2 px; laps don't use range |
 | `inaccuracy` | spawn | ±9° scatter, ±10 % speed, ×1.08 dmg | scatter ±(5 + 4s)°, dmg ×(1 + 0.08s) |
-| `homing` | motion | seeks within 104 px at 4.5 rad/s | reach 80 + 24s, turn 2.5 + 2s (`params.radius/turn`) |
+| `homing` | motion | seeks within 104 px at 4.5 rad/s; target = the cheapest REACHABLE one (distance + turn radius × bearing; nothing deep inside its turning circle; not one it just hit) — ahead beats beside, a U-turn only when nothing is ahead | reach 80 + 24s, turn 2.5 + 2s (`params.radius/turn`) |
 | `wavy` | motion | ±0.47 rad heading wave per 44 px | amplitude 0.35 + 0.12s (max 1.1) |
-| `spiral` | motion | corkscrew: loops at 10.5 rad/s widening to 13 px around a centre advancing at 0.6 × speed, range ×1.6 | loop speed 9 + 1.5s, radius 10 + 3s |
-| `orbitPlayer` | spawn / motion / beamTick | shots orbit their owner out to 27 px (then creep outward), range ×2; beams: a ring of 2 beams turning 3.6 rad/s | ring radius 20 + 7s, range ×(1.6 + 0.4s); beams: 1 + s beams, 3 + 0.6s rad/s |
+| `spiral` | motion | corkscrew: a loop OFFSET at 10.5 rad/s widening to 13 px on top of the path (heading at 0.6 × speed, or the orbit an earlier hook set), range ×1.6; loops close up on a boomerang's way home | loop speed 9 + 1.5s, radius 10 + 3s |
+| `orbitPlayer` | spawn / motion / beamTick | shots orbit their owner out to 27 px (then widen 12 px/s), range ×2; with homing they whip out to an enemy their sweep comes up on, then settle back; a heading turn (bounce) tilts the orbit, wavy makes it breathe; beams: every spec of the volley gets s copies, evenly spaced, the ring turning 3.6 rad/s | ring radius 20 + 7s, range ×(1.6 + 0.4s); beams: specs × (1 + s), 3 + 0.6s rad/s |
 | `boomerang` | motion | turns back at 48 % of range (beams: after 95 px), steers home at 9 rad/s, caught by the owner | turn 7 + 2s rad/s, turn point +3 %/stack (beams +15 px) |
 | `grow` | motion | size ×(1 + 1.4·age) up to ×2, dmg +50 % of the growth | rate 1.1 + 0.3s, max 1.6 + 0.4s (≤ 3.6) |
 | `shrink` | motion | starts ×1.75 size & dmg, shrinks to ×0.5 at the end of its range | start 1.5 + 0.25s (≤ 2.75) |
-| `accelerate` | motion | +1.9/s speed growth up to ×2.5 | growth 1.4 + 0.5s, max 2 + 0.5s, range +15 %/stack |
-| `decelerate` | motion | slows at 1.8/s to 23 % speed (lingers) | decay 1.5 + 0.3s, floor 0.25 − 0.02s (≥ 0.12) |
+| `accelerate` | motion | +1.9/s speed growth up to ×2.5; beams taper into a thinner (÷√k), harder-hitting (×(1 + 0.5(k − 1))) tip, k = speed ratio | growth 1.4 + 0.5s, max 2 + 0.5s, range +15 %/stack |
+| `decelerate` | motion | slows at 1.8/s to 23 % speed (lingers); beams flare wider (×√(1/k)) toward their end and live +20 % (lance) / +25 % (laser) | decay 1.5 + 0.3s, floor 0.25 − 0.02s (≥ 0.12); beam life per stack |
 | `bounce` | wall | 2 bounces off walls / rocks / props | +2 bounces (`params.bounces`) |
-| `phase` | init | passes rocks and props (walls stop it) | +10 % range |
+| `phase` | init | passes rocks and props (walls stop it); the lance already does, so its beams get +15 % damage instead | +10 % range (lance: +15 % damage) |
 | `pierce` | init | pierces 3 enemies, ×1.08 dmg (beams ×1.12) | +2 pierces, +8 % dmg (+12 % beams) |
 | `split` | hit | splits into 2 children (½ dmg, 0.75 size, 100° fan); children don't re-split | children 1 + s (max 6), depth min(3, s); beams fork (see 4.3) |
 | `chain` | hit | lightning to 2 more targets within 60 px, 60 % dmg | jumps 1 + s, range 52 + 8s; re-applies statuses |
-| `explode` | hit + expire | 21 px blast, 0.75 × dmg | radius 16 + 5s, dmg 0.5 + 0.25s (bomb rider: ≥ 24 px, ≥ 1.8×, breaks rocks) |
+| `explode` | hit + expire | 21 px blast, 0.75 × dmg | radius 16 + 5s, dmg 0.5 + 0.25s; bomb rider: its blast (24 px + 6 per extra copy, 1.8 ×, breaks rocks) GROWS by 5 px and 0.25 × per explode item on top |
 | `puddle` | hit + expire | allied puddle r 10 px, 3.1 s, 0.25 × dmg per 0.5 s to enemies in it | radius 8 + 2s, life 2.5 + 0.6s, dmg +30 %/stack |
 | `poison` | hit (status) | 3.5 s, 0.35 × dmg per 0.5 s (min 1) | +1 s, +40 % power |
 | `burn` | hit (status) | 2.75 s, 0.3 × dmg per 0.3 s (min 1) | +0.75 s, +40 % power |
@@ -576,7 +599,11 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
   behind / in front) → swipes → projectiles → beams (`lighter`) → enemy shots → charge meter → particles → chain
   arcs → full-screen flash → lighting/darkness → HUD → touch controls → UI overlays.
 - Attack visuals (`render/attackRenderer.ts`): shot sprites and glows cached per (ShotStyle, shape, size bucket,
-  rotation frame) — no string keys per frame; beams stroked straight from the sim's trace arrays (lance: layered
+  rotation frame) — no string keys per frame; beams drawn straight from the sim's trace arrays, clipped to the room
+  (never over the HUD margins): a segment of even width is ONE stroked path per pass, a tapering / flaring one ONE
+  filled outline (left edge, round tip, right edge, round tail) — never a call per trace step; with more than 12
+  lances or 2000 lance points on screen each lance drops to lite passes (one glow, the core, one strand) and the
+  cores / strands dim with the crowd (lance: layered
   additive glows dimmed when many overlap, a white-hot core, 2-3 jagged animated lightning strands, muzzle and wall
   flares; lasers: thin zaps); swipes as a sweeping crescent band; familiars; costume layers; the charge meter.
   `render/attackFx.ts` (owned by WorldFx): lance charge sparks, the blinding blue-white flash + heavy shake + recoil
@@ -611,7 +638,8 @@ faster), Bottlecap Beetle (orbit, contact damage, blocks shots); Phase 2D (`cont
 ## 9. Testing hooks
 - `window.__SD` (all builds): read-only accessors for tests (scene name, run state summary, HUD rects, button rects,
   fps, `sim` handle) and `__SD.debug` actions (god mode, spawn, skip floor) used by E2E and the debug menu.
-  Current shape (`src/debug/sdHooks.ts`): `scene`, `stack`, `fps`, `ticks`, `view` (game image rect in CSS px +
+  Current shape (`src/debug/sdHooks.ts`): `scene`, `stack`, `fps`, `perf` (smoothed `updateMs` / `renderMs` of the loop,
+  `droppedSteps`), `ticks`, `view` (game image rect in CSS px +
   `scale` = CSS px per game px), `safe`, `portrait`, `buttons()` / `button(id)` (game rect + `css` rect with centre
   `cx, cy` for taps), `sim`, `run()` (SimSummary: player, health string, inventory, stats, pickups, pedestals,
   counters…), `hud()` (HUD element rects in game px), `counts`,

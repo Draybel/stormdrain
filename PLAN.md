@@ -52,6 +52,11 @@ Priorities if time runs short: (1) feel of movement/shooting/synergies, (2) mobi
       (Backquote / 5 taps on PAUSED: spawn/give any item, spawn any enemy, god mode, heal, +10 pickups, clear room,
       waves, perf overlay); training yard with rotating pedestals, a wave bell and endless waves;
       tests/starter-items.test.ts + e2e/debug.spec.ts
+- [x] Independent verification pass (Phase 2): composition detector + tests (no modifier pair silently replaces
+      another on any primary; every hit / status modifier lands through every delivery), homing reachability,
+      tiny-planet / spiral / beam-speed / phase / ring / bomb+explode / beam-slot / swipe-cap fixes, cosmetic event
+      cap, charmed allies spared by your blasts, debug spawns on free floor, beam render 79 → 9 ms with 48 lances
+      (filled outlines, lite mode, room clip), every-item ×3 perf + determinism tests, WebKit visual pass
 - [x] Unit tests: stats, item effects, every carrier × modifier pair smoke test
       (2A: stats, health, inventory swaps, pickups, chests, bombs, drop tables, triggers; 2B: tests/attack-pairs.test.ts —
       every carrier × modifier, every carrier pair, 1 and 5 stacks, targeted behaviour, all modifiers ×5 perf/caps)

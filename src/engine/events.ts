@@ -155,16 +155,34 @@ export interface GameEvent {
 
 export class EventQueue {
   readonly capacity: number;
+  /**
+   * Cosmetic events (`emitFx`: bounce sparks, splashes, split shards…) are skipped once the queue
+   * holds this many, so an absurd build's sparks can never crowd out the events that matter (kills,
+   * hurts, items) or flood render / audio with hundreds of bursts in one tick.
+   */
+  readonly fxCap: number;
   private readonly buf: GameEvent[];
   private head = 0;
   count = 0;
   /** Events overwritten because the queue was full (diagnostics). */
   dropped = 0;
+  /** Cosmetic events skipped at the fx cap (diagnostics). */
+  fxSkipped = 0;
 
-  constructor(capacity = 256) {
+  constructor(capacity = 256, fxCap = capacity >> 2) {
     this.capacity = capacity;
+    this.fxCap = Math.min(capacity, fxCap);
     this.buf = new Array<GameEvent>(capacity);
     for (let i = 0; i < capacity; i++) this.buf[i] = { type: 'sfx', x: 0, y: 0, a: 0, b: 0, id: '' };
+  }
+
+  /** A purely cosmetic event: emitted unless the queue already holds `fxCap` events. */
+  emitFx(type: GameEventType, x = 0, y = 0, a = 0, b = 0, id = ''): void {
+    if (this.count >= this.fxCap) {
+      this.fxSkipped++;
+      return;
+    }
+    this.emit(type, x, y, a, b, id);
   }
 
   emit(type: GameEventType, x = 0, y = 0, a = 0, b = 0, id = ''): void {

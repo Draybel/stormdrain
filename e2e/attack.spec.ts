@@ -71,3 +71,33 @@ test('stacked modifiers, riders and familiars fire and render without errors', a
   await page.waitForFunction((t) => window.__SD.run()!.tick > t + 60, t0);
   expect(errors).toEqual([]);
 });
+
+test('an absurd build (every item ×3) keeps rendering while its lances fill the room', async ({ page }) => {
+  const errors = trackErrors(page);
+  await startRun(page);
+  await page.evaluate(() => {
+    const d = window.__SD.debug;
+    d.god(true);
+    for (const id of d.items()) for (let k = 0; k < 3; k++) d.give(id);
+    const w = window.__SD.sim!.world;
+    w.pedestals.clear();
+    w.pickups.clear();
+    w.player.placeAt(104, 56);
+    d.wave(8);
+  });
+  expect((await page.evaluate(() => window.__SD.run()))!.attack.primary).toBe('lance');
+  let worst = 0;
+  for (let k = 0; k < 2; k++) {
+    await page.keyboard.down('ArrowRight');
+    await page.waitForFunction(() => window.__SD.run()!.attack.charge >= 1, undefined, { timeout: 8000 });
+    await page.keyboard.up('ArrowRight');
+    await page.waitForFunction(() => window.__SD.counts.beams >= 12);
+    // Let the smoothed render time settle on the beam-heavy frames.
+    await page.waitForTimeout(250);
+    worst = Math.max(worst, await page.evaluate(() => window.__SD.perf.renderMs));
+    await page.waitForFunction(() => window.__SD.counts.beams === 0, undefined, { timeout: 8000 });
+  }
+  // (Stroking every beam trace step on its own used to cost ~80 ms a frame here.)
+  expect(worst).toBeLessThan(45);
+  expect(errors).toEqual([]);
+});

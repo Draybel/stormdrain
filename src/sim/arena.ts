@@ -99,6 +99,27 @@ function freeSpots(w: World, out: number[]): void {
 const spots: number[] = [];
 
 /**
+ * The free spawn cell (plain floor, clear of pedestals / dummies, not right next to the player — see
+ * freeSpots) nearest to (x, y), written to `out`; (x, y) itself when the room has none.
+ */
+export function nearestFreeSpot(w: World, x: number, y: number, out: { x: number; y: number }): void {
+  freeSpots(w, spots);
+  out.x = x;
+  out.y = y;
+  let best = Infinity;
+  for (let i = 0; i < spots.length; i += 2) {
+    const dx = spots[i]! - x;
+    const dy = spots[i + 1]! - y;
+    const d = dx * dx + dy * dy;
+    if (d < best) {
+      best = d;
+      out.x = spots[i]!;
+      out.y = spots[i + 1]!;
+    }
+  }
+}
+
+/**
  * Starts a wave: spawns enemies (seeded champion rolls) at the room's spawn points or at random free
  * spots, and shuts the doors. Returns how many spawned (0 if a wave is already running or the pool
  * is empty).

@@ -71,7 +71,9 @@ export function syncOrbit(w: World): void {
       finishShot(w, s);
       w.events.emit('bladeSpawn', s.x, s.y, i, want);
     } else if (s.profile !== prof) {
+      // New items: fresh numbers AND the init hooks again (knockback ×, phase…), like a new blade.
       bladeNumbers(w, s);
+      finishShot(w, s);
     }
   }
 }

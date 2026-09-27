@@ -15,6 +15,7 @@
 import { ATTACK_TUNING, PLAYER_TUNING } from '../tuning';
 import type { World } from '../world';
 import type { Beam } from './beam';
+import type { Swipe } from './melee';
 import { CARRIERS, RIDER_ORDER } from './carriers/index';
 import type { AttackProfile } from './profile';
 import { allocShot, finishShot, type Shot } from './shot';
@@ -61,6 +62,7 @@ export class Volley {
   readonly swipeAng = new Float64Array(4);
   lastBeam: Beam | null = null;
   lastShot: Shot | null = null;
+  lastSwipe: Swipe | null = null;
 }
 
 const DEPTH = 3;
@@ -122,6 +124,7 @@ export function fireVolley(
     v.swipes = 0;
     v.lastBeam = null;
     v.lastShot = null;
+    v.lastSwipe = null;
     v.keeper = -1;
     if (src.keeper) {
       for (let i = 0; i < ctx.count; i++) {
@@ -327,6 +330,7 @@ export function flushPending(w: World): void {
         v.nBeams = v.shots = v.swipes = 0;
         v.lastBeam = null;
         v.lastShot = null;
+        v.lastSwipe = null;
         v.keeper = -1;
         CARRIERS[prof.primary].emit!(v, 0);
       } finally {
