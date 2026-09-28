@@ -18,7 +18,7 @@ decision is written up in full in that later section.
 5. [Content (Phase 6)](#part-5--content-phase-6): characters, the content packs, bosses, finals and synergies, and
    their merges.
 6. [Polish (Phases 7-8)](#part-6--polish-phases-7-8): batch 1 (critical bugs), 2 (game feel and performance),
-   3 (mobile UX and saving), 4 (balance).
+   3 (mobile UX and saving), 4 (balance), and the final verification before handoff.
 
 **Looking for a topic?** Most topics were decided once and then revised by a later pass; read the sections in order:
 
@@ -643,3 +643,21 @@ pass, the synergies after it); merged into main after the characters / Phase 5 t
 - **Loot slides off spikes (B4-7):** a grounded pickup on a spike cell slower than `PICKUP_TUNING.spikeShove` (60 px/s) is pushed at that speed toward the nearest spike-free floor (`spikeExitStep`: a 4-way search over floor and spike cells, never through a block or a pit, nearest floor first); pedestals stay. Room-clear rewards already land on plain floor (the nearest `Tile.Floor` to the middle; tested over 100 spike-lane seeds). Spike damage on floors 5-6 fell 1.2 / 1.3 → 0.7 / 0.7 half hearts with the bot already avoiding spikes (4.9 / 6.0 before either fix).
 - **A slash and a crescent (B4-8):** the swipe's band alpha 0.32 → 0.4, the leading edge a thin tapered arc (5 segments over ~1 rad, a white core over the middle 0.55 rad, colour falling off to the tips) with two fading ghost arcs as motion smear — drawn with strokes, no new canvases. The crescent shot is an open C moon (radius ≥ 2.6 px, a bite disc at −0.55 r of radius 0.86 r, a bright '#fffbe8' inner edge, an outline only where the bite doesn't cut, no white-hot centre pixel): distinct from the hostile signature (dark core and halo) and the water shot. e2e/characters-play takes 4× close-ups of a swing and a crescent.
 - **Not done (targets the harness missed, left rather than forced):** the overall win rate is ~77 % (target 50-65 %) and deaths after floor 4 ~4 % (target ≥ 10 %). The bot aims almost perfectly and re-plans its dodge every 0.1 s with a 0.15 s reaction, so late floors that killed it one run in ten would be far harsher for a person; the late floors got more dangerous in every other measure (whole-heart hits, 1.3-2.1 half hearts taken a floor instead of 0.2-0.4, 2-3× longer fights, bosses that show every phase), and a heart-drop cut was tried and moved nothing for the bot. Coins at 99 after floor 12 in 44 % of runs (target < 30 %; after floor 11 16 %): floor 12 has no shop and the final boss spills coins. Keys banked at floor 12 13.6 (target < 12; 10.3 after floor 11) — cutting further would take the floor-1 key for the floor-2 shop below ~75 %. The first win unlocks 24 achievements and 4 characters (target ≤ ~12 / 2): a first win always beats chapter 2's boss (Pip) and Old Thunderhead (Mosswick), and one full winning run meets every in-run milestone; meeting it would need a structural rule (e.g. one new character per run), which is the owner's call. Character spread outside fresh main (20 seeds, ±10): on the alt track Bolt 35 % against Wren's 60 % and Pip / Sable 95 %; with everything unlocked Wren 40 %, Bolt 50 %, Juniper 45 %, Sable 80 % — Sable and Pip stay the easiest for this bot (a perfect dodger loses melee's risk and the burrow's timing), left there rather than cut further on the bot's word.
+
+### Final verification (independent pass before handoff)
+
+- **What was run:** typecheck, the full unit suite, the build and both WebKit e2e projects; a scripted touch playthrough
+  at 852×393 (title → character select → Wren → fights → Keepsake Room item → a bombed Hidey-Hole → Sodden Snarl /
+  Brimwell → reward, Broker's Nook → trapdoor → floor 2 → a key into Magpie's Stall and a purchase → minimap → an active
+  item → the Storm Lance by hold-and-release → background, reload, Continue → settings, export code, collection, bestiary,
+  stats, achievements), screenshots checked by eye. No console errors; nothing broken or ugly in the core loop.
+- **Mosswick's card said "UP TO 3" Tin hearts;** polish batch 4 made the cap 2 (in a fight only). The card now reads
+  "IN A FIGHT … (UP TO 2)", and tests/characters.test.ts checks the number against `MECHANIC_TUNING.soak.cap` and that
+  every character description fits its card (2 lines) and every mechanic line fits (3 lines).
+- **The Mosswick e2e check was flaky:** after the 30 s fight by touch she was sometimes already at the soak cap, so the
+  puddle step waited for a Tin heart that could never come. The test now lands one hit first (Tin goes first) to make room.
+- **Achievement dates are the player's local calendar day** (`localDateKey`), not UTC: an evening in California read as
+  tomorrow. The daily run keeps its UTC key (one day for everyone).
+- **Small hygiene:** `build.chunkSizeWarningLimit` 2048 kB (the single bundle is deliberate: the service worker precaches
+  it), and tests/input.test.ts gives each test a fresh window / document stand-in (a shared one stacked a dozen key
+  listeners and printed node's MaxListenersExceededWarning in every run).

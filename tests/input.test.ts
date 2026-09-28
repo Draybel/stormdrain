@@ -77,6 +77,11 @@ describe('Input', () => {
   const up = (id: number, x: number, y: number) => pointer(canvas, 'pointerup', id, x, y);
 
   beforeEach(() => {
+    // A fresh window / document per test: each Input adds its key and gesture listeners to them (the game makes one
+    // Input; reusing one stand-in here stacked a dozen and set off node's MaxListenersExceededWarning).
+    win = new EventTarget();
+    (globalThis as Record<string, unknown>).window = win;
+    (globalThis as Record<string, unknown>).document = new EventTarget();
     canvas = new FakeCanvas();
     reg = new ButtonRegistry();
     input = new Input(canvas as unknown as HTMLCanvasElement, fakeDisplay, reg);

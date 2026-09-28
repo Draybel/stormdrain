@@ -12,7 +12,7 @@ from the title to all three endings, on an iPhone (home-screen app, landscape, t
   97 room templates, 6 floor curses, 53 achievements, 27 music tracks.
 - **Saving:** meta progress saved as it happens; the run checkpointed at every room entry and room clear (Continue);
   export / import save codes; works offline as a PWA; updates in one tap from the title, never mid-run.
-- **Tests:** 80 unit-test files / 2 829 tests (`npm test`, incl. the synergy stress test and the play-bot over every
+- **Tests:** 80 unit-test files / 2 831 tests (`npm test`, incl. the synergy stress test and the play-bot over every
   floor, track, route, ending and character), 15 WebKit e2e specs on two iPhone 15 profiles (`npm run test:e2e`), the
   opt-in balance harness (`npm run balance`), and CI that tests, builds and deploys to GitHub Pages on every push to
   `main` (.github/workflows/deploy.yml).
@@ -363,3 +363,8 @@ Guide: docs/testing.md (layers, switches, the stress harness, the bot, e2e cover
       passes; Ember Harvest now says it drops a whole Ember heart, damage added where rows left it out, rows in the data
       files' order; DECISIONS.md regrouped into six parts that follow the phases (every entry kept) with a topic index;
       the final summary is the Status section at the top of this file)
+- [x] Final verification before handoff: typecheck, unit tests, build and both WebKit e2e projects green; a scripted
+      touch playthrough at 852×393 from the title through floor 2's shop, the Storm Lance, background → reload → Continue
+      and every menu page, screenshots checked by eye; the owner checklist walked line by line. Fixed: Mosswick's card
+      (Tin cap 2, not 3), a flaky Mosswick e2e step, achievement dates in the player's local day (DECISIONS "Final
+      verification")

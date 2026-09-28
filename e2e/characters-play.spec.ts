@@ -471,6 +471,9 @@ for (const id of IDS) {
           if (e) e.pinned = true;
           window.__SD.sim!.world.player.placeAt(198, 56);
         });
+        // The fight above may already have soaked her up to the cap (2 Tin hearts): a hit (Tin goes first) makes room.
+        await landHit(page);
+        await page.evaluate(() => window.__SD.debug.god(true));
         const tin0 = await page.evaluate(() => window.__SD.run()!.health);
         const aiming = holdAim(page, 1, 0, 6000);
         await page.waitForFunction(

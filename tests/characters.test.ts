@@ -23,6 +23,7 @@ import { spawnPickup } from '../src/sim/pickups';
 import { PK } from '../src/sim/pickupKinds';
 import { Sim } from '../src/sim/sim';
 import { MECHANIC_TUNING } from '../src/sim/tuning';
+import { measureText } from '../src/render/font';
 import type { CharacterDef } from '../src/sim/types';
 import type { World } from '../src/sim/world';
 import { Explorer } from './helpers/explorer';
@@ -101,6 +102,28 @@ describe('the roster', () => {
     expect(shapes.size).toBe(cs.length);
     const shots = new Set(cs.map((c) => c.shotColor ?? 'gold'));
     expect(shots.size).toBe(cs.length);
+  });
+
+  it('the select card shows every description in full, and Mosswick\'s card names her real soak cap', () => {
+    // The details panel wraps the description in 2 lines and the mechanic in 3, 224 px wide (ui/characterSelect.ts).
+    const lines = (text: string): number => {
+      let n = 1;
+      let line = '';
+      for (const word of text.toUpperCase().split(' ')) {
+        const next = line ? `${line} ${word}` : word;
+        if (line && measureText(next) > 224) {
+          n++;
+          line = word;
+        } else line = next;
+      }
+      return n;
+    };
+    for (const c of IDS.map(getCharacter)) {
+      expect(lines(c.desc), c.id).toBeLessThanOrEqual(2);
+      expect(lines(c.mechanicDesc ?? ''), c.id).toBeLessThanOrEqual(3);
+    }
+    const cap = MECHANIC_TUNING.soak.cap / 2;
+    expect(getCharacter('mosswick').mechanicDesc).toContain(`(UP TO ${cap})`);
   });
 
   it('each plays differently: carriers, flags and familiars from the character itself', () => {

@@ -9,7 +9,7 @@ import { allAchievements } from '../content/registry';
 import { ICON_LOCK } from '../content/sprites/menuIcons';
 import { UI } from '../content/sprites/palette';
 import { rewardLines } from '../meta/achievements';
-import { utcDateKey } from '../meta/metaState';
+import { localDateKey } from '../meta/metaState';
 import { drawAchievementIcon } from '../render/achievementIcon';
 import { drawText, measureText, type TextStyle } from '../render/font';
 import { drawPanel } from '../render/pixel';
@@ -56,7 +56,7 @@ export class AchievementsScene extends PageScene {
       const earned = t !== undefined;
       if (earned) this.earned++;
       const r = rewardLines(def);
-      this.rows.push({ def, earned, date: earned && t > 0 ? utcDateKey(t) : '', reward: r.length ? r.join(' · ') : '' });
+      this.rows.push({ def, earned, date: earned && t > 0 ? localDateKey(t) : '', reward: r.length ? r.join(' · ') : '' });
     }
     this.scroll.setContent(this.rows.length * ROW_H + 2, VIEW_H);
   }

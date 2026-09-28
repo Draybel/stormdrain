@@ -513,6 +513,17 @@ export function utcDateKey(ms: number): string {
 }
 
 /**
+ * The player's LOCAL calendar date `YYYY-MM-DD` (what the achievements page prints as "earned on"): an evening in
+ * California must not read as tomorrow. The daily run keeps its UTC key (utcDateKey), one day for everyone.
+ */
+export function localDateKey(ms: number): string {
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
  * The Phase-1 runtime settings shape (`src/meta/settings.ts` `Settings`), without importing it
  * so the two can evolve independently: `settingsStore.update(toRuntimeSettings(meta.settings))`.
  */

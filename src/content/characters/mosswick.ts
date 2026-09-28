@@ -2,7 +2,7 @@
  * Mosswick — a small swamp sprite in a lily-pad hat (DESIGN.md "Characters" 7).
  * Mechanic BOG BLOOD (`mosswick.bogBlood`, sim/mechanics.ts): the puddle modifier is innate (shots leave
  * stinging puddles, and a shorter range lands them close by); standing in those puddles soaks up half a Tin
- * heart every 2.5 s, up to three Tin hearts.
+ * heart every 2.5 s while a fight is on, up to two Tin hearts (MECHANIC_TUNING.soak).
  * Unlock: defeat Old Thunderhead (Ending 1).
  */
 
@@ -29,7 +29,7 @@ export const MOSSWICK: CharacterDef = {
   sprite: MOSSWICK_SPRITE,
   shotColor: '#6fd0b0',
   mechanic: 'mosswick.bogBlood',
-  mechanicDesc: 'BOG BLOOD: SHOTS LEAVE STINGING PUDDLES. STAND IN YOUR OWN PUDDLES TO SOAK UP TIN HEARTS (UP TO 3).',
+  mechanicDesc: 'BOG BLOOD: SHOTS LEAVE STINGING PUDDLES. STAND IN YOUR OWN PUDDLES IN A FIGHT TO SOAK UP TIN HEARTS (UP TO 2).',
   innate: [{ type: 'mod', mod: 'puddle' }],
   order: 6,
   unlock: 'clear-skies',

@@ -13,6 +13,7 @@ import {
   serializeMeta,
   toRuntimeSettings,
   utcDateKey,
+  localDateKey,
   mergeMeta,
   type MetaChange,
 } from '../src/meta/metaState';
@@ -141,6 +142,11 @@ describe('MetaState schema', () => {
   it('utcDateKey uses the UTC calendar date', () => {
     expect(utcDateKey(Date.UTC(2026, 8, 26, 23, 59))).toBe('2026-09-26');
     expect(utcDateKey(Date.UTC(2026, 8, 27, 0, 1))).toBe('2026-09-27');
+  });
+
+  it('localDateKey (achievement dates) uses the local calendar date, zero-padded', () => {
+    expect(localDateKey(new Date(2026, 8, 27, 23, 59).getTime())).toBe('2026-09-27');
+    expect(localDateKey(new Date(2026, 0, 5, 0, 1).getTime())).toBe('2026-01-05');
   });
 });
 

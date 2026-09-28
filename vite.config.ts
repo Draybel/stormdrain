@@ -12,6 +12,9 @@ export default defineConfig({
     outDir: 'dist',
     assetsInlineLimit: 0,
     sourcemap: false,
+    // One bundle on purpose (the service worker precaches it for offline play): ~1.3 MB, ~0.4 MB gzipped. The limit
+    // keeps Vite's 500 kB code-splitting hint out of every build log.
+    chunkSizeWarningLimit: 2048,
   },
   server: { host: true },
   test: {
